@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: 3pl-piloto-backend
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./start.sh
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: SHOPIFY_SYNC_ENABLED
+        value: "true"
+      - key: SHOPIFY_SYNC_INTERVAL_MINUTES
+        value: "5"
+      - key: SHOPIFY_SYNC_MAX_ORDERS
+        value: "5000"
+      - key: SHOPIFY_WEBHOOK_SECRET
+        sync: false
+      - key: SHOPIFY_SSL_VERIFY
+        value: "true"
+      - key: SHOPIFY_SSL_CAFILE
+        sync: false
