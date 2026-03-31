@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { Card } from "@/components/card";
+import { CttLabelCell } from "@/components/ctt-label-cell";
 import { DesignAvailabilityBadge } from "@/components/design-availability-badge";
 import { EmptyState } from "@/components/empty-state";
 import { PriorityBadge } from "@/components/priority-badge";
@@ -881,6 +882,7 @@ export function OrdersWorkbench({
                       <th>Estado</th>
                       <th>Riesgo SLA</th>
                       <th>Tracking</th>
+                      <th>CTT</th>
                       <th>Acción</th>
                     </tr>
                   </thead>
@@ -990,6 +992,9 @@ export function OrdersWorkbench({
                                 <div className="table-secondary">Sin tracking todavía</div>
                               </>
                             )}
+                          </td>
+                          <td>
+                            <CttLabelCell order={order} />
                           </td>
                           <td>
                             <Link className="button-secondary table-action" href={`/orders/${order.id}`}>

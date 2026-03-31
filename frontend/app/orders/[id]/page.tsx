@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { Card } from "@/components/card";
 import { CopyButton } from "@/components/copy-button";
+import { CttShipmentButton } from "@/components/ctt-shipment-button";
 import { DesignStatusBadge } from "@/components/design-status-badge";
 import { EmptyState } from "@/components/empty-state";
 import { OrderActionModals } from "@/components/order-action-modals";
@@ -367,6 +368,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 <Link className="button-secondary order-hero-back" href="/orders">
                   Volver al listado
                 </Link>
+                <CttShipmentButton order={order} />
                 <OrderActionModals orderId={order.id} shipment={order.shipment} />
               </div>
             </div>
