@@ -18,6 +18,7 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
   const [open, setOpen] = useState(false);
   const [cttStatus, setCttStatus] = useState<CttStatus>("idle");
   const [errorMessage, setErrorMessage] = useState("");
+  const [shippingCode, setShippingCode] = useState("");
 
   // Recipient fields — pre-filled from order data
   const [recipientName, setRecipientName] = useState(order.customer_name);
@@ -35,6 +36,7 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
   function resetForm() {
     setCttStatus("idle");
     setErrorMessage("");
+    setShippingCode("");
   }
 
   function closeModal() {
@@ -43,8 +45,12 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
   }
 
   async function handleCreateAndPrint() {
+    // Open window immediately (before any await) to avoid browser popup blocker
+    const labelWindow = window.open("about:blank", "_blank");
+
     setCttStatus("loading-shipping");
     setErrorMessage("");
+    setShippingCode("");
 
     try {
       // Step 1: Create CTT shipping
@@ -66,15 +72,23 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
       });
 
       if (!shippingRes.ok) {
+        labelWindow?.close();
         const err = (await shippingRes.json()) as { detail?: string };
         throw new Error(err.detail ?? "Error al crear el envío en CTT Express");
       }
 
       const { shipping_code } = (await shippingRes.json()) as { shipping_code: string };
+      setShippingCode(shipping_code);
 
-      // Step 2: Create local shipment record if none exists yet
+      // Step 2: Navigate pre-opened window to the label PDF
+      setCttStatus("loading-label");
+      if (labelWindow) {
+        labelWindow.location.href = `/api/ctt/shippings/${shipping_code}/label`;
+      }
+
+      // Step 3: Register local shipment (non-blocking)
       if (!order.shipment) {
-        await fetch("/api/shipments", {
+        fetch("/api/shipments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -82,17 +96,11 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
             carrier: "CTT Express",
             tracking_number: shipping_code,
           }),
-        });
+        }).catch(() => { /* ignore — CTT shipment already created */ });
       }
 
-      // Step 3: Open label PDF in a new tab
-      setCttStatus("loading-label");
-      window.open(`/api/ctt/shippings/${shipping_code}/label`, "_blank");
-
       setCttStatus("success");
-      startTransition(() => {
-        router.refresh();
-      });
+      startTransition(() => { router.refresh(); });
     } catch (err) {
       setCttStatus("error");
       setErrorMessage(err instanceof Error ? err.message : "Error desconocido");
@@ -264,9 +272,19 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
             ) : (
               <div className="stack">
                 <div className="feedback feedback-success">
-                  Envío creado correctamente. La etiqueta se ha abierto en una nueva pestaña.
+                  Envío creado correctamente.{shippingCode ? ` Código CTT: ${shippingCode}` : ""}
                 </div>
                 <div className="modal-footer">
+                  {shippingCode ? (
+                    <a
+                      className="button-secondary"
+                      href={`/api/ctt/shippings/${shippingCode}/label`}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Descargar etiqueta de nuevo
+                    </a>
+                  ) : null}
                   <button className="button-secondary" onClick={closeModal} type="button">
                     Cerrar
                   </button>
