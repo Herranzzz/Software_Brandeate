@@ -251,7 +251,7 @@ export default async function PortalReportingPage({ searchParams }: PortalReport
       date_from: dateFrom,
       date_to: dateTo,
     }),
-    fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId, per_page: 500 } : { per_page: 500 }),
+    fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId, per_page: 500 } : { per_page: 500 }).then(({ orders }) => orders),
     fetchIncidents(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
     fetchShopifyIntegrations(),
   ]);

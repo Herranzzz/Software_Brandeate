@@ -30,7 +30,7 @@ export default async function PortalReturnsPage({ searchParams }: PortalReturnsP
   const tenantScope = resolveTenantScope(shops, params.shop_id);
   const [incidents, orders] = await Promise.all([
     fetchIncidents(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
-    fetchOrders({ per_page: 100, ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}) }),
+    fetchOrders({ per_page: 100, ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}) }).then(({ orders }) => orders),
   ]);
 
   const openCases = incidents.filter((incident) => incident.status === "open");

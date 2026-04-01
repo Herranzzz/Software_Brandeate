@@ -12,7 +12,7 @@ type DashboardPageProps = {
   }>;
 };
 
-function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>) {
+function buildChart(orders: import("@/lib/types").Order[]) {
   const today = new Date();
   const points = Array.from({ length: 7 }).map((_, index) => {
     const date = new Date(today);
@@ -34,7 +34,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const params = await searchParams;
   const [shops, orders, incidents] = await Promise.all([
     fetchShops(),
-    fetchOrders({ shop_id: params.shop_id }),
+    fetchOrders({ shop_id: params.shop_id }).then(({ orders }) => orders),
     fetchIncidents({ shop_id: params.shop_id }),
   ]);
 
@@ -148,7 +148,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
             <div className="admin-orders-list">
               {orders.slice(0, 6).map((order) => (
-                <article className="admin-orders-row" key={order.id}>
+                <Link className="admin-orders-row" href={`/orders/${order.id}`} key={order.id}>
                   <div className="admin-orders-main">
                     <div className="activity-title">{order.external_id}</div>
                     <div className="table-secondary">
@@ -159,7 +159,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     <span className="admin-orders-status">{order.status}</span>
                     <span className="admin-orders-time">{formatDateTime(order.created_at)}</span>
                   </div>
-                </article>
+                </Link>
               ))}
             </div>
           </Card>

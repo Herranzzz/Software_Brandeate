@@ -29,5 +29,10 @@ export async function POST(request: NextRequest) {
     sameSite: "lax",
     path: "/",
   });
+  nextResponse.cookies.set("refresh_token", loginPayload.refresh_token, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+  });
   return nextResponse;
 }

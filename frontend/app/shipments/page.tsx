@@ -366,7 +366,7 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
     fetchOrders({
       shop_id: params.shop_id,
       per_page: perPage,
-    }),
+    }).then(({ orders }) => orders),
     fetchShops(),
     fetchShopifyIntegrations(),
     fetchAnalyticsOverview({

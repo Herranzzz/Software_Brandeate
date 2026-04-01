@@ -280,7 +280,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
   };
 
   const [orders, incidents, analytics, integrations] = await Promise.all([
-    fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
+    fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined).then(({ orders }) => orders),
     fetchIncidents(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
     fetchAnalyticsOverview(filters),
     fetchShopifyIntegrations(),

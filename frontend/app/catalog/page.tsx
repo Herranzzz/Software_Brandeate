@@ -63,7 +63,7 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   const [shops, products, orders] = await Promise.all([
     fetchShops(),
     fetchShopCatalogProducts(params.shop_id),
-    fetchOrders({ shop_id: params.shop_id, per_page: 500 }),
+    fetchOrders({ shop_id: params.shop_id, per_page: 500 }).then(({ orders }) => orders),
   ]);
 
   const filteredProducts = products.filter(

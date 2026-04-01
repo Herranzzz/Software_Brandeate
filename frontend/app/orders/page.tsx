@@ -42,7 +42,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const perPage = Math.min(Math.max(Number(params.per_page ?? "100") || 100, 1), 500);
   const view = params.view === "batches" ? "batches" : "queue";
 
-  const [orders, shops, batches] = await Promise.all([
+  const [{ orders, totalCount }, shops, batches] = await Promise.all([
     fetchOrders({
       shop_id: params.shop_id,
       is_personalized: readBooleanParam(params.is_personalized),
@@ -54,6 +54,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       sku: params.sku,
       variant_title: params.variant_title,
       carrier: params.carrier,
+      q: params.q,
       page,
       per_page: perPage,
     }),
@@ -66,6 +67,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       <OrdersWorkbench
         batches={batches}
         initialOrders={orders}
+        initialTotalCount={totalCount}
         initialPage={page}
         initialPerPage={perPage}
         initialQuery={params.q ?? ""}

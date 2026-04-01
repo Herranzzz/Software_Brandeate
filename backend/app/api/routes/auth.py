@@ -5,11 +5,32 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.core.config import get_settings
 from app.models import Shop, User, UserRole, UserShop
-from app.schemas.auth import LoginRequest, LoginResponse, MeResponse, TenantRegistrationRequest
-from app.services.auth import create_access_token, hash_password, verify_password
+from app.schemas.auth import (
+    LoginRequest,
+    LoginResponse,
+    MeResponse,
+    RefreshRequest,
+    RefreshResponse,
+    TenantRegistrationRequest,
+)
+from app.services.auth import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    hash_password,
+    verify_password,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _login_response(user: User, secret: str) -> LoginResponse:
+    return LoginResponse(
+        access_token=create_access_token(user, secret),
+        refresh_token=create_refresh_token(user, secret),
+        user=user,
+    )
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -17,9 +38,26 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
     user = db.scalar(select(User).where(User.email == payload.email))
     if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    return _login_response(user, get_settings().auth_secret)
 
-    token = create_access_token(user, get_settings().auth_secret)
-    return LoginResponse(access_token=token, user=user)
+
+@router.post("/refresh", response_model=RefreshResponse)
+def refresh_token(payload: RefreshRequest, db: Session = Depends(get_db)) -> RefreshResponse:
+    """Emite un nuevo access token a partir de un refresh token válido."""
+    secret = get_settings().auth_secret
+    try:
+        token_data = decode_refresh_token(payload.refresh_token, secret)
+    except HTTPException:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+
+    user = db.scalar(select(User).where(User.id == token_data["sub"]))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    return RefreshResponse(
+        access_token=create_access_token(user, secret),
+        refresh_token=create_refresh_token(user, secret),
+    )
 
 
 @router.post("/register-tenant", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
@@ -48,8 +86,7 @@ def register_tenant(payload: TenantRegistrationRequest, db: Session = Depends(ge
     db.commit()
     db.refresh(user)
 
-    token = create_access_token(user, get_settings().auth_secret)
-    return LoginResponse(access_token=token, user=user)
+    return _login_response(user, get_settings().auth_secret)
 
 
 @router.get("/me", response_model=MeResponse)

@@ -79,7 +79,7 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
 
   const [shops, orders, incidents, integrations] = await Promise.all([
     fetchShops(),
-    fetchOrders({ per_page: 500 }),
+    fetchOrders({ per_page: 500 }).then(({ orders }) => orders),
     fetchIncidents(),
     fetchShopifyIntegrations(),
   ]);
