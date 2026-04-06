@@ -41,7 +41,7 @@ from app.services.orders import infer_design_status, infer_order_is_personalized
 SHOPIFY_PROVIDER = "shopify"
 SHOPIFY_API_VERSION = "2026-01"
 logger = logging.getLogger(__name__)
-SHOPIFY_RECENT_ORDERS_PAGE_SIZE = 25
+SHOPIFY_RECENT_ORDERS_PAGE_SIZE = 10
 
 
 def _truncate_sync_error(message: str | None, max_length: int = 900) -> str | None:
@@ -120,7 +120,7 @@ query RecentOrders($first: Int!, $query: String, $after: String) {
             url
           }
         }
-        fulfillmentOrders(first: 10) {
+        fulfillmentOrders(first: 5) {
           nodes {
             id
             status
@@ -131,18 +131,18 @@ query RecentOrders($first: Int!, $query: String, $after: String) {
                 name
               }
             }
-            fulfillments(first: 10) {
+            fulfillments(first: 5) {
               nodes {
                 id
                 status
-                trackingInfo(first: 10) {
+                trackingInfo(first: 5) {
                   company
                   number
                   url
                 }
               }
             }
-            lineItems(first: 20) {
+            lineItems(first: 10) {
               nodes {
                 lineItem {
                   id
@@ -245,7 +245,7 @@ query OrderLinkBackfill($first: Int!, $query: String!) {
             url
           }
         }
-        fulfillmentOrders(first: 10) {
+        fulfillmentOrders(first: 5) {
           nodes {
             id
             status
@@ -256,18 +256,18 @@ query OrderLinkBackfill($first: Int!, $query: String!) {
                 name
               }
             }
-            fulfillments(first: 10) {
+            fulfillments(first: 5) {
               nodes {
                 id
                 status
-                trackingInfo(first: 10) {
+                trackingInfo(first: 5) {
                   company
                   number
                   url
                 }
               }
             }
-            lineItems(first: 20) {
+            lineItems(first: 10) {
               nodes {
                 lineItem {
                   id
