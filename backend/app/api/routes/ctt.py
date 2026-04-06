@@ -1,13 +1,16 @@
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_db, require_admin_user
-from app.core.config import get_settings
-from app.models import Order, User
+from app.models import Order, Shipment, User
 from app.schemas.ctt import CTTCreateShippingRequest, CTTCreateShippingResponse
-from app.services.ctt import CTTError, create_shipping, get_label
+from app.services.ctt import CTTError, get_label
+from app.services.ctt_shipments import (
+    CTTShipmentDuplicateError,
+    CTTShipmentOrchestrationError,
+    create_ctt_shipment_for_order,
+)
 
 
 router = APIRouter(prefix="/ctt", tags=["ctt"])
@@ -23,87 +26,59 @@ def create_ctt_shipping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user),
 ) -> CTTCreateShippingResponse:
-    order = db.get(Order, payload.order_id)
+    order = db.scalar(
+        select(Order)
+        .options(selectinload(Order.shipment).selectinload(Shipment.events))
+        .where(Order.id == payload.order_id)
+    )
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
-    settings = get_settings()
-    if not settings.ctt_client_center_code:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="CTT Express no está configurado (CTT_CLIENT_CENTER_CODE ausente)",
-        )
-
-    shipping_date = payload.shipping_date or date.today().isoformat()
-    shipping_type_code = payload.shipping_type_code or settings.ctt_default_shipping_type_code
-
-    # CTT auto-generates the shipping_code when client_bar_code is empty
-    items: list[dict]
-    if payload.items:
-        items = [
-            {
-                "item_synonym_code": "",
-                "item_weight_declared": item.item_weight_declared,
-                **({"item_length_declared": item.item_length_declared} if item.item_length_declared else {}),
-                **({"item_width_declared": item.item_width_declared} if item.item_width_declared else {}),
-                **({"item_height_declared": item.item_height_declared} if item.item_height_declared else {}),
-            }
-            for item in payload.items
-        ]
-    else:
-        items = [{"item_synonym_code": "", "item_weight_declared": payload.shipping_weight_declared}]
-
-    shipping_data: dict = {
-        "client_bar_code": "",
-        "client_center_code": settings.ctt_client_center_code,
-        "shipping_type_code": shipping_type_code,
-        "client_references": [order.external_id],
-        "shipping_weight_declared": payload.shipping_weight_declared,
-        "item_count": payload.item_count,
-        "sender_name": settings.ctt_sender_name,
-        "sender_country_code": settings.ctt_sender_country_code,
-        "sender_postal_code": settings.ctt_sender_postal_code,
-        "sender_address": settings.ctt_sender_address,
-        "sender_town": settings.ctt_sender_town,
-        "recipient_name": payload.recipient_name,
-        "recipient_country_code": payload.recipient_country_code,
-        "recipient_postal_code": payload.recipient_postal_code,
-        "recipient_address": payload.recipient_address,
-        "recipient_town": payload.recipient_town,
-        "recipient_phones": payload.recipient_phones,
-        "shipping_date": shipping_date,
-        "items": items,
-    }
-    if payload.recipient_email:
-        shipping_data["recipient_email_notify_address"] = payload.recipient_email
-
     try:
-        ctt_response = create_shipping(shipping_data)
-    except CTTError as exc:
+        result = create_ctt_shipment_for_order(db=db, order=order, payload=payload)
+        db.commit()
+        db.refresh(result.shipment)
+    except CTTShipmentDuplicateError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except CTTShipmentOrchestrationError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    # CTT returns the generated shipping_code nested under shipping_data
-    result_code = (
-        (ctt_response.get("shipping_data") or {}).get("shipping_code")
-        or ctt_response.get("shipping_code")
-        or ""
+    return CTTCreateShippingResponse(
+        shipping_code=result.shipping_code,
+        tracking_url=result.tracking_url,
+        shopify_sync_status=result.shopify_sync_status,
+        shipment=result.shipment,
+        ctt_response=result.ctt_response,
     )
-    return CTTCreateShippingResponse(shipping_code=result_code, ctt_response=ctt_response)
 
 
 @router.get("/shippings/{tracking_code}/label")
 def get_ctt_label(
     tracking_code: str,
     label_type: str = "PDF",
+    model_type: str = "SINGLE",
     current_user: User = Depends(require_admin_user),
 ) -> Response:
     try:
-        pdf_bytes = get_label(tracking_code, label_type)
+        file_bytes = get_label(tracking_code, label_type, model_type)
     except CTTError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
+    normalized_type = (label_type or "PDF").upper()
+    media_type = "application/pdf"
+    extension = "pdf"
+
+    if normalized_type == "ZPL":
+        media_type = "text/plain; charset=utf-8"
+        extension = "zpl"
+    elif normalized_type == "EPL":
+        media_type = "text/plain; charset=utf-8"
+        extension = "epl"
+
     return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="label-{tracking_code}.pdf"'},
+        content=file_bytes,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="label-{tracking_code}.{extension}"'},
     )

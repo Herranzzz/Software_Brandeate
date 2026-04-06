@@ -22,42 +22,50 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
 
 
 export async function fetchCurrentUser(): Promise<User | null> {
-  const headers = await getAuthHeaders();
-  if (!("Authorization" in headers)) {
+  try {
+    const headers = await getAuthHeaders();
+    if (!("Authorization" in headers)) {
+      return null;
+    }
+
+    const response = await fetch(apiUrl("/auth/me"), {
+      headers,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as { user?: User } | null;
+    return payload?.user ?? null;
+  } catch {
     return null;
   }
-
-  const response = await fetch(apiUrl("/auth/me"), {
-    headers,
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const payload = (await response.json()) as { user: User };
-  return payload.user;
 }
 
 
 export async function fetchMyShops(): Promise<Shop[]> {
-  const headers = await getAuthHeaders();
-  if (!("Authorization" in headers)) {
+  try {
+    const headers = await getAuthHeaders();
+    if (!("Authorization" in headers)) {
+      return [];
+    }
+
+    const response = await fetch(apiUrl("/users/me/shops"), {
+      headers,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = (await response.json()) as { shops?: Shop[] } | null;
+    return Array.isArray(payload?.shops) ? payload.shops : [];
+  } catch {
     return [];
   }
-
-  const response = await fetch(apiUrl("/users/me/shops"), {
-    headers,
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    return [];
-  }
-
-  const payload = (await response.json()) as { shops: Shop[] };
-  return payload.shops;
 }
 
 

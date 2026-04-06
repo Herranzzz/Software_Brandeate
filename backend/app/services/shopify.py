@@ -4,6 +4,7 @@ import json
 import logging
 import ssl
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import urlencode
@@ -33,12 +34,14 @@ from app.models import (
 )
 from app.core.config import get_settings
 from app.db.session import SessionLocal
+from app.services.automation_rules import evaluate_order_automation_rules
 from app.services.orders import infer_design_status, infer_order_is_personalized, sync_order_status_from_tracking
 
 
 SHOPIFY_PROVIDER = "shopify"
 SHOPIFY_API_VERSION = "2026-01"
 logger = logging.getLogger(__name__)
+SHOPIFY_RECENT_ORDERS_PAGE_SIZE = 25
 
 
 def _truncate_sync_error(message: str | None, max_length: int = 900) -> str | None:
@@ -77,6 +80,32 @@ query RecentOrders($first: Int!, $query: String, $after: String) {
           lastName
           email
           phone
+        }
+        shippingAddress {
+          firstName
+          lastName
+          name
+          company
+          phone
+          country
+          countryCodeV2
+          zip
+          address1
+          address2
+          city
+          province
+          provinceCode
+        }
+        shippingLines(first: 10) {
+          nodes {
+            title
+            originalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+          }
         }
         fulfillments(first: 10) {
           id
@@ -176,6 +205,32 @@ query OrderLinkBackfill($first: Int!, $query: String!) {
           lastName
           email
           phone
+        }
+        shippingAddress {
+          firstName
+          lastName
+          name
+          company
+          phone
+          country
+          countryCodeV2
+          zip
+          address1
+          address2
+          city
+          province
+          provinceCode
+        }
+        shippingLines(first: 10) {
+          nodes {
+            title
+            originalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+          }
         }
         fulfillments(first: 10) {
           id
@@ -326,6 +381,46 @@ query ProductCatalog($first: Int!, $query: String, $after: String) {
 }
 """
 
+FULFILLMENT_CREATE_MUTATION = """
+mutation FulfillmentCreate($fulfillment: FulfillmentInput!, $message: String) {
+  fulfillmentCreate(fulfillment: $fulfillment, message: $message) {
+    fulfillment {
+      id
+      status
+      trackingInfo(first: 10) {
+        company
+        number
+        url
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""
+
+FULFILLMENT_TRACKING_UPDATE_MUTATION = """
+mutation FulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInput!, $notifyCustomer: Boolean) {
+  fulfillmentTrackingInfoUpdate(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput, notifyCustomer: $notifyCustomer) {
+    fulfillment {
+      id
+      status
+      trackingInfo(first: 10) {
+        company
+        number
+        url
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""
+
 
 TRACKING_STATUS_MAP = {
     "LABEL_PURCHASED": "label_created",
@@ -395,6 +490,22 @@ class ShopifyOrder:
     customer_last_name: str | None
     customer_email: str | None
     customer_phone: str | None
+    shipping_first_name: str | None
+    shipping_last_name: str | None
+    shipping_name: str | None
+    shipping_company: str | None
+    shipping_phone: str | None
+    shipping_country: str | None
+    shipping_country_code: str | None
+    shipping_postal_code: str | None
+    shipping_address_line1: str | None
+    shipping_address_line2: str | None
+    shipping_town: str | None
+    shipping_province: str | None
+    shipping_province_code: str | None
+    shipping_rate_name: str | None
+    shipping_rate_amount: float | None
+    shipping_rate_currency: str | None
     custom_attributes: dict[str, str]
     fulfillment_orders: list[dict]
     tracking_company: str | None
@@ -493,6 +604,10 @@ class ShopifyIntegrationNotFoundError(ShopifyServiceError):
     pass
 
 
+class ShopifyFulfillmentSyncError(ShopifyServiceError):
+    pass
+
+
 _sync_lock = threading.Lock()
 _running_shop_syncs: set[int] = set()
 
@@ -540,6 +655,33 @@ def map_shopify_tracking_status(shopify_order: ShopifyOrder) -> str | None:
     return None
 
 
+def build_shopify_shipping_snapshot(shopify_order: ShopifyOrder) -> dict[str, str | None]:
+    first_name = shopify_order.shipping_first_name or shopify_order.customer_first_name
+    last_name = shopify_order.shipping_last_name or shopify_order.customer_last_name
+    full_name = shopify_order.shipping_name or build_customer_name(
+        first_name,
+        last_name,
+        shopify_order.customer_email,
+    )
+
+    return {
+        "first_name": _clean_text(first_name),
+        "last_name": _clean_text(last_name),
+        "name": _clean_text(full_name),
+        "company": _clean_text(shopify_order.shipping_company),
+        "address1": _clean_text(shopify_order.shipping_address_line1),
+        "address2": _clean_text(shopify_order.shipping_address_line2),
+        "city": _clean_text(shopify_order.shipping_town),
+        "province": _clean_text(shopify_order.shipping_province),
+        "province_code": _clean_text(shopify_order.shipping_province_code),
+        "zip": _clean_text(shopify_order.shipping_postal_code),
+        "country": _clean_text(shopify_order.shipping_country),
+        "country_code": _clean_text(shopify_order.shipping_country_code),
+        "phone": _clean_text(shopify_order.shipping_phone or shopify_order.customer_phone),
+        "email": shopify_customer_email(shopify_order.customer_email),
+    }
+
+
 def fetch_recent_orders(
     shop_domain: str,
     access_token: str,
@@ -552,7 +694,11 @@ def fetch_recent_orders(
     after: str | None = None
 
     while len(orders) < max_orders:
-        batch_size = min(250, max_orders - len(orders))
+        # This query is intentionally rich because we use it to hydrate
+        # customer, customization and fulfillment state in one pass.
+        # Shopify's GraphQL cost limit is 1000 per request, so keep the
+        # page size conservative to avoid sync failures on real stores.
+        batch_size = min(SHOPIFY_RECENT_ORDERS_PAGE_SIZE, max_orders - len(orders))
         parsed = _run_shopify_graphql(
             shop_domain=shop_domain,
             access_token=access_token,
@@ -729,24 +875,49 @@ def _run_shopify_graphql(
         },
     )
 
-    try:
-        if settings.shopify_ssl_verify:
-            cafile = settings.shopify_ssl_cafile or certifi.where()
-            ssl_context = ssl.create_default_context(cafile=cafile)
-        else:
-            ssl_context = ssl._create_unverified_context()
+    if settings.shopify_ssl_verify:
+        cafile = settings.shopify_ssl_cafile or certifi.where()
+        ssl_context = ssl.create_default_context(cafile=cafile)
+    else:
+        ssl_context = ssl._create_unverified_context()
 
-        with request.urlopen(graphql_request, timeout=20, context=ssl_context) as response:
-            response_body = response.read().decode("utf-8")
-    except error.HTTPError as exc:
-        message = exc.read().decode("utf-8", errors="ignore")
-        if exc.code in {401, 403}:
-            raise ShopifyCredentialsError("Invalid Shopify credentials") from exc
-        raise ShopifyServiceError(f"Shopify request failed: {message or exc.reason}") from exc
-    except error.URLError as exc:
-        raise ShopifyServiceError(f"Could not connect to Shopify: {exc.reason}") from exc
-    except ssl.SSLError as exc:
-        raise ShopifyServiceError(f"Could not establish a trusted TLS connection to Shopify: {exc}") from exc
+    last_exception: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            with request.urlopen(graphql_request, timeout=20, context=ssl_context) as response:
+                response_body = response.read().decode("utf-8")
+            break
+        except error.HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="ignore")
+            if exc.code in {401, 403}:
+                raise ShopifyCredentialsError("Invalid Shopify credentials") from exc
+            raise ShopifyServiceError(f"Shopify request failed: {message or exc.reason}") from exc
+        except error.URLError as exc:
+            last_exception = exc
+            if attempt == 3:
+                raise ShopifyServiceError(f"Could not connect to Shopify: {exc.reason}") from exc
+            logger.warning(
+                "Retrying Shopify GraphQL request after network error attempt=%s shop_domain=%s reason=%s",
+                attempt,
+                shop_domain,
+                exc.reason,
+            )
+            time.sleep(0.6 * attempt)
+        except ssl.SSLError as exc:
+            last_exception = exc
+            if attempt == 3:
+                raise ShopifyServiceError(
+                    f"Could not establish a trusted TLS connection to Shopify: {exc}"
+                ) from exc
+            logger.warning(
+                "Retrying Shopify GraphQL request after TLS error attempt=%s shop_domain=%s error=%s",
+                attempt,
+                shop_domain,
+                exc,
+            )
+            time.sleep(0.6 * attempt)
+    else:
+        raise ShopifyServiceError(f"Could not connect to Shopify: {last_exception}")
 
     parsed = json.loads(response_body)
     graphql_errors = parsed.get("errors") or []
@@ -828,12 +999,212 @@ def _request_shopify_client_credentials_token(
     return access_token
 
 
+def push_tracking_to_shopify(
+    *,
+    db: Session,
+    order: Order,
+    tracking_number: str,
+    tracking_url: str | None,
+    carrier: str,
+    notify_customer: bool = False,
+) -> tuple[str | None, str | None]:
+    integration = db.scalar(
+        select(ShopIntegration).where(
+            ShopIntegration.shop_id == order.shop_id,
+            ShopIntegration.provider == SHOPIFY_PROVIDER,
+            ShopIntegration.is_active.is_(True),
+        )
+    )
+    if integration is None:
+        raise ShopifyIntegrationNotFoundError("Active Shopify integration not found")
+
+    access_token = resolve_shopify_access_token(db, integration)
+    logger.info(
+        "Shopify tracking push start order_id=%s external_id=%s tracking=%s carrier=%s fulfillment_id=%s",
+        order.id,
+        order.external_id,
+        tracking_number,
+        carrier,
+        order.shipment.fulfillment_id if order.shipment else None,
+    )
+
+    if order.shipment and order.shipment.fulfillment_id:
+        payload = _run_shopify_graphql(
+            shop_domain=integration.shop_domain,
+            access_token=access_token,
+            query=FULFILLMENT_TRACKING_UPDATE_MUTATION,
+            variables={
+                "fulfillmentId": order.shipment.fulfillment_id,
+                "trackingInfoInput": {
+                    "company": carrier,
+                    "number": tracking_number,
+                    **({"url": tracking_url} if tracking_url else {}),
+                },
+                "notifyCustomer": notify_customer,
+            },
+        )
+        container = payload.get("data", {}).get("fulfillmentTrackingInfoUpdate", {}) or {}
+        _raise_on_shopify_user_errors(container.get("userErrors") or [])
+        fulfillment = container.get("fulfillment") or {}
+        tracking_info = _extract_tracking_info_nodes(fulfillment.get("trackingInfo"))
+        resolved_url = _clean_text((tracking_info[0] or {}).get("url")) if tracking_info else tracking_url
+        logger.info(
+            "Shopify tracking updated order_id=%s fulfillment_id=%s resolved_tracking_url=%s",
+            order.id,
+            _clean_text(fulfillment.get("id")) or order.shipment.fulfillment_id,
+            resolved_url,
+        )
+        return _clean_text(fulfillment.get("id")) or order.shipment.fulfillment_id, resolved_url
+
+    fulfillment_order_ids = _extract_open_fulfillment_order_ids(order.fulfillment_orders_json)
+    if not fulfillment_order_ids:
+        raise ShopifyFulfillmentSyncError("Shopify order has no open fulfillment orders available")
+
+    payload = _run_shopify_graphql(
+        shop_domain=integration.shop_domain,
+        access_token=access_token,
+        query=FULFILLMENT_CREATE_MUTATION,
+        variables={
+            "fulfillment": {
+                "notifyCustomer": notify_customer,
+                "trackingInfo": {
+                    "company": carrier,
+                    "number": tracking_number,
+                    **({"url": tracking_url} if tracking_url else {}),
+                },
+                "lineItemsByFulfillmentOrder": [
+                    {"fulfillmentOrderId": fulfillment_order_id}
+                    for fulfillment_order_id in fulfillment_order_ids
+                ],
+            },
+            "message": "Shipment created from 3PL operations hub",
+        },
+    )
+    container = payload.get("data", {}).get("fulfillmentCreate", {}) or {}
+    _raise_on_shopify_user_errors(container.get("userErrors") or [])
+    fulfillment = container.get("fulfillment") or {}
+    tracking_info = _extract_tracking_info_nodes(fulfillment.get("trackingInfo"))
+    resolved_url = _clean_text((tracking_info[0] or {}).get("url")) if tracking_info else tracking_url
+    logger.info(
+        "Shopify fulfillment created order_id=%s fulfillment_id=%s resolved_tracking_url=%s",
+        order.id,
+        _clean_text(fulfillment.get("id")),
+        resolved_url,
+    )
+    return _clean_text(fulfillment.get("id")), resolved_url
+
+
+def sync_shipment_tracking_to_shopify(
+    *,
+    db: Session,
+    order: Order,
+    shipment: Shipment,
+    notify_customer: bool = False,
+    force: bool = False,
+) -> str:
+    now = datetime.now(timezone.utc)
+    shipment.shopify_last_sync_attempt_at = now
+
+    tracking_number = (shipment.tracking_number or "").strip()
+    tracking_url = (shipment.tracking_url or "").strip() or None
+    carrier = (shipment.carrier or "").strip()
+
+    if not tracking_number or not carrier:
+        shipment.shopify_sync_status = "skipped"
+        shipment.shopify_sync_error = "Missing carrier or tracking number for Shopify sync"
+        return shipment.shopify_sync_status
+
+    if (
+        not force
+        and
+        (shipment.shopify_sync_status or "").strip() == "synced"
+        and (shipment.fulfillment_id or "").strip()
+        and shipment.shopify_synced_at is not None
+    ):
+        shipment.shopify_sync_error = None
+        return "synced"
+
+    try:
+        fulfillment_id, resolved_tracking_url = push_tracking_to_shopify(
+            db=db,
+            order=order,
+            tracking_number=tracking_number,
+            tracking_url=tracking_url,
+            carrier=carrier,
+            notify_customer=notify_customer,
+        )
+    except ShopifyIntegrationNotFoundError as exc:
+        shipment.shopify_sync_status = "not_configured"
+        shipment.shopify_sync_error = _truncate_sync_error(str(exc))
+        logger.warning("Shopify sync skipped for order_id=%s shipment_id=%s: %s", order.id, shipment.id, exc)
+        return shipment.shopify_sync_status
+    except ShopifyFulfillmentSyncError as exc:
+        shipment.shopify_sync_status = "failed"
+        shipment.shopify_sync_error = _truncate_sync_error(str(exc))
+        logger.warning("Shopify sync failed for order_id=%s shipment_id=%s: %s", order.id, shipment.id, exc)
+        return shipment.shopify_sync_status
+
+    if fulfillment_id:
+        shipment.fulfillment_id = fulfillment_id
+    if resolved_tracking_url:
+        shipment.tracking_url = resolved_tracking_url
+
+    shipment.shopify_sync_status = "synced"
+    shipment.shopify_sync_error = None
+    shipment.shopify_synced_at = now
+    order.shopify_fulfillment_status = "FULFILLED"
+    logger.info(
+        "Shopify sync completed order_id=%s shipment_id=%s fulfillment_id=%s tracking=%s",
+        order.id,
+        shipment.id,
+        shipment.fulfillment_id,
+        shipment.tracking_number,
+    )
+    return shipment.shopify_sync_status
+
+
+def _extract_open_fulfillment_order_ids(snapshot: object) -> list[str]:
+    if not isinstance(snapshot, list):
+        return []
+
+    blocked_statuses = {"CANCELLED", "CLOSED", "INCOMPLETE"}
+    fulfillment_order_ids: list[str] = []
+    for row in snapshot:
+        if not isinstance(row, dict):
+            continue
+        fulfillment_order_id = _clean_text(row.get("id"))
+        status = _clean_text(row.get("status"))
+        if not fulfillment_order_id:
+            continue
+        if status and status.upper() in blocked_statuses:
+            continue
+        fulfillment_order_ids.append(fulfillment_order_id)
+    return fulfillment_order_ids
+
+
+def _extract_tracking_info_nodes(payload: object) -> list[dict]:
+    if isinstance(payload, dict):
+        return [node for node in (payload.get("nodes") or []) if isinstance(node, dict)]
+    if isinstance(payload, list):
+        return [node for node in payload if isinstance(node, dict)]
+    return []
+
+
+def _raise_on_shopify_user_errors(user_errors: list[dict]) -> None:
+    meaningful_errors = [error for error in user_errors if isinstance(error, dict) and _clean_text(error.get("message"))]
+    if not meaningful_errors:
+        return
+    message = "; ".join(_clean_text(error.get("message")) or "Unknown Shopify user error" for error in meaningful_errors)
+    raise ShopifyFulfillmentSyncError(message)
+
+
 def import_shopify_orders(
     db: Session,
     integration: ShopIntegration,
     create_missing_orders: bool = True,
     updated_since: datetime | None = None,
     access_token: str | None = None,
+    source: str = "shopify_sync",
 ) -> ShopifyImportResult:
     recent_orders = fetch_recent_orders(
         shop_domain=integration.shop_domain,
@@ -899,6 +1270,18 @@ def import_shopify_orders(
             existing_order.status = mapped_status
             existing_order.customer_name = customer_name
             existing_order.customer_email = customer_email
+            existing_order.shipping_name = shopify_order.shipping_name or customer_name
+            existing_order.shipping_phone = shopify_order.shipping_phone or shopify_order.customer_phone
+            existing_order.shipping_country_code = shopify_order.shipping_country_code
+            existing_order.shipping_postal_code = shopify_order.shipping_postal_code
+            existing_order.shipping_address_line1 = shopify_order.shipping_address_line1
+            existing_order.shipping_address_line2 = shopify_order.shipping_address_line2
+            existing_order.shipping_town = shopify_order.shipping_town
+            existing_order.shipping_province_code = shopify_order.shipping_province_code
+            existing_order.shopify_shipping_snapshot_json = build_shopify_shipping_snapshot(shopify_order)
+            existing_order.shopify_shipping_rate_name = shopify_order.shipping_rate_name
+            existing_order.shopify_shipping_rate_amount = shopify_order.shipping_rate_amount
+            existing_order.shopify_shipping_rate_currency = shopify_order.shipping_rate_currency
             existing_order.note = shopify_order.note
             existing_order.tags_json = shopify_order.tags or None
             existing_order.channel = shopify_order.source_name
@@ -914,8 +1297,16 @@ def import_shopify_orders(
             if shipment_sync.shipment_updated:
                 result.shipments_updated_count += 1
             result.tracking_events_created_count += shipment_sync.tracking_events_created_count
-            result.incidents_created_count += apply_automatic_incident_rules(existing_order)
+            incidents_before = len(existing_order.incidents)
+            evaluate_order_automation_rules(db=db, order=existing_order, source=source)
+            result.incidents_created_count += max(len(existing_order.incidents) - incidents_before, 0)
             result.updated_count += 1
+            logger.info(
+                "Shopify order mapped order_id=%s external_id=%s shipping_snapshot=%s",
+                existing_order.id,
+                existing_order.external_id,
+                existing_order.shopify_shipping_snapshot_json,
+            )
             continue
 
         if not create_missing_orders:
@@ -932,6 +1323,18 @@ def import_shopify_orders(
             "production_status": ProductionStatus.pending_personalization,
             "customer_name": customer_name,
             "customer_email": customer_email,
+            "shipping_name": shopify_order.shipping_name or customer_name,
+            "shipping_phone": shopify_order.shipping_phone or shopify_order.customer_phone,
+            "shipping_country_code": shopify_order.shipping_country_code,
+            "shipping_postal_code": shopify_order.shipping_postal_code,
+            "shipping_address_line1": shopify_order.shipping_address_line1,
+            "shipping_address_line2": shopify_order.shipping_address_line2,
+            "shipping_town": shopify_order.shipping_town,
+            "shipping_province_code": shopify_order.shipping_province_code,
+            "shopify_shipping_snapshot_json": build_shopify_shipping_snapshot(shopify_order),
+            "shopify_shipping_rate_name": shopify_order.shipping_rate_name,
+            "shopify_shipping_rate_amount": shopify_order.shipping_rate_amount,
+            "shopify_shipping_rate_currency": shopify_order.shipping_rate_currency,
             "note": shopify_order.note,
             "tags_json": shopify_order.tags or None,
             "channel": shopify_order.source_name,
@@ -958,6 +1361,11 @@ def import_shopify_orders(
             ) or imported_item.variant_title
         order_data["is_personalized"] = infer_order_is_personalized(imported_items)
         order = Order(**order_data)
+        logger.info(
+            "Shopify order imported external_id=%s shipping_snapshot=%s",
+            external_id,
+            order_data["shopify_shipping_snapshot_json"],
+        )
         order.items = imported_items
 
         shipment_sync = sync_tracking_from_shopify(order, shopify_order)
@@ -966,7 +1374,9 @@ def import_shopify_orders(
         if shipment_sync.shipment_updated:
             result.shipments_updated_count += 1
         result.tracking_events_created_count += shipment_sync.tracking_events_created_count
-        result.incidents_created_count += apply_automatic_incident_rules(order)
+        incidents_before = len(order.incidents)
+        evaluate_order_automation_rules(db=db, order=order, source=source)
+        result.incidents_created_count += max(len(order.incidents) - incidents_before, 0)
 
         db.add(order)
         result.imported_count += 1
@@ -1450,6 +1860,8 @@ def maybe_create_imported_shipment(order: Order, shopify_order: ShopifyOrder) ->
         tracking_url=tracking_url or None,
         shipping_status=tracking_status,
         shipping_status_detail=tracking_status_detail,
+        shopify_sync_status="synced",
+        shopify_synced_at=datetime.now(timezone.utc),
     )
     logger.info("Shopify order %s shipment created", shopify_public_order_id(shopify_order))
     return True
@@ -1481,6 +1893,7 @@ def sync_tracking_from_shopify(order: Order, shopify_order: ShopifyOrder) -> Shi
             TrackingEvent(
                 status_norm=status_norm,
                 status_raw=status_raw,
+                source="shopify",
                 occurred_at=occurred_at,
             )
         )
@@ -1505,6 +1918,12 @@ def _complete_existing_shipment(shipment: Shipment, shopify_order: ShopifyOrder)
 
     if primary_fulfillment and shipment.fulfillment_id != primary_fulfillment.id:
         shipment.fulfillment_id = primary_fulfillment.id
+        updated = True
+
+    if shipment.shopify_sync_status != "synced":
+        shipment.shopify_sync_status = "synced"
+        shipment.shopify_sync_error = None
+        shipment.shopify_synced_at = datetime.now(timezone.utc)
         updated = True
 
     if not shipment.carrier.strip() and carrier:
@@ -1625,6 +2044,8 @@ def _normalize_order_public_name(value: str | None) -> str:
 
 def _map_order(node: dict) -> ShopifyOrder:
     customer = node.get("customer") or {}
+    shipping_address = node.get("shippingAddress") or {}
+    shipping_lines = ((node.get("shippingLines") or {}).get("nodes") or [])
     raw_fulfillments = node.get("fulfillments", [])
     fulfillment_nodes = raw_fulfillments.get("nodes", []) if isinstance(raw_fulfillments, dict) else (raw_fulfillments or [])
     raw_fulfillment_orders = node.get("fulfillmentOrders", {})
@@ -1635,6 +2056,8 @@ def _map_order(node: dict) -> ShopifyOrder:
     fulfillments = [_map_fulfillment(fulfillment_node) for fulfillment_node in fulfillment_nodes]
     tracking_info = _first_tracking_info(fulfillments)
     latest_tracking_event = _latest_tracking_event(fulfillments)
+    primary_shipping_line = shipping_lines[0] if shipping_lines else {}
+    primary_shop_money = (((primary_shipping_line.get("originalPriceSet") or {}).get("shopMoney")) or {})
 
     return ShopifyOrder(
         id=str(node.get("id", "")),
@@ -1651,6 +2074,22 @@ def _map_order(node: dict) -> ShopifyOrder:
         customer_last_name=customer.get("lastName"),
         customer_email=customer.get("email"),
         customer_phone=_clean_text(customer.get("phone")),
+        shipping_first_name=_clean_text(shipping_address.get("firstName")),
+        shipping_last_name=_clean_text(shipping_address.get("lastName")),
+        shipping_name=_clean_text(shipping_address.get("name")),
+        shipping_company=_clean_text(shipping_address.get("company")),
+        shipping_phone=_clean_text(shipping_address.get("phone")),
+        shipping_country=_clean_text(shipping_address.get("country")),
+        shipping_country_code=_clean_text(shipping_address.get("countryCodeV2")),
+        shipping_postal_code=_clean_text(shipping_address.get("zip")),
+        shipping_address_line1=_clean_text(shipping_address.get("address1")),
+        shipping_address_line2=_clean_text(shipping_address.get("address2")),
+        shipping_town=_clean_text(shipping_address.get("city")),
+        shipping_province=_clean_text(shipping_address.get("province")),
+        shipping_province_code=_clean_text(shipping_address.get("provinceCode")),
+        shipping_rate_name=_clean_text(primary_shipping_line.get("title")),
+        shipping_rate_amount=_safe_float(primary_shop_money.get("amount")),
+        shipping_rate_currency=_clean_text(primary_shop_money.get("currencyCode")),
         custom_attributes=order_custom_attributes,
         fulfillment_orders=[_map_fulfillment_order_snapshot(node) for node in fulfillment_order_nodes],
         tracking_company=tracking_info.get("company"),
@@ -1867,6 +2306,15 @@ def _clean_text(value: object | None) -> str | None:
     return text or None
 
 
+def _safe_float(value: object | None) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _normalize_attribute_key(value: str) -> str:
     return value.strip().lower().replace("-", "_").replace(" ", "_")
 
@@ -1875,6 +2323,19 @@ def _find_attribute_value(attributes: dict[str, str], candidate_keys: set[str]) 
     for key, value in attributes.items():
         if _normalize_attribute_key(key) in candidate_keys and value.strip():
             return value.strip()
+    return None
+
+
+def _find_attribute_value_in_order(attributes: dict[str, str], candidate_keys: tuple[str, ...]) -> str | None:
+    normalized_attributes = {
+        _normalize_attribute_key(key): value.strip()
+        for key, value in attributes.items()
+        if value.strip()
+    }
+    for key in candidate_keys:
+        candidate = normalized_attributes.get(key)
+        if candidate:
+            return candidate
     return None
 
 
@@ -1898,7 +2359,7 @@ def _extract_design_link(
     line_item_attributes: dict[str, str],
     order_attributes: dict[str, str],
 ) -> str | None:
-    keys = {
+    ordered_keys = (
         "_tib_design_link_1",
         "_tib_design_link",
         "design_link",
@@ -1911,13 +2372,26 @@ def _extract_design_link(
         "customization_link",
         "customizer_link",
         "design_proof_link",
+    )
+    fallback_http_ignore_keys = {
+        "_customization_image",
+        "customization_image",
+        "_preview_image",
+        "preview_image",
+        "_image",
+        "image",
     }
+
     for source in (line_item_attributes, order_attributes):
-        candidate = _find_attribute_value(source, keys)
+        candidate = _find_attribute_value_in_order(source, ordered_keys)
         if candidate:
             return candidate
-        for value in source.values():
+
+        for key, value in source.items():
             normalized = value.strip()
+            normalized_key = _normalize_attribute_key(key)
+            if normalized_key in fallback_http_ignore_keys:
+                continue
             if normalized.startswith("http"):
                 return normalized
     return None
@@ -2274,64 +2748,6 @@ def sync_order_items_from_shopify(order: Order, shopify_order: ShopifyOrder) -> 
         if _normalize_shopify_variant_title(item.variant_title):
             continue
         item.variant_title = _resolve_variant_title_from_catalog(catalog_session, order.shop_id, item.variant_id, item.sku) or item.variant_title
-
-
-def apply_automatic_incident_rules(order: Order) -> int:
-    created = 0
-
-    has_design_link = any((item.design_link or "").strip() for item in order.items)
-    if order.is_personalized and not has_design_link:
-        created += _ensure_incident(
-            order,
-            incident_type=IncidentType.missing_asset,
-            title="Pedido personalizado sin design link",
-            description="El pedido parece personalizado pero no tiene enlace de diseño asociado.",
-            priority=IncidentPriority.high,
-        )
-
-    if order.status == OrderStatus.shipped and order.shipment is None:
-        created += _ensure_incident(
-            order,
-            incident_type=IncidentType.shipping_exception,
-            title="Pedido enviado sin shipment interno",
-            description="Shopify refleja el pedido como expedido pero no existe shipment interno.",
-            priority=IncidentPriority.urgent,
-        )
-
-    if order.shipment is not None and not order.shipment.events and order.status == OrderStatus.shipped:
-        created += _ensure_incident(
-            order,
-            incident_type=IncidentType.shipping_exception,
-            title="Tracking sin eventos",
-            description="Existe shipment, pero no hay eventos de tracking finos disponibles.",
-            priority=IncidentPriority.medium,
-        )
-
-    return created
-
-
-def _ensure_incident(
-    order: Order,
-    incident_type: IncidentType,
-    title: str,
-    description: str,
-    priority: IncidentPriority,
-) -> int:
-    for incident in order.incidents:
-        if incident.type == incident_type and incident.title == title and incident.status != IncidentStatus.resolved:
-            return 0
-
-    order.incidents.append(
-        Incident(
-            type=incident_type,
-            priority=priority,
-            status=IncidentStatus.open,
-            title=title,
-            description=description,
-        )
-    )
-    return 1
-
 
 def _latest_tracking_event(fulfillments: list[ShopifyFulfillment]) -> ShopifyFulfillmentEvent | None:
     latest_event = _synthetic_tracking_event(fulfillments)

@@ -22,8 +22,11 @@ class Settings(BaseSettings):
     ctt_client_secret: str | None = None
     ctt_client_center_code: str | None = None
     ctt_api_base_url: str = "https://api-test.cttexpress.com"
-    ctt_default_shipping_type_code: str = "19H"
+    ctt_default_shipping_type_code: str = "C24"
     ctt_department_code: str = "1"
+    ctt_tracking_sync_enabled: bool = True
+    ctt_tracking_sync_interval_minutes: int = 15
+    ctt_tracking_sync_batch_size: int = 100
     ctt_sender_name: str = ""
     ctt_sender_country_code: str = "ES"
     ctt_sender_postal_code: str = ""

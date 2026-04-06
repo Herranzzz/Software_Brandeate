@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import date, datetime
 
 from pydantic import BaseModel
@@ -27,6 +29,13 @@ class AnalyticsKpisRead(BaseModel):
     open_incidents: int
 
 
+class AgingBucketsRead(BaseModel):
+    bucket_0_24: int = 0
+    bucket_24_48: int = 0
+    bucket_48_72: int = 0
+    bucket_72_plus: int = 0
+
+
 class AnalyticsOperationalMetricsRead(BaseModel):
     avg_order_to_production_hours: float | None
     avg_production_to_shipping_hours: float | None
@@ -37,6 +46,7 @@ class AnalyticsOperationalMetricsRead(BaseModel):
     orders_without_shipment: int
     stalled_tracking_orders: int
     incident_rate: float | None
+    aging_buckets: AgingBucketsRead | None = None
 
 
 class AnalyticsPersonalizationMetricsRead(BaseModel):
@@ -72,6 +82,8 @@ class AnalyticsSeriesPointRead(BaseModel):
     total: int
     personalized: int
     standard: int
+    delivered: int = 0
+    exception: int = 0
 
 
 class AnalyticsBreakdownItemRead(BaseModel):
@@ -119,6 +131,18 @@ class AnalyticsScopeRead(BaseModel):
     generated_at: datetime
 
 
+class AnalyticsFlowRead(BaseModel):
+    orders_received: int
+    orders_prepared: int
+    orders_in_transit: int
+    orders_delivered: int
+    orders_exception: int
+    avg_order_to_label_hours: float | None
+    avg_label_to_transit_hours: float | None
+    avg_transit_to_delivery_hours: float | None
+    avg_total_hours: float | None
+
+
 class AnalyticsOverviewRead(BaseModel):
     scope: AnalyticsScopeRead
     filters: AnalyticsFiltersRead
@@ -128,3 +152,4 @@ class AnalyticsOverviewRead(BaseModel):
     shipping: AnalyticsShippingMetricsRead
     charts: dict[str, list[AnalyticsBreakdownItemRead] | list[AnalyticsSeriesPointRead]]
     rankings: AnalyticsRankingsRead
+    flow: AnalyticsFlowRead

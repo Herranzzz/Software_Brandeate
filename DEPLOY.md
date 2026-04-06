@@ -64,6 +64,7 @@ El repo ya incluye:
 
 - [render.yaml](/Users/jorge/Documents/3pl-piloto/render.yaml)
 - [backend/start.sh](/Users/jorge/Documents/3pl-piloto/backend/start.sh)
+- [backend/worker.py](/Users/jorge/Documents/3pl-piloto/backend/worker.py)
 
 `start.sh` usa el `PORT` dinámico que Render inyecta:
 
@@ -86,12 +87,25 @@ Start Command: ./start.sh
 4. Añade variables de entorno:
    - `DATABASE_URL`
    - `AUTH_SECRET`
-   - `SHOPIFY_SYNC_ENABLED`
-   - `SHOPIFY_SYNC_INTERVAL_MINUTES`
-   - `SHOPIFY_SYNC_MAX_ORDERS`
+   - `CORS_ORIGINS`
    - `SHOPIFY_WEBHOOK_SECRET` si lo usas
+   - credenciales de CTT (`CTT_CLIENT_ID`, `CTT_CLIENT_SECRET`, etc.)
 
 5. Despliega.
+
+### Arquitectura recomendada en Render
+
+El `render.yaml` queda preparado para dos procesos:
+
+- `3pl-piloto-backend`:
+  - sirve la API FastAPI
+  - expone `/health`
+  - **no** ejecuta schedulers en el proceso web
+- `3pl-piloto-background-worker`:
+  - ejecuta el scheduler de Shopify
+  - ejecuta la sincronización automática de tracking CTT
+
+Así evitamos duplicar tareas de background en múltiples réplicas del servidor web.
 
 ### Health check
 
@@ -152,6 +166,11 @@ Build Command: npm run build
 Install Command: npm install
 ```
 
+Nota:
+
+- El [frontend/vercel.json](/Users/jorge/Documents/3pl-piloto/frontend/vercel.json) está preparado para ese `Root Directory`.
+- Si en Vercel dejas la raíz en `frontend`, **no** hace falta `cd frontend` en los comandos.
+
 3. Añade la variable:
 
 ```env
@@ -181,10 +200,11 @@ Antes de darlo por cerrado:
 1. backend responde en `/health`
 2. login funciona
 3. `/orders` carga correctamente
-4. `/analytics` carga correctamente
+4. `/dashboard` y `/shipments` cargan correctamente
 5. `/tracking/[token]` responde en público
 6. Shopify sync manual funciona
-7. scheduler de Shopify está activo si `SHOPIFY_SYNC_ENABLED=true`
+7. el worker de Render está corriendo
+8. tracking CTT se sincroniza automáticamente en producción
 
 ## 7. Notas importantes
 

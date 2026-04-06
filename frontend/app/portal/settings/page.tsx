@@ -2,6 +2,7 @@ import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PortalTenantControl } from "@/components/portal-tenant-control";
+import { ShopShippingSettingsForm } from "@/components/shop-shipping-settings-form";
 import { ShopCatalogManager } from "@/components/shop-catalog-manager";
 import { TenantProfileForm } from "@/components/tenant-profile-form";
 import { TenantShopifyPanel } from "@/components/tenant-shopify-panel";
@@ -67,7 +68,7 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
           <Card className="stack portal-glass-card portal-settings-hero">
             <div className="portal-glass-header">
               <div>
-                <span className="eyebrow">Tienda activa</span>
+                <span className="eyebrow">🏪 Tienda activa</span>
                 <h3 className="section-title section-title-small">{primaryShop.name}</h3>
                 <p className="subtitle">
                   Desde aquí controlas cómo se presenta tu espacio cliente, cómo se conecta Shopify y qué referencias entran en flujo personalizado.
@@ -84,7 +85,7 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
             <Card className="stack settings-section-card portal-glass-card">
               <div className="settings-section-head">
                 <div>
-                  <span className="eyebrow">Perfil</span>
+                  <span className="eyebrow">👤 Perfil</span>
                   <h3 className="section-title section-title-small">Identidad de la tienda</h3>
                   <p className="subtitle">
                     Ajusta el nombre y el slug con el que tu tienda se muestra dentro del portal.
@@ -98,7 +99,7 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
             <Card className="stack settings-section-card portal-glass-card">
               <div className="settings-section-head">
                 <div>
-                  <span className="eyebrow">Integraciones</span>
+                  <span className="eyebrow">🔗 Integraciones</span>
                   <h3 className="section-title section-title-small">Conexión Shopify</h3>
                   <p className="subtitle">
                     Conecta tu tienda, revisa la última sincronización y lanza importaciones manuales sin depender del equipo interno.
@@ -110,6 +111,20 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
               <TenantShopifyPanel integration={activeIntegration} shop={primaryShop} />
             </Card>
           </div>
+
+          <Card className="stack settings-section-card portal-glass-card">
+            <div className="settings-section-head">
+              <div>
+                <span className="eyebrow">🚚 Expediciones</span>
+                <h3 className="section-title section-title-small">Configuración operativa</h3>
+                <p className="subtitle">
+                  Define la dirección de expedición de tu tienda y los defaults que usará el flujo de etiquetas CTT.
+                </p>
+              </div>
+            </div>
+
+            <ShopShippingSettingsForm shop={primaryShop} submitLabel="Guardar configuración de expediciones" />
+          </Card>
 
           <Card className="stack settings-section-card portal-glass-card">
             {catalogError ? <div className="info-banner">{catalogError}</div> : null}

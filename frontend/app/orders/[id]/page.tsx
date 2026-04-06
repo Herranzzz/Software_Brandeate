@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AutomationFlagBadge } from "@/components/automation-flag-badge";
 import { Card } from "@/components/card";
 import { CopyButton } from "@/components/copy-button";
 import { CttShipmentButton } from "@/components/ctt-shipment-button";
@@ -12,8 +13,10 @@ import { ProductionBadge } from "@/components/production-badge";
 import { RenderPreviewLightbox } from "@/components/render-preview-lightbox";
 import { SectionTitle } from "@/components/section-title";
 import { StatusBadge } from "@/components/status-badge";
+import { ShippingOptionsPanel } from "@/components/shipping-options-panel";
 import { fetchOrderById, fetchOrderIncidents, fetchShopCatalogProducts } from "@/lib/api";
-import { requireAdminUser } from "@/lib/auth";
+import { getAuthToken, requireAdminUser } from "@/lib/auth";
+import { getOrderShipmentLabelUrl } from "@/lib/ctt";
 import { formatDateTime, getDesignStatusLabel, sortTrackingEvents } from "@/lib/format";
 import type { OrderItem, ShopCatalogProduct } from "@/lib/types";
 
@@ -34,6 +37,23 @@ type OrderActivity = {
   meta: string;
   icon: string;
   tone: "neutral" | "accent" | "warning";
+};
+
+type ShippingSnapshot = {
+  first_name?: string | null;
+  last_name?: string | null;
+  name?: string | null;
+  company?: string | null;
+  address1?: string | null;
+  address2?: string | null;
+  city?: string | null;
+  province?: string | null;
+  province_code?: string | null;
+  zip?: string | null;
+  country?: string | null;
+  country_code?: string | null;
+  phone?: string | null;
+  email?: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -261,13 +281,37 @@ function buildOrderActivityFeed(
   if (order.shipment) {
     activities.push({
       id: `shipment-${order.shipment.id}`,
-      occurredAt: order.shipment.created_at,
+      occurredAt: order.shipment.label_created_at ?? order.shipment.created_at,
       title: "Envío creado",
       description: `${order.shipment.carrier} · ${order.shipment.tracking_number}`,
       meta: "Shipment",
       icon: "□",
       tone: "accent",
     });
+
+    if (order.shipment.shopify_synced_at) {
+      activities.push({
+        id: `shopify-sync-${order.shipment.id}`,
+        occurredAt: order.shipment.shopify_synced_at,
+        title: "Tracking enviado a Shopify",
+        description: order.shipment.fulfillment_id
+          ? `Fulfillment ${order.shipment.fulfillment_id}`
+          : "Fulfillment y tracking sincronizados",
+        meta: "Shopify",
+        icon: "⇄",
+        tone: "accent",
+      });
+    } else if (order.shipment.shopify_sync_status === "failed" && order.shipment.shopify_last_sync_attempt_at) {
+      activities.push({
+        id: `shopify-sync-failed-${order.shipment.id}`,
+        occurredAt: order.shipment.shopify_last_sync_attempt_at,
+        title: "Sync con Shopify fallida",
+        description: order.shipment.shopify_sync_error ?? "No se pudo actualizar fulfillment en Shopify.",
+        meta: "Shopify",
+        icon: "!",
+        tone: "warning",
+      });
+    }
   }
 
   activities.push(
@@ -320,9 +364,22 @@ function getItemDesignStatus(item: OrderItem) {
   return { label: "Sin diseño", tone: "default" as const };
 }
 
+function getShippingSnapshot(order: Awaited<ReturnType<typeof fetchOrderById>>): ShippingSnapshot | null {
+  const snapshot = order?.shopify_shipping_snapshot_json;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+  return snapshot as ShippingSnapshot;
+}
+
+function buildAddressLines(parts: Array<string | null | undefined>) {
+  return parts.map((part) => (part ?? "").trim()).filter(Boolean);
+}
+
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
   await requireAdminUser();
   const { id } = await params;
+  const token = await getAuthToken();
   const [order, incidents] = await Promise.all([
     fetchOrderById(id),
     fetchOrderIncidents(id),
@@ -338,6 +395,24 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
   const primaryItemSummary = primaryItem ? getProductSummary(primaryItem, catalogProducts) : null;
   const activityFeed = buildOrderActivityFeed(order, incidents);
   const fulfillmentOrders = getFulfillmentOrders(order);
+  const shipmentLabelUrl = getOrderShipmentLabelUrl(order);
+  const shipmentLabelDownloadUrl = getOrderShipmentLabelUrl(order, { download: true });
+  const shipmentLabelThermalUrl = getOrderShipmentLabelUrl(order, { download: true, labelType: "ZPL" });
+  const shippingSnapshot = getShippingSnapshot(order);
+  const shopifyAddressLines = buildAddressLines([
+    shippingSnapshot?.company,
+    shippingSnapshot?.address1,
+    shippingSnapshot?.address2,
+    [shippingSnapshot?.zip, shippingSnapshot?.city].filter(Boolean).join(" "),
+    [shippingSnapshot?.province, shippingSnapshot?.country].filter(Boolean).join(", "),
+  ]);
+  const operationalAddressLines = buildAddressLines([
+    order.shipping_name,
+    order.shipping_address_line1,
+    order.shipping_address_line2,
+    [order.shipping_postal_code, order.shipping_town].filter(Boolean).join(" "),
+    order.shipping_country_code,
+  ]);
 
   return (
     <div className="stack">
@@ -375,7 +450,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           </Card>
 
           <Card className="stack">
-            <SectionTitle eyebrow="Producto" title="Contenido del pedido" />
+            <SectionTitle eyebrow="📦 Producto" title="Contenido del pedido" />
             <div className="items-list">
               {order.items.map((item) => {
                 const itemSummary = getProductSummary(item, catalogProducts);
@@ -429,7 +504,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           </Card>
 
           <Card className="stack">
-            <SectionTitle eyebrow="Actividad" title="Timeline del pedido" />
+            <SectionTitle eyebrow="📋 Actividad" title="Timeline del pedido" />
             <div className="order-activity-timeline">
               {activityFeed.map((activity, index) => (
                 <article className={`order-activity-card order-activity-card-${activity.tone}`} key={activity.id}>
@@ -447,11 +522,51 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
               ))}
             </div>
           </Card>
+
+          <Card className="stack">
+            <SectionTitle eyebrow="⚡ Automatización" title="Reglas aplicadas" />
+            {order.automation_flags.length > 0 || (order.automation_events?.length ?? 0) > 0 ? (
+              <div className="stack">
+                {order.automation_flags.length > 0 ? (
+                  <div className="automation-flag-row">
+                    {order.automation_flags.map((flag) => (
+                      <AutomationFlagBadge flag={flag} key={`${order.id}-${flag.key}`} />
+                    ))}
+                  </div>
+                ) : null}
+
+                {order.automation_events && order.automation_events.length > 0 ? (
+                  <div className="mini-table">
+                    {order.automation_events.slice(0, 8).map((event) => (
+                      <div className="mini-table-row" key={event.id}>
+                        <div>
+                          <div className="table-primary">{event.summary}</div>
+                          <div className="table-secondary">
+                            {event.rule_name} · {event.action_type}
+                          </div>
+                        </div>
+                        <div className="mini-table-metrics">
+                          <span>{formatDateTime(event.created_at)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <EmptyState
+                title="Sin automatizaciones activas"
+                description="Este pedido no ha disparado reglas automáticas visibles por ahora."
+              />
+            )}
+          </Card>
+
+          <ShippingOptionsPanel order={order} token={token} />
         </div>
 
         <aside className="stack">
           <Card className="stack">
-            <SectionTitle eyebrow="Diseño" title="Render de personalización" />
+            <SectionTitle eyebrow="🎨 Diseño" title="Render de personalización" />
             {primaryItemSummary && designPreviewUrl ? (
               <div className="shipment-product-card">
                 <div className="shipment-product-copy">
@@ -475,7 +590,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           </Card>
 
           <Card className="stack">
-            <SectionTitle eyebrow="Envío" title="Shipment" />
+            <SectionTitle eyebrow="🚚 Envío" title="Shipment" />
             {order.shipment ? (
               <div className="kv">
                 <div className="kv-row">
@@ -491,7 +606,59 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 </div>
                 <div className="kv-row">
                   <span className="kv-label">Creado</span>
-                  <div>{formatDateTime(order.shipment.created_at)}</div>
+                  <div>{formatDateTime(order.shipment.label_created_at ?? order.shipment.created_at)}</div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Estado envío</span>
+                  <div>{order.shipment.shipping_status_detail ?? order.shipment.shipping_status ?? "Etiqueta creada"}</div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Servicio CTT</span>
+                  <div>{order.shipment.shipping_type_code ?? "C24"}</div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Tramo</span>
+                  <div>{order.shipment.weight_tier_label ?? "No definido"}</div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Tracking oficial</span>
+                  <div>
+                    {order.shipment.tracking_url ? (
+                      <a className="table-link table-link-strong" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">
+                        Abrir tracking del carrier
+                      </a>
+                    ) : "Pendiente"}
+                  </div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Etiqueta</span>
+                  <div className="order-inline-actions">
+                    {shipmentLabelUrl ? (
+                      <>
+                        <a className="table-link table-link-strong" href={shipmentLabelUrl} rel="noreferrer" target="_blank">
+                          Ver PDF
+                        </a>
+                        <a className="table-link" download href={shipmentLabelDownloadUrl ?? shipmentLabelUrl} rel="noreferrer" target="_blank">
+                          Descargar PDF
+                        </a>
+                        <a className="table-link" download href={shipmentLabelThermalUrl ?? "#"} rel="noreferrer" target="_blank">
+                          Descargar ZPL
+                        </a>
+                      </>
+                    ) : "No disponible"}
+                  </div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Shopify</span>
+                  <div>
+                    {order.shipment.shopify_sync_status === "synced"
+                      ? "Tracking y fulfillment sincronizados"
+                      : order.shipment.shopify_sync_status === "failed"
+                        ? order.shipment.shopify_sync_error ?? "La sync falló"
+                        : order.shipment.shopify_sync_status === "not_configured"
+                          ? "Integración no configurada"
+                          : "Pendiente"}
+                  </div>
                 </div>
                 <div className="kv-row">
                   <span className="kv-label">Tracking público</span>
@@ -511,9 +678,51 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             )}
           </Card>
 
+          <Card className="stack">
+            <SectionTitle eyebrow="📍 Dirección" title="Snapshot Shopify y dirección operativa" />
+            <div className="kv">
+              <div className="kv-row">
+                <span className="kv-label">Shopify · contacto</span>
+                <div>
+                  {shippingSnapshot?.name || order.customer_name}
+                  {shippingSnapshot?.email ? ` · ${shippingSnapshot.email}` : ""}
+                  {shippingSnapshot?.phone ? ` · ${shippingSnapshot.phone}` : ""}
+                </div>
+              </div>
+              <div className="kv-row">
+                <span className="kv-label">Shopify · dirección</span>
+                <div className="stack" style={{ gap: "6px" }}>
+                  {shopifyAddressLines.length > 0 ? (
+                    shopifyAddressLines.map((line) => <span key={line}>{line}</span>)
+                  ) : (
+                    <span>Sin snapshot de dirección todavía</span>
+                  )}
+                </div>
+              </div>
+              <div className="kv-row">
+                <span className="kv-label">Operativa · CTT</span>
+                <div className="stack" style={{ gap: "6px" }}>
+                  {operationalAddressLines.length > 0 ? (
+                    operationalAddressLines.map((line) => <span key={line}>{line}</span>)
+                  ) : (
+                    <span>Sin dirección operativa cargada</span>
+                  )}
+                </div>
+              </div>
+              <div className="kv-row">
+                <span className="kv-label">Validación rápida</span>
+                <div>
+                  {order.shipping_address_line1 && order.shipping_postal_code && order.shipping_town
+                    ? "La dirección interna está lista para crear etiqueta."
+                    : "Faltan datos en la dirección interna; conviene resincronizar Shopify antes de etiquetar."}
+                </div>
+              </div>
+            </div>
+          </Card>
+
           {fulfillmentOrders.length > 0 ? (
             <Card className="stack">
-              <SectionTitle eyebrow="Shopify" title="Fulfillment orders" />
+              <SectionTitle eyebrow="🛒 Shopify" title="Fulfillment orders" />
               <div className="mini-table">
                 {fulfillmentOrders.map((fulfillmentOrder) => (
                   <div className="mini-table-row" key={fulfillmentOrder.id}>

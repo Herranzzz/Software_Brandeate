@@ -25,6 +25,8 @@ export type TrackingEvent = {
   shipment_id: number;
   status_norm: string;
   status_raw: string | null;
+  source: string | null;
+  location: string | null;
   occurred_at: string;
   created_at: string;
 };
@@ -38,6 +40,22 @@ export type Shipment = {
   tracking_url: string | null;
   shipping_status: string | null;
   shipping_status_detail: string | null;
+  provider_reference: string | null;
+  shipping_rule_id: number | null;
+  shipping_rule_name: string | null;
+  detected_zone: string | null;
+  resolution_mode: string | null;
+  shipping_type_code: string | null;
+  weight_tier_code: string | null;
+  weight_tier_label: string | null;
+  shipping_weight_declared: number | null;
+  package_count: number | null;
+  provider_payload_json: unknown;
+  label_created_at: string | null;
+  shopify_sync_status: string | null;
+  shopify_sync_error: string | null;
+  shopify_last_sync_attempt_at: string | null;
+  shopify_synced_at: string | null;
   public_token: string;
   created_at: string;
   events: TrackingEvent[];
@@ -58,6 +76,8 @@ export type IncidentStatus = "open" | "in_progress" | "resolved";
 export type Incident = {
   id: number;
   order_id: number;
+  is_automated: boolean;
+  automation_rule_name: string | null;
   type: IncidentType;
   priority: IncidentPriority;
   status: IncidentStatus;
@@ -74,6 +94,27 @@ export type Incident = {
     customer_name: string;
     customer_email: string;
   };
+};
+
+export type AutomationFlag = {
+  key: string;
+  label: string;
+  tone: string;
+  description: string;
+};
+
+export type AutomationEvent = {
+  id: number;
+  shop_id: number;
+  order_id: number | null;
+  shipment_id: number | null;
+  entity_type: "order" | "shipment";
+  entity_id: number;
+  rule_name: string;
+  action_type: "flag_detected" | "incident_created" | "priority_raised";
+  summary: string;
+  payload_json: Record<string, unknown> | unknown[] | null;
+  created_at: string;
 };
 
 export type OrderItem = {
@@ -111,6 +152,27 @@ export type Order = {
   is_personalized: boolean;
   customer_name: string;
   customer_email: string;
+  shipping_name: string | null;
+  shipping_phone: string | null;
+  shipping_country_code: string | null;
+  shipping_postal_code: string | null;
+  shipping_address_line1: string | null;
+  shipping_address_line2: string | null;
+  shipping_town: string | null;
+  shipping_province_code: string | null;
+  shopify_shipping_snapshot_json: Record<string, unknown> | null;
+  shopify_shipping_rate_name: string | null;
+  shopify_shipping_rate_amount: number | null;
+  shopify_shipping_rate_currency: string | null;
+  delivery_type: string | null;
+  shipping_service_code: string | null;
+  shipping_service_name: string | null;
+  shipping_rate_amount: number | null;
+  shipping_rate_currency: string | null;
+  shipping_rate_estimated_days_min: number | null;
+  shipping_rate_estimated_days_max: number | null;
+  shipping_rate_quote_id: number | null;
+  pickup_point_json: Record<string, unknown> | null;
   note: string | null;
   tags_json: string[] | null;
   channel: string | null;
@@ -120,8 +182,42 @@ export type Order = {
   created_at: string;
   has_open_incident: boolean;
   open_incidents_count: number;
+  automation_flags: AutomationFlag[];
   items: OrderItem[];
   shipment: Shipment | null;
+  automation_events?: AutomationEvent[];
+};
+
+export type ShippingRule = {
+  id: number;
+  shop_id: number;
+  zone_name: string;
+  shipping_rate_name: string | null;
+  shipping_rate_amount: number | null;
+  rule_type: string;
+  min_value: number | null;
+  max_value: number | null;
+  carrier_service_code: string;
+  carrier_service_label: string | null;
+  country_codes: string[] | null;
+  province_codes: string[] | null;
+  postal_code_patterns: string[] | null;
+  is_active: boolean;
+  priority: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ShippingRuleResolution = {
+  matched: boolean;
+  zone_name: string | null;
+  resolution_mode: string;
+  carrier_service_code: string | null;
+  carrier_service_label: string | null;
+  shipping_rule_id: number | null;
+  shipping_rule_name: string | null;
+  match_reason: string | null;
 };
 
 export type PickBatch = {
@@ -160,16 +256,37 @@ export type PublicTracking = {
     id: number;
     status_norm: string;
     status_raw: string | null;
+    source: string | null;
+    location: string | null;
     occurred_at: string;
     created_at: string;
   }>;
 };
 
 export type Shop = {
+  shipping_settings: ShopShippingSettings | null;
   id: number;
   name: string;
   slug: string;
   created_at: string;
+};
+
+export type ShopShippingSettings = {
+  sender_name: string | null;
+  sender_email: string | null;
+  sender_phone: string | null;
+  sender_country_code: string | null;
+  sender_postal_code: string | null;
+  sender_address_line1: string | null;
+  sender_address_line2: string | null;
+  sender_town: string | null;
+  sender_province: string | null;
+  default_shipping_type_code: string | null;
+  default_weight_tier_code: string | null;
+  label_reference_mode: string | null;
+  recipient_email_notifications: boolean;
+  default_package_strategy: string | null;
+  default_package_count: number | null;
 };
 
 export type ShopCustomer = {
@@ -280,6 +397,14 @@ export type AnalyticsOperational = {
   orders_without_shipment: number;
   stalled_tracking_orders: number;
   incident_rate: number | null;
+  aging_buckets: AgingBuckets | null;
+};
+
+export type AgingBuckets = {
+  bucket_0_24: number;
+  bucket_24_48: number;
+  bucket_48_72: number;
+  bucket_72_plus: number;
 };
 
 export type AnalyticsPersonalization = {
@@ -315,6 +440,8 @@ export type AnalyticsSeriesPoint = {
   total: number;
   personalized: number;
   standard: number;
+  delivered: number;
+  exception: number;
 };
 
 export type AnalyticsBreakdownItem = {
@@ -349,6 +476,18 @@ export type AnalyticsDelayedOrder = {
   reason: string;
 };
 
+export type AnalyticsFlow = {
+  orders_received: number;
+  orders_prepared: number;
+  orders_in_transit: number;
+  orders_delivered: number;
+  orders_exception: number;
+  avg_order_to_label_hours: number | null;
+  avg_label_to_transit_hours: number | null;
+  avg_transit_to_delivery_hours: number | null;
+  avg_total_hours: number | null;
+};
+
 export type AnalyticsOverview = {
   scope: {
     shop_count: number;
@@ -360,6 +499,7 @@ export type AnalyticsOverview = {
   operational: AnalyticsOperational;
   personalization: AnalyticsPersonalization;
   shipping: AnalyticsShipping;
+  flow: AnalyticsFlow;
   charts: {
     orders_by_day: AnalyticsSeriesPoint[];
     personalization_mix: AnalyticsBreakdownItem[];
@@ -393,6 +533,44 @@ export type AdminUser = User & {
 
 export type LoginResponse = {
   access_token: string;
+  refresh_token: string;
   token_type: string;
   user: User;
+};
+
+export type ReturnStatus =
+  | "requested"
+  | "approved"
+  | "in_transit"
+  | "received"
+  | "closed"
+  | "rejected";
+
+export type ReturnReason =
+  | "damaged"
+  | "wrong_product"
+  | "not_delivered"
+  | "address_issue"
+  | "personalization_error"
+  | "changed_mind"
+  | "other";
+
+export type Return = {
+  id: number;
+  shop_id: number;
+  order_id: number | null;
+  customer_name: string | null;
+  customer_email: string | null;
+  reason: ReturnReason;
+  notes: string | null;
+  status: ReturnStatus;
+  tracking_number: string | null;
+  created_at: string;
+  updated_at: string;
+  order: {
+    id: number;
+    external_id: string;
+    customer_name: string;
+    customer_email: string;
+  } | null;
 };

@@ -68,12 +68,18 @@ def update_shop(
         if accessible_shop_ids is not None and shop.id not in accessible_shop_ids:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
-    slug_owner = db.scalar(select(Shop).where(Shop.slug == payload.slug, Shop.id != shop_id))
-    if slug_owner is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists")
+    if payload.slug is not None:
+        slug_owner = db.scalar(select(Shop).where(Shop.slug == payload.slug, Shop.id != shop_id))
+        if slug_owner is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists")
 
-    shop.name = payload.name.strip()
-    shop.slug = payload.slug
+    if payload.name is not None:
+        shop.name = payload.name.strip()
+    if payload.slug is not None:
+        shop.slug = payload.slug
+    if payload.shipping_settings is not None:
+        shop.shipping_settings_json = payload.shipping_settings.model_dump(mode="json")
+
     db.commit()
     db.refresh(shop)
     return shop

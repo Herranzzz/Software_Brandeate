@@ -42,7 +42,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const perPage = Math.min(Math.max(Number(params.per_page ?? "100") || 100, 1), 500);
   const view = params.view === "batches" ? "batches" : "queue";
 
-  const [{ orders, totalCount }, shops, batches] = await Promise.all([
+  const [ordersResult, shopsResult, batchesResult] = await Promise.allSettled([
     fetchOrders({
       shop_id: params.shop_id,
       is_personalized: readBooleanParam(params.is_personalized),
@@ -61,6 +61,13 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     fetchShops(),
     fetchPickBatches({ shop_id: params.shop_id }),
   ]);
+
+  const { orders, totalCount } =
+    ordersResult.status === "fulfilled"
+      ? ordersResult.value
+      : { orders: [], totalCount: 0 };
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
+  const batches = batchesResult.status === "fulfilled" ? batchesResult.value : [];
 
   return (
     <div className="stack orders-page">

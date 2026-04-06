@@ -1,17 +1,15 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 
-type CardProps = {
+type CardProps = ComponentPropsWithoutRef<"section"> & {
   children: ReactNode;
-  className?: string;
-  id?: string;
 };
 
 
-export function Card({ children, className = "", id }: CardProps) {
+export function Card({ children, className = "", ...props }: CardProps) {
   const classes = className ? `card ${className}` : "card";
   return (
-    <section className={classes} id={id}>
+    <section className={classes} {...props}>
       {children}
     </section>
   );

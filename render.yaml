@@ -42,6 +42,8 @@ services:
         value: "19H"
       - key: CTT_DEPARTMENT_CODE
         value: "1"
+      - key: CTT_TRACKING_SYNC_ENABLED
+        value: "false"
       - key: CTT_SENDER_NAME
         sync: false
       - key: CTT_SENDER_COUNTRY_CODE
@@ -56,28 +58,47 @@ services:
         value: "true"
 
   # ── Worker de sincronización Shopify ─────────────────────────
-  # Proceso separado — no comparte recursos con el servidor web.
-  # Descomenta este bloque cuando quieras mover el scheduler fuera del web.
-  # - type: worker
-  #   name: 3pl-piloto-shopify-worker
-  #   env: python
-  #   rootDir: backend
-  #   buildCommand: pip install -r requirements.txt
-  #   startCommand: python worker.py
-  #   envVars:
-  #     - key: DATABASE_URL
-  #       sync: false
-  #     - key: AUTH_SECRET
-  #       sync: false
-  #     - key: SHOPIFY_SYNC_ENABLED
-  #       value: "true"
-  #     - key: SHOPIFY_SYNC_INTERVAL_MINUTES
-  #       value: "5"
-  #     - key: SHOPIFY_SYNC_MAX_ORDERS
-  #       value: "5000"
-  #     - key: SHOPIFY_WEBHOOK_SECRET
-  #       sync: false
-  #     - key: SHOPIFY_SSL_VERIFY
-  #       value: "true"
-  #     - key: SHOPIFY_SSL_CAFILE
-  #       sync: false
+  # Proceso separado para Shopify + tracking CTT.
+  - type: worker
+    name: 3pl-piloto-background-worker
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python worker.py
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: SHOPIFY_SYNC_ENABLED
+        value: "true"
+      - key: SHOPIFY_SYNC_INTERVAL_MINUTES
+        value: "5"
+      - key: SHOPIFY_SYNC_MAX_ORDERS
+        value: "5000"
+      - key: SHOPIFY_WEBHOOK_SECRET
+        sync: false
+      - key: SHOPIFY_SSL_VERIFY
+        value: "true"
+      - key: SHOPIFY_SSL_CAFILE
+        sync: false
+      - key: CTT_TRACKING_SYNC_ENABLED
+        value: "true"
+      - key: CTT_TRACKING_SYNC_INTERVAL_MINUTES
+        value: "15"
+      - key: CTT_TRACKING_SYNC_BATCH_SIZE
+        value: "100"
+      - key: CTT_CLIENT_ID
+        sync: false
+      - key: CTT_CLIENT_SECRET
+        sync: false
+      - key: CTT_CLIENT_CENTER_CODE
+        sync: false
+      - key: CTT_API_BASE_URL
+        value: "https://api.cttexpress.com"
+      - key: CTT_DEFAULT_SHIPPING_TYPE_CODE
+        value: "19H"
+      - key: CTT_DEPARTMENT_CODE
+        value: "1"
+      - key: CTT_SSL_VERIFY
+        value: "true"

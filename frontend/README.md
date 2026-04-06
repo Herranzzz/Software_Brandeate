@@ -15,7 +15,13 @@ Crea `frontend/.env.local` con:
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-Si no se define, el frontend usa `http://localhost:8000` por defecto.
+Si no se define, el frontend usa `http://localhost:8000` por defecto en desarrollo.
+
+En producción necesitas configurar:
+
+```env
+NEXT_PUBLIC_API_URL=https://tu-backend.onrender.com
+```
 
 ## Instalar dependencias
 
@@ -46,3 +52,4 @@ Abre:
 
 - Las lecturas usan `fetch` simple desde componentes del App Router.
 - Los `PATCH` pasan por route handlers de Next para evitar problemas de CORS en navegador.
+- Para Vercel, este proyecto está pensado para desplegarse con `Root Directory = frontend`.

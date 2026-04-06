@@ -6,6 +6,7 @@ import type {
   Order,
   PickBatch,
   PublicTracking,
+  Return,
   Shop,
   ShopCustomer,
   ShopCatalogProduct,
@@ -422,4 +423,36 @@ export async function fetchAnalyticsOverview(params?: {
   });
 
   return parseResponse<AnalyticsOverview>(response);
+}
+
+
+export async function fetchReturns(params?: {
+  shop_id?: string | number;
+  status?: string;
+}): Promise<Return[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.shop_id !== undefined && params.shop_id !== "") {
+    searchParams.set("shop_id", String(params.shop_id));
+  }
+  if (params?.status) {
+    searchParams.set("status", params.status);
+  }
+  const query = searchParams.toString();
+  const headers = await buildAuthHeaders();
+  const response = await fetch(apiUrl(`/returns${query ? `?${query}` : ""}`), {
+    cache: "no-store",
+    headers,
+  });
+  return parseResponse<Return[]>(response);
+}
+
+
+export async function fetchReturnById(id: string | number): Promise<Return | null> {
+  const headers = await buildAuthHeaders();
+  const response = await fetch(apiUrl(`/returns/${id}`), {
+    cache: "no-store",
+    headers,
+  });
+  if (response.status === 404) return null;
+  return parseResponse<Return>(response);
 }

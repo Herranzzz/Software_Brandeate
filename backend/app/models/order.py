@@ -2,6 +2,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Float
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -36,6 +37,11 @@ class OrderPriority(str, enum.Enum):
     normal = "normal"
     high = "high"
     urgent = "urgent"
+
+
+class DeliveryType(str, enum.Enum):
+    home = "home"
+    pickup_point = "pickup_point"
 
 
 json_type = JSON().with_variant(JSONB, "postgresql")
@@ -93,6 +99,40 @@ class Order(Base):
     )
     customer_name: Mapped[str] = mapped_column(String(255))
     customer_email: Mapped[str] = mapped_column(String(320))
+    shipping_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    shipping_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    shipping_country_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    shipping_postal_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    shipping_address_line1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    shipping_address_line2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    shipping_town: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    shipping_province_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    shopify_shipping_snapshot_json: Mapped[dict | list | None] = mapped_column(json_type, nullable=True)
+    shopify_shipping_rate_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    shopify_shipping_rate_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shopify_shipping_rate_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    delivery_type: Mapped[DeliveryType | None] = mapped_column(
+        Enum(
+            DeliveryType,
+            name="order_delivery_type",
+            native_enum=False,
+            create_constraint=True,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    shipping_service_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    shipping_service_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    shipping_rate_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shipping_rate_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    shipping_rate_estimated_days_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shipping_rate_estimated_days_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shipping_rate_quote_id: Mapped[int | None] = mapped_column(
+        ForeignKey("shipping_rate_quotes.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    pickup_point_json: Mapped[dict | list | None] = mapped_column(json_type, nullable=True)
+    shipping_option_selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags_json: Mapped[list[str] | None] = mapped_column(json_type, nullable=True)
     channel: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -118,11 +158,27 @@ class Order(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    shipping_rate_quotes = relationship(
+        "ShippingRateQuote",
+        back_populates="order",
+        foreign_keys="ShippingRateQuote.order_id",
+        cascade="all, delete-orphan",
+    )
+    selected_shipping_rate_quote = relationship(
+        "ShippingRateQuote",
+        foreign_keys=[shipping_rate_quote_id],
+    )
     incidents = relationship(
         "Incident",
         back_populates="order",
         cascade="all, delete-orphan",
         order_by="desc(Incident.updated_at), desc(Incident.id)",
+    )
+    automation_events = relationship(
+        "AutomationEvent",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="desc(AutomationEvent.created_at), desc(AutomationEvent.id)",
     )
 
     @property
@@ -132,6 +188,12 @@ class Order(Base):
     @property
     def has_open_incident(self) -> bool:
         return self.open_incidents_count > 0
+
+    @property
+    def automation_flags(self) -> list[dict]:
+        from app.services.automation_rules import build_order_automation_flags
+
+        return build_order_automation_flags(self)
 
 
 class OrderItem(Base):

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
 
+import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
+import { useLayoutState } from "@/components/layout-state-provider";
 
 type AppShellProps = { children: ReactNode };
 type IconProps = SVGProps<SVGSVGElement>;
@@ -30,15 +32,6 @@ function OrdersIcon(props: IconProps) {
   );
 }
 
-function ProductionIcon(props: IconProps) {
-  return (
-    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
-      <path d="M6 18V9l4-2.5v5l4-2.5v5l4-2.5V18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-      <path d="M4.5 18h15" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
 function ShipmentsIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -58,17 +51,6 @@ function AccountsIcon(props: IconProps) {
   );
 }
 
-function CatalogIcon(props: IconProps) {
-  return (
-    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
-      <rect height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" width="6" x="4.5" y="4.5" />
-      <rect height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" width="6" x="13.5" y="4.5" />
-      <rect height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" width="6" x="4.5" y="13.5" />
-      <rect height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" width="6" x="13.5" y="13.5" />
-    </svg>
-  );
-}
-
 function IncidenciasIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -78,20 +60,28 @@ function IncidenciasIcon(props: IconProps) {
   );
 }
 
-function AnalyticsIcon(props: IconProps) {
-  return (
-    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
-      <path d="M5 17.5l4.5-5.5 4 3 4.5-8" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-      <circle cx="18" cy="7" fill="currentColor" r="1.6" />
-    </svg>
-  );
-}
-
 function SettingsIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
       <path d="M12 8.8A3.2 3.2 0 1 1 8.8 12 3.2 3.2 0 0 1 12 8.8Z" stroke="currentColor" strokeWidth="1.8" />
       <path d="M19 12a7 7 0 0 0-.1-1.2l1.6-1.2-1.6-2.8-1.9.6a6.8 6.8 0 0 0-2-1.2l-.3-2h-3.2l-.3 2a6.8 6.8 0 0 0-2 1.2l-1.9-.6-1.6 2.8 1.6 1.2A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-1.6 1.2 1.6 2.8 1.9-.6a6.8 6.8 0 0 0 2 1.2l.3 2h3.2l.3-2a6.8 6.8 0 0 0 2-1.2l1.9.6 1.6-2.8-1.6-1.2c.1-.4.1-.8.1-1.2Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function SunIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 3.5v2.2M12 18.3v2.2M5.64 5.64l1.56 1.56M16.8 16.8l1.56 1.56M3.5 12h2.2M18.3 12h2.2M5.64 18.36l1.56-1.56M16.8 7.2l1.56-1.56" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function MoonIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M19 14.8A7.8 7.8 0 0 1 9.2 5a8.4 8.4 0 1 0 9.8 9.8Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
     </svg>
   );
 }
@@ -106,6 +96,15 @@ function LogoutIcon(props: IconProps) {
   );
 }
 
+function ReturnsAdminIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M7 8.5h10a2.5 2.5 0 0 1 0 5H9.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M10.5 5.5 7 8.5l3.5 3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 /* ─── Nav structure ───────────────────────────────────────────────────────── */
 
 const navGroups = [
@@ -114,7 +113,6 @@ const navGroups = [
     items: [
       { href: "/dashboard", label: "Dashboard", icon: DashboardIcon },
       { href: "/orders", label: "Pedidos", icon: OrdersIcon },
-      { href: "/production", label: "Producción", icon: ProductionIcon },
       { href: "/shipments", label: "Expediciones", icon: ShipmentsIcon },
     ],
   },
@@ -122,9 +120,8 @@ const navGroups = [
     label: "Gestión",
     items: [
       { href: "/customers", label: "Clientes", icon: AccountsIcon },
-      { href: "/catalog", label: "Catálogo", icon: CatalogIcon },
+      { href: "/returns", label: "Devoluciones", icon: ReturnsAdminIcon },
       { href: "/incidencias", label: "Incidencias", icon: IncidenciasIcon },
-      { href: "/analytics", label: "Analítica", icon: AnalyticsIcon },
     ],
   },
 ];
@@ -139,8 +136,8 @@ function isActive(pathname: string, href: string) {
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [expanded, setExpanded] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const { isSidebarCollapsed, theme, toggleTheme } = useLayoutState();
 
   const handleLogout = useCallback(async () => {
     setIsLoggingOut(true);
@@ -164,20 +161,17 @@ export function AppShell({ children }: AppShellProps) {
     return <div className="public-shell">{children}</div>;
   }
 
-  const isCollapsed = !expanded;
-
   return (
     <div
-      className={`tenant-shell tenant-shell-admin${isCollapsed ? " tenant-shell-collapsed" : ""}`}
+      className={`tenant-shell tenant-shell-admin${isSidebarCollapsed ? " tenant-shell-collapsed" : ""}`}
       style={style}
     >
-      <aside
-        className="tenant-sidebar tenant-sidebar-admin"
-        onMouseEnter={() => setExpanded(true)}
-        onMouseLeave={() => setExpanded(false)}
-      >
+      <aside className="tenant-sidebar tenant-sidebar-admin">
         {/* Brand */}
         <div className="tenant-sidebar-header">
+          <div className="tenant-sidebar-header-actions">
+            <SidebarCollapseButton />
+          </div>
           <div className="tenant-brand-lockup">
             <div className="tenant-logo tenant-logo-fallback">BR</div>
             <div className="tenant-brand-copy">
@@ -197,7 +191,8 @@ export function AppShell({ children }: AppShellProps) {
                   className={`tenant-nav-link${isActive(pathname, item.href) ? " tenant-nav-link-active" : ""}`}
                   href={item.href}
                   key={item.href}
-                  title={isCollapsed ? item.label : undefined}
+                  prefetch={false}
+                  title={isSidebarCollapsed ? item.label : undefined}
                 >
                   <item.icon className="tenant-nav-icon" />
                   <span className="tenant-nav-link-label">{item.label}</span>
@@ -209,10 +204,22 @@ export function AppShell({ children }: AppShellProps) {
 
         {/* Footer */}
         <div className="tenant-sidebar-footer">
+          <button
+            className="tenant-nav-link admin-sidebar-logout"
+            onClick={toggleTheme}
+            title={isSidebarCollapsed ? (theme === "dark" ? "Modo claro" : "Modo oscuro") : undefined}
+            type="button"
+          >
+            {theme === "dark" ? <SunIcon className="tenant-nav-icon" /> : <MoonIcon className="tenant-nav-icon" />}
+            <span className="tenant-nav-link-label">
+              {theme === "dark" ? "Modo claro" : "Modo oscuro"}
+            </span>
+          </button>
           <Link
             className={`tenant-nav-link${isActive(pathname, "/settings") ? " tenant-nav-link-active" : ""}`}
             href="/settings"
-            title={isCollapsed ? "Ajustes" : undefined}
+            title={isSidebarCollapsed ? "Ajustes" : undefined}
+            prefetch={false}
           >
             <SettingsIcon className="tenant-nav-icon" />
             <span className="tenant-nav-link-label">Ajustes</span>
@@ -221,7 +228,7 @@ export function AppShell({ children }: AppShellProps) {
             className="tenant-nav-link admin-sidebar-logout"
             disabled={isLoggingOut}
             onClick={handleLogout}
-            title={isCollapsed ? "Cerrar sesión" : undefined}
+            title={isSidebarCollapsed ? "Cerrar sesión" : undefined}
             type="button"
           >
             <LogoutIcon className="tenant-nav-icon" />

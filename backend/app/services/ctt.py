@@ -70,31 +70,97 @@ def get_token() -> str:
 
 
 def create_shipping(shipping_data: dict) -> dict:
+    return _request_json(
+        method="POST",
+        path="/integrations/manifest/v2.0/shippings",
+        body=shipping_data,
+    )
+
+
+def get_tracking(
+    tracking_code: str,
+    *,
+    view: str = "APITRACK",
+    show_items: bool = False,
+) -> dict:
+    params = urlencode({
+        "view": view,
+        "showItems": str(show_items).lower(),
+    })
+    return _request_json(
+        method="GET",
+        path=f"/integrations-info/trf/item-history-api/history/{tracking_code}?{params}",
+    )
+
+
+def get_trackings_by_date(
+    *,
+    shipping_date: str,
+    client_center_code: str,
+    mapping_table_code: str = "APITRACK",
+    page_limit: int = 200,
+    page_offsets: int = 1,
+    order_by: str = "-shipping_date",
+) -> dict:
+    params = urlencode({
+        "page_limit": page_limit,
+        "page_offsets": page_offsets,
+        "mapping_table_code": mapping_table_code,
+        "order_by": order_by,
+        "client_center_code": client_center_code,
+        "shipping_date": shipping_date,
+    })
+    return _request_json(
+        method="GET",
+        path=f"/integrations/trf/web-tracking/v1.0/shippings?{params}",
+    )
+
+
+def _request_json(
+    *,
+    method: str,
+    path: str,
+    body: dict | None = None,
+) -> dict:
     token = get_token()
-    body = json.dumps(shipping_data).encode()
+    raw_body = json.dumps(body).encode() if body is not None else None
     req = request.Request(
-        f"{_base_url()}/integrations/manifest/v2.0/shippings",
-        data=body,
+        f"{_base_url()}{path}",
+        data=raw_body,
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         },
-        method="POST",
+        method=method,
     )
     try:
         with request.urlopen(req, context=_ssl_context()) as resp:
-            return json.loads(resp.read())
+            raw = resp.read()
     except error.HTTPError as exc:
-        raise CTTError(f"Create shipping failed ({exc.code}): {exc.read().decode()}") from exc
+        raise CTTError(f"CTT request failed ({exc.code}) {method} {path}: {exc.read().decode()}") from exc
+    except error.URLError as exc:
+        raise CTTError(f"CTT request network error {method} {path}: {exc.reason}") from exc
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        preview = raw.decode("utf-8", errors="ignore")[:400].strip()
+        raise CTTError(
+            f"CTT returned a non-JSON response for {method} {path}: {preview or '[empty body]'}"
+        ) from exc
 
 
-def get_label(tracking_code: str, label_type: str = "PDF") -> bytes:
+def get_label(
+    tracking_code: str,
+    label_type: str = "PDF",
+    model_type: str = "SINGLE",
+) -> bytes:
     import base64
 
     token = get_token()
     params = urlencode({
         "label_type_code": label_type,
-        "model_type_code": "MULTI4",
+        "model_type_code": model_type,
         "label_offset": "1",
     })
     url = (

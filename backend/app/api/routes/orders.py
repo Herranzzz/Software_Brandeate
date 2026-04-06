@@ -31,6 +31,7 @@ from app.schemas.order import (
     OrderProductionStatusUpdate,
     OrderRead,
     OrderStatusUpdate,
+    OrderUpdate,
 )
 from app.schemas.pick_batch import (
     OrderBulkIncidentCreate,
@@ -39,6 +40,7 @@ from app.schemas.pick_batch import (
     PickBatchCreate,
     PickBatchRead,
 )
+from app.services.automation_rules import evaluate_order_automation_rules
 from app.services.orders import infer_order_is_personalized, sync_order_item_design_statuses
 
 
@@ -52,6 +54,10 @@ def _order_query():
         selectinload(Order.incidents),
         selectinload(Order.shipment).selectinload(Shipment.events),
     )
+
+
+def _order_detail_query():
+    return _order_query().options(selectinload(Order.automation_events))
 
 
 def _pick_batch_query():
@@ -138,7 +144,11 @@ def _load_target_orders(
     orders = list(
         db.scalars(
             select(Order)
-            .options(selectinload(Order.incidents))
+            .options(
+                selectinload(Order.items),
+                selectinload(Order.incidents),
+                selectinload(Order.shipment).selectinload(Shipment.events),
+            )
             .where(Order.id.in_(order_ids))
         )
     )
@@ -186,6 +196,27 @@ def create_order(
         is_personalized=payload.is_personalized if payload.is_personalized is not None else infer_order_is_personalized(payload.items),
         customer_name=payload.customer_name,
         customer_email=payload.customer_email,
+        shipping_name=payload.shipping_name,
+        shipping_phone=payload.shipping_phone,
+        shipping_country_code=payload.shipping_country_code,
+        shipping_postal_code=payload.shipping_postal_code,
+        shipping_address_line1=payload.shipping_address_line1,
+        shipping_address_line2=payload.shipping_address_line2,
+        shipping_town=payload.shipping_town,
+        shipping_province_code=payload.shipping_province_code,
+        shopify_shipping_snapshot_json=payload.shopify_shipping_snapshot_json,
+        shopify_shipping_rate_name=payload.shopify_shipping_rate_name,
+        shopify_shipping_rate_amount=payload.shopify_shipping_rate_amount,
+        shopify_shipping_rate_currency=payload.shopify_shipping_rate_currency,
+        delivery_type=payload.delivery_type,
+        shipping_service_code=payload.shipping_service_code,
+        shipping_service_name=payload.shipping_service_name,
+        shipping_rate_amount=payload.shipping_rate_amount,
+        shipping_rate_currency=payload.shipping_rate_currency,
+        shipping_rate_estimated_days_min=payload.shipping_rate_estimated_days_min,
+        shipping_rate_estimated_days_max=payload.shipping_rate_estimated_days_max,
+        shipping_rate_quote_id=payload.shipping_rate_quote_id,
+        pickup_point_json=payload.pickup_point_json,
         note=payload.note,
         tags_json=payload.tags_json,
         channel=payload.channel,
@@ -200,11 +231,13 @@ def create_order(
     sync_order_item_design_statuses(order)
 
     db.add(order)
+    db.flush()
+    evaluate_order_automation_rules(db=db, order=order, source="order_create")
     db.commit()
     db.refresh(order)
 
     return db.scalar(
-        _order_query().where(Order.id == order.id)
+        _order_detail_query().where(Order.id == order.id)
     )
 
 
@@ -355,6 +388,7 @@ def bulk_update_order_production_status(
     orders = _load_target_orders(db, payload.order_ids, accessible_shop_ids)
     for order in orders:
         order.production_status = payload.production_status
+        evaluate_order_automation_rules(db=db, order=order, source="bulk_production_status")
     db.commit()
     return list(
         db.scalars(_order_query().where(Order.id.in_(payload.order_ids)).order_by(Order.created_at.desc(), Order.id.desc()))
@@ -541,7 +575,7 @@ def get_order(
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> Order:
-    order = db.scalar(_order_query().where(Order.id == order_id))
+    order = db.scalar(_order_detail_query().where(Order.id == order_id))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
@@ -587,8 +621,9 @@ def update_order_status(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
     order.status = payload.status
+    evaluate_order_automation_rules(db=db, order=order, source="order_status_update")
     db.commit()
-    return db.scalar(_order_query().where(Order.id == order_id))
+    return db.scalar(_order_detail_query().where(Order.id == order_id))
 
 
 @router.patch("/{order_id}/production-status", response_model=OrderDetailRead)
@@ -605,8 +640,9 @@ def update_order_production_status(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
     order.production_status = payload.production_status
+    evaluate_order_automation_rules(db=db, order=order, source="order_production_update")
     db.commit()
-    return db.scalar(_order_query().where(Order.id == order_id))
+    return db.scalar(_order_detail_query().where(Order.id == order_id))
 
 
 @router.patch("/{order_id}/priority", response_model=OrderDetailRead)
@@ -624,4 +660,26 @@ def update_order_priority(
 
     order.priority = payload.priority
     db.commit()
-    return db.scalar(_order_query().where(Order.id == order_id))
+    return db.scalar(_order_detail_query().where(Order.id == order_id))
+
+
+@router.patch("/{order_id}", response_model=OrderDetailRead)
+def update_order(
+    order_id: int,
+    payload: OrderUpdate,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> Order:
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+
+    updates = payload.model_dump(exclude_unset=True)
+    for key, value in updates.items():
+        setattr(order, key, value)
+
+    evaluate_order_automation_rules(db=db, order=order, source="order_update")
+    db.commit()
+    return db.scalar(_order_detail_query().where(Order.id == order_id))

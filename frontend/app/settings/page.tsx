@@ -1,6 +1,9 @@
 import { Card } from "@/components/card";
+import { CreateShopButton } from "@/components/create-shop-button";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { ShopShippingSettingsForm } from "@/components/shop-shipping-settings-form";
+import { ShippingRulesManager } from "@/components/shipping-rules-manager";
 import { ShopifySyncPanel } from "@/components/shopify-sync-panel";
 import { TeamManagementPanel } from "@/components/team-management-panel";
 import { fetchAdminUsers, fetchShops, fetchShopifyIntegrations } from "@/lib/api";
@@ -28,15 +31,24 @@ function renderSyncSummary(summary: Record<string, unknown> | null) {
 
 export default async function SettingsPage() {
   await requireAdminUser();
-  const [shops, integrations] = await Promise.all([
+  const [shopsResult, integrationsResult, usersResult] = await Promise.allSettled([
     fetchShops(),
     fetchShopifyIntegrations(),
+    fetchAdminUsers(),
   ]);
-  const users = await fetchAdminUsers();
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
+  const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
+  const users = usersResult.status === "fulfilled" ? usersResult.value : [];
 
   return (
     <div className="stack">
       <PageHeader
+        actions={
+          <CreateShopButton
+            buttonLabel="Crear tienda"
+            description="Crea una nueva tienda y después podrás conectarla a Shopify, asignar equipo y configurar expediciones."
+          />
+        }
         eyebrow="Ajustes"
         title="Integraciones y branding"
         description="Centro de configuración de Brandeate para sincronización con Shopify y presencia visual del portal cliente."
@@ -46,7 +58,7 @@ export default async function SettingsPage() {
         <Card className="stack settings-section-card">
           <div className="settings-section-head">
             <div>
-              <span className="eyebrow">Integraciones</span>
+              <span className="eyebrow">🔗 Integraciones</span>
               <h3 className="section-title section-title-small">Shopify</h3>
               <p className="subtitle">
                 Gestiona la tienda conectada, la última sincronización y las importaciones manuales desde un único lugar.
@@ -69,7 +81,7 @@ export default async function SettingsPage() {
         <Card className="stack table-card">
           <div className="table-header">
             <div>
-              <span className="eyebrow">Integraciones</span>
+              <span className="eyebrow">🔗 Integraciones</span>
               <h3 className="section-title section-title-small">Estado por tienda</h3>
             </div>
             <div className="muted">{integrations.length} conectadas</div>
@@ -107,6 +119,36 @@ export default async function SettingsPage() {
         </Card>
       ) : null}
 
+      {shops.length > 0 ? (
+        <Card className="stack settings-section-card">
+          <div className="settings-section-head">
+            <div>
+              <span className="eyebrow">🚚 Expediciones</span>
+              <h3 className="section-title section-title-small">Configuración por tienda</h3>
+              <p className="subtitle">
+                Ajusta el origen de envío y los defaults operativos que usará CTT al crear etiquetas desde cada tienda.
+              </p>
+            </div>
+          </div>
+
+          <div className="settings-shipping-grid">
+            {shops.map((shop) => (
+              <article className="shop-settings-card" key={shop.id}>
+                <div className="shop-settings-card-head">
+                  <div>
+                    <div className="table-primary">{shop.name}</div>
+                    <div className="table-secondary">/{shop.slug}</div>
+                  </div>
+                  <span className="portal-soft-pill">Shop #{shop.id}</span>
+                </div>
+                <ShopShippingSettingsForm shop={shop} submitLabel="Guardar tienda" />
+                <ShippingRulesManager shop={shop} />
+              </article>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
       <Card className="stack settings-section-card">
         <TeamManagementPanel shops={shops} users={users} />
       </Card>
@@ -114,7 +156,7 @@ export default async function SettingsPage() {
       <Card className="stack settings-section-card">
         <div className="settings-section-head">
           <div>
-              <span className="eyebrow">Branding</span>
+              <span className="eyebrow">🎨 Branding</span>
               <h3 className="section-title section-title-small">Portal cliente</h3>
               <p className="subtitle">
               Preparación visual del tenant con marca del cliente sobre infraestructura Brandeate. Esta primera versión usa configuración local del frontend.

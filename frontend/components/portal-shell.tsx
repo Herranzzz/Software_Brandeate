@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
+import { type CSSProperties, type ReactNode, type SVGProps } from "react";
 
 import { LogoutButton } from "@/components/logout-button";
+import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
+import { useLayoutState } from "@/components/layout-state-provider";
 import { getTenantBranding } from "@/lib/tenant-branding";
 import { resolveTenantScope } from "@/lib/tenant-scope";
 import type { Shop, User } from "@/lib/types";
@@ -86,6 +88,23 @@ function SettingsIcon(props: IconProps) {
   );
 }
 
+function SunIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 3.5v2.2M12 18.3v2.2M5.64 5.64l1.56 1.56M16.8 16.8l1.56 1.56M3.5 12h2.2M18.3 12h2.2M5.64 18.36l1.56-1.56M16.8 7.2l1.56-1.56" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function MoonIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M19 14.8A7.8 7.8 0 0 1 9.2 5a8.4 8.4 0 1 0 9.8 9.8Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function LogoutIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -100,7 +119,7 @@ const portalNavItems = [
   { href: "/portal", label: "Resumen", shortLabel: "Inicio", icon: HomeIcon },
   { href: "/portal/orders", label: "Pedidos", shortLabel: "Pedidos", icon: OrdersIcon },
   { href: "/portal/returns", label: "Devoluciones", shortLabel: "Devol.", icon: ReturnsIcon },
-  { href: "/portal/reporting", label: "Reporting", shortLabel: "Report", icon: AnalyticsIcon },
+  { href: "/portal/shipments", label: "Expediciones", shortLabel: "Exp.", icon: AnalyticsIcon },
   { href: "/portal/settings", label: "Ajustes", shortLabel: "Ajustes", icon: SettingsIcon },
 ];
 
@@ -117,24 +136,25 @@ function isActive(pathname: string, href: string) {
 export function PortalShell({ children, user, shops }: PortalShellProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [isHovered, setIsHovered] = useState(false);
+  const { isSidebarCollapsed, theme, toggleTheme } = useLayoutState();
   const tenantScope = resolveTenantScope(shops, searchParams.get("shop_id"));
   const primaryShop = tenantScope.selectedShop ?? shops[0];
   const branding = getTenantBranding(primaryShop);
-  const isCollapsed = !isHovered;
   const style = {
     "--tenant-accent": branding.accentColor,
     "--tenant-accent-soft": `${branding.accentColor}14`,
   } as CSSProperties;
 
   return (
-    <div className={`tenant-shell tenant-shell-branded ${isCollapsed ? "tenant-shell-collapsed" : ""}`} style={style}>
-      <aside
-        className="tenant-sidebar"
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
+    <div
+      className={`tenant-shell tenant-shell-branded${isSidebarCollapsed ? " tenant-shell-collapsed" : ""}`}
+      style={style}
+    >
+      <aside className="tenant-sidebar">
         <div className="tenant-sidebar-header">
+          <div className="tenant-sidebar-header-actions">
+            <SidebarCollapseButton />
+          </div>
           <div className="tenant-brand-lockup">
             {branding.logoUrl ? (
               <img alt={branding.displayName} className="tenant-logo" src={branding.logoUrl} />
@@ -168,17 +188,29 @@ export function PortalShell({ children, user, shops }: PortalShellProps) {
                   : item.href
               }
               key={item.href}
-              title={isCollapsed ? item.label : undefined}
+              prefetch={false}
+              title={isSidebarCollapsed ? item.label : undefined}
             >
               <item.icon className="tenant-nav-icon" />
-              <span className="tenant-nav-link-label">{isCollapsed ? item.shortLabel : item.label}</span>
+              <span className="tenant-nav-link-label">{item.label}</span>
             </Link>
           ))}
         </nav>
 
         <div className="tenant-sidebar-footer">
           <div className="tenant-chip" title={user.role}>{user.role}</div>
-          <LogoutButton />
+          <button
+            className="tenant-nav-link admin-sidebar-logout"
+            onClick={toggleTheme}
+            title={isSidebarCollapsed ? (theme === "dark" ? "Modo claro" : "Modo oscuro") : undefined}
+            type="button"
+          >
+            {theme === "dark" ? <SunIcon className="tenant-nav-icon" /> : <MoonIcon className="tenant-nav-icon" />}
+            <span className="tenant-nav-link-label">
+              {theme === "dark" ? "Modo claro" : "Modo oscuro"}
+            </span>
+          </button>
+          <LogoutButton className="button-secondary tenant-logout-button" />
           <button
             aria-label="Cerrar sesión"
             className="tenant-sidebar-icon-button"

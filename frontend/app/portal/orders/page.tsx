@@ -28,13 +28,13 @@ type PortalOrdersPageProps = {
 };
 
 const quickFilterOptions: Array<{ key: PortalOrderQuickFilter; label: string }> = [
-  { key: "all", label: "Todos" },
-  { key: "personalized", label: "Personalizados" },
-  { key: "standard", label: "Estándar" },
-  { key: "design_available", label: "Diseño disponible" },
-  { key: "pending_asset", label: "Pendiente de asset" },
-  { key: "incident", label: "Con incidencia" },
-  { key: "not_prepared", label: "No preparados" },
+  { key: "all", label: "📋 Todos" },
+  { key: "personalized", label: "🎨 Personalizados" },
+  { key: "standard", label: "📦 Estándar" },
+  { key: "design_available", label: "✅ Diseño disponible" },
+  { key: "pending_asset", label: "⏳ Pendiente de asset" },
+  { key: "incident", label: "⚠️ Con incidencia" },
+  { key: "not_prepared", label: "🔧 No preparados" },
 ];
 
 /** Traduce el quick filter del portal a los parámetros de la API. */
@@ -57,17 +57,8 @@ function quickFilterToApiParams(filter: PortalOrderQuickFilter) {
   }
 }
 
-function getPrimaryItemSummary(order: Order) {
-  const primary = order.items[0];
-  if (!primary) {
-    return { title: "Sin producto", variant: "Sin variante", quantity: 0, moreItems: 0 };
-  }
-  return {
-    title: primary.title ?? primary.name,
-    variant: primary.variant_title ?? "Sin variante",
-    quantity: primary.quantity,
-    moreItems: Math.max(order.items.length - 1, 0),
-  };
+function getOrderItems(order: Order) {
+  return order.items ?? [];
 }
 
 export default async function PortalOrdersPage({ searchParams }: PortalOrdersPageProps) {
@@ -162,7 +153,7 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
       <Card className="portal-glass-card portal-orders-table-card">
         <div className="portal-dashboard-section-head">
           <div>
-            <span className="eyebrow">Pedidos</span>
+            <span className="eyebrow">📋 Pedidos</span>
             <h3 className="section-title section-title-small">Vista operativa del cliente</h3>
             <p className="subtitle">Estados claros, tracking visible y acceso rápido al detalle para transmitir confianza y control.</p>
           </div>
@@ -195,7 +186,7 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
         ) : (
           <div className="portal-orders-list">
             {orders.map((order) => {
-              const summary = getPrimaryItemSummary(order);
+              const items = getOrderItems(order);
               const stage = clientOrderStageMeta[getClientOrderStage(order)];
               const latestEvent = getLatestTrackingEvent(order);
               return (
@@ -215,12 +206,30 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
 
                     <div className="portal-order-row-grid">
                       <div>
-                        <span className="portal-summary-label">Producto principal</span>
-                        <strong>{summary.title}</strong>
-                        <div className="table-secondary">
-                          {summary.variant}
-                          {summary.moreItems > 0 ? ` · +${summary.moreItems} más` : ""}
-                        </div>
+                        <span className="portal-summary-label">Productos</span>
+                        {items.length > 0 ? (
+                          <div className="portal-order-items-list">
+                            {items.map((item) => (
+                              <div className="portal-order-item-line" key={item.id}>
+                                <div className="portal-order-item-top">
+                                  <strong>{item.title ?? item.name}</strong>
+                                  {(item.quantity ?? 0) > 1 ? (
+                                    <span className="badge badge-quantity">x{item.quantity}</span>
+                                  ) : null}
+                                </div>
+                                <div className="table-secondary">
+                                  {item.variant_title ?? "Sin variante"}
+                                  {(item.quantity ?? 0) > 1 ? " · misma línea de Shopify" : ""}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <>
+                            <strong>Sin producto</strong>
+                            <div className="table-secondary">No hay líneas disponibles</div>
+                          </>
+                        )}
                       </div>
                       <div>
                         <span className="portal-summary-label">Tracking</span>

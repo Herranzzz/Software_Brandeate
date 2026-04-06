@@ -32,3 +32,24 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     },
   });
 }
+
+export async function GET(_: NextRequest, context: RouteContext) {
+  const { shopId } = await context.params;
+  const token = (await cookies()).get("auth_token")?.value;
+
+  const response = await fetch(apiUrl(`/shops/${shopId}`), {
+    method: "GET",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    cache: "no-store",
+  });
+
+  const text = await response.text();
+  return new NextResponse(text, {
+    status: response.status,
+    headers: {
+      "Content-Type": response.headers.get("Content-Type") ?? "application/json",
+    },
+  });
+}

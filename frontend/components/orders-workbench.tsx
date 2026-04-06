@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
+import { AutomationFlagBadge } from "@/components/automation-flag-badge";
 import { Card } from "@/components/card";
 import { CttLabelCell } from "@/components/ctt-label-cell";
 import { DesignAvailabilityBadge } from "@/components/design-availability-badge";
@@ -12,6 +13,7 @@ import { PriorityBadge } from "@/components/priority-badge";
 import { ProductionBadge } from "@/components/production-badge";
 import { RenderPreviewLightbox } from "@/components/render-preview-lightbox";
 import { StatusBadge } from "@/components/status-badge";
+import { getOrderShipmentLabelUrl } from "@/lib/ctt";
 import {
   formatDateTime,
   getOrderLastUpdate,
@@ -35,6 +37,7 @@ type OrdersWorkbenchProps = {
   batches: PickBatch[];
   shops: Shop[];
   initialShopId: string;
+  initialTotalCount: number;
   initialPage: number;
   initialPerPage: number;
   initialQuery: string;
@@ -51,12 +54,12 @@ type QuickFilterKey =
   | "not_prepared";
 
 const quickFilterMeta: Array<{ key: QuickFilterKey; label: string }> = [
-  { key: "personalized", label: "Personalizados" },
-  { key: "standard", label: "Estándar" },
-  { key: "design_available", label: "Diseño disponible" },
-  { key: "pending_asset", label: "Pendiente de asset" },
-  { key: "has_incident", label: "Con incidencia" },
-  { key: "not_prepared", label: "No preparados" },
+  { key: "personalized", label: "🎨 Personalizados" },
+  { key: "standard", label: "📦 Estándar" },
+  { key: "design_available", label: "✅ Diseño disponible" },
+  { key: "pending_asset", label: "⏳ Pendiente de asset" },
+  { key: "has_incident", label: "⚠️ Con incidencia" },
+  { key: "not_prepared", label: "🔧 No preparados" },
 ];
 
 
@@ -68,12 +71,20 @@ function getOrderItems(order: Order) {
   return order.items ?? [];
 }
 
+function getAutomationFlags(order: Pick<Order, "automation_flags"> | null | undefined) {
+  return Array.isArray(order?.automation_flags) ? order.automation_flags : [];
+}
+
 function getAdditionalItemsCount(order: Order) {
   return Math.max(getOrderItems(order).length - 1, 0);
 }
 
 function getDisplayedOrderItems(order: Order) {
-  return getOrderItems(order).slice(0, 2);
+  return getOrderItems(order);
+}
+
+function hasRepeatedQuantity(orderItem: Order["items"][number]) {
+  return (orderItem.quantity ?? 0) > 1;
 }
 
 function getOrderItemsLabel(order: Order) {
@@ -99,6 +110,14 @@ function getOrderVariantLabel(order: Order) {
 
   const primaryVariant = getVariantLabel(items[0]);
   return items.length > 1 ? `${primaryVariant} + ${items.length - 1}` : primaryVariant;
+}
+
+function getOrderItemQuantityLabel(orderItem: Order["items"][number]) {
+  if (!hasRepeatedQuantity(orderItem)) {
+    return null;
+  }
+
+  return `x${orderItem.quantity}`;
 }
 
 
@@ -403,6 +422,7 @@ export function OrdersWorkbench({
   batches,
   shops,
   initialShopId,
+  initialTotalCount,
   initialPage,
   initialPerPage,
   initialQuery,
@@ -421,6 +441,7 @@ export function OrdersWorkbench({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [query, setQuery] = useState(initialQuery);
   const [selectedShopId, setSelectedShopId] = useState<string>(initialShopId);
+  const [totalCount, setTotalCount] = useState(initialTotalCount);
   const [page, setPage] = useState(initialPage);
   const [perPage, setPerPage] = useState(initialPerPage);
   const [activeFilters, setActiveFilters] = useState<QuickFilterKey[]>(
@@ -450,6 +471,10 @@ export function OrdersWorkbench({
     setOrders(initialOrders);
     setSelectedIds([]);
   }, [initialOrders]);
+
+  useEffect(() => {
+    setTotalCount(initialTotalCount);
+  }, [initialTotalCount]);
 
   useEffect(() => {
     setView(initialView);
@@ -555,9 +580,9 @@ export function OrdersWorkbench({
   );
 
   const selectedCount = selectedOrders.length;
-  const canGoNext = orders.length === perPage;
   const showingFrom = orders.length === 0 ? 0 : (page - 1) * perPage + 1;
   const showingTo = (page - 1) * perPage + orders.length;
+  const canGoNext = showingTo < totalCount;
 
   function toggleSelected(orderId: number) {
     setSelectedIds((current) =>
@@ -801,7 +826,7 @@ export function OrdersWorkbench({
                 <strong>
                   Mostrando {showingFrom}-{showingTo || 0}
                 </strong>
-                <span>del lote cargado en esta vista</span>
+                <span>{totalCount > 0 ? `${totalCount} pedidos en total` : "del lote cargado en esta vista"}</span>
               </div>
               <div className="orders-table-pagination-tools">
                 <label className="orders-table-per-page" htmlFor="orders-per-page">
@@ -918,7 +943,12 @@ export function OrdersWorkbench({
                             <div className="orders-cell-stack">
                               {displayItems.map((displayItem, index) => (
                                 <div className="orders-cell-line" key={`${order.id}-title-${displayItem.id ?? index}`}>
-                                  <div className="table-primary">{displayItem?.title ?? displayItem?.name ?? "Sin item"}</div>
+                                  <div className="orders-cell-line-top">
+                                    <div className="table-primary">{displayItem?.title ?? displayItem?.name ?? "Sin item"}</div>
+                                    {getOrderItemQuantityLabel(displayItem) ? (
+                                      <span className="badge badge-quantity">{getOrderItemQuantityLabel(displayItem)}</span>
+                                    ) : null}
+                                  </div>
                                   {displayItem.design_link ? (
                                     <a className="table-link" href={displayItem.design_link} rel="noreferrer" target="_blank">
                                       Abrir diseño
@@ -926,18 +956,26 @@ export function OrdersWorkbench({
                                   ) : (
                                     <div className="table-secondary">Sin design link</div>
                                   )}
+                                  {hasRepeatedQuantity(displayItem) ? (
+                                    <div className="table-secondary">Misma línea de Shopify · misma personalización</div>
+                                  ) : null}
                                 </div>
                               ))}
                             </div>
                             {additionalItemsCount > 0 ? (
-                              <div className="table-secondary">{order.items.length} productos en el pedido</div>
+                              <div className="table-secondary">{getOrderItems(order).length} líneas de producto en el pedido</div>
                             ) : null}
                           </td>
                           <td>
                             <div className="orders-cell-stack">
                               {displayItems.map((displayItem, index) => (
                                 <div className="orders-cell-line" key={`${order.id}-variant-${displayItem.id ?? index}`}>
-                                  <div className="table-primary">{getVariantLabel(displayItem)}</div>
+                                  <div className="orders-cell-line-top">
+                                    <div className="table-primary">{getVariantLabel(displayItem)}</div>
+                                    {getOrderItemQuantityLabel(displayItem) ? (
+                                      <span className="badge badge-quantity">{getOrderItemQuantityLabel(displayItem)}</span>
+                                    ) : null}
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -957,7 +995,16 @@ export function OrdersWorkbench({
                             </div>
                           </td>
                           <td>
-                            <span className={operationalStatus.className}>{operationalStatus.label}</span>
+                            <div className="orders-status-stack">
+                              <span className={operationalStatus.className}>{operationalStatus.label}</span>
+                              {getAutomationFlags(order).length > 0 ? (
+                                <div className="automation-flag-row">
+                                  {getAutomationFlags(order).slice(0, 2).map((flag) => (
+                                    <AutomationFlagBadge flag={flag} key={`${order.id}-${flag.key}`} />
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
                           </td>
                           <td>
                             <div className="table-primary">{age}</div>
@@ -1146,6 +1193,35 @@ export function OrdersWorkbench({
                     Abrir tracking
                   </a>
                 ) : null}
+                {getOrderShipmentLabelUrl(quickDetail) ? (
+                  <div className="orders-drawer-inline-links">
+                    <a className="table-link" href={getOrderShipmentLabelUrl(quickDetail) ?? "#"} rel="noreferrer" target="_blank">
+                      Ver etiqueta PDF
+                    </a>
+                    <a
+                      className="table-link"
+                      download
+                      href={getOrderShipmentLabelUrl(quickDetail, { download: true }) ?? "#"}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Descargar
+                    </a>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="orders-drawer-section">
+                <span className="eyebrow">Automatizaciones</span>
+                {getAutomationFlags(quickDetail).length > 0 ? (
+                  <div className="automation-flag-row">
+                    {getAutomationFlags(quickDetail).map((flag) => (
+                      <AutomationFlagBadge flag={flag} key={`${quickDetail.id}-${flag.key}`} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="table-secondary">Sin alertas automáticas activas ahora mismo.</div>
+                )}
               </div>
 
               <div className="orders-drawer-section">
@@ -1157,6 +1233,7 @@ export function OrdersWorkbench({
                         <div className="table-primary">{incident.title}</div>
                         <div className="table-secondary">
                           {incident.type} · {incident.priority} · {incident.status}
+                          {incident.is_automated ? " · automática" : ""}
                         </div>
                       </article>
                     ))}

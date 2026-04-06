@@ -5,6 +5,8 @@ type TimelineEvent = {
   id: number;
   status_norm: string;
   status_raw: string | null;
+  source: string | null;
+  location: string | null;
   occurred_at: string;
 };
 
@@ -47,6 +49,8 @@ export function TrackingTimeline({
             </div>
             <div className="muted timeline-copy">
               {event.status_raw ?? "Actualizacion sin texto adicional"}
+              {event.location ? ` · ${event.location}` : ""}
+              {event.source ? ` · ${event.source.toUpperCase()}` : ""}
             </div>
           </div>
         </article>
