@@ -7,6 +7,7 @@ import {
 } from "@/components/shared-shipments-view";
 import { fetchAnalyticsOverview, fetchOrders, fetchShopifyIntegrations } from "@/lib/api";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
+import type { AnalyticsOverview } from "@/lib/types";
 import { resolveTenantScope } from "@/lib/tenant-scope";
 
 type PortalShipmentsPageProps = {
@@ -18,9 +19,10 @@ function readValue(value: string | string[] | undefined) {
 }
 
 export default async function PortalShipmentsPage({ searchParams }: PortalShipmentsPageProps) {
-  await requirePortalUser();
+  const [userResult, shopsResult] = await Promise.allSettled([requirePortalUser(), fetchMyShops()]);
+  if (userResult.status === "rejected") throw userResult.reason;
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const params = (await searchParams) ?? {};
-  const shops = await fetchMyShops();
   const tenantScope = resolveTenantScope(shops, readValue(params.shop_id));
   const period = (readValue(params.period) === "30d" || readValue(params.period) === "ytd" || readValue(params.period) === "custom"
     ? readValue(params.period)
@@ -33,7 +35,7 @@ export default async function PortalShipmentsPage({ searchParams }: PortalShipme
   const perPage = Math.min(Math.max(Number(readValue(params.per_page) ?? "100") || 100, 1), 500);
   const tenantShopIds = tenantScope.shops.map((shop) => shop.id);
 
-  const [orders, integrations, analytics] = await Promise.all([
+  const [ordersResult, integrationsResult, analyticsResult] = await Promise.allSettled([
     fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId, per_page: perPage } : { per_page: perPage })
       .then(({ orders }) => orders),
     fetchShopifyIntegrations(),
@@ -43,6 +45,9 @@ export default async function PortalShipmentsPage({ searchParams }: PortalShipme
       shop_id: tenantScope.selectedShopId,
     }),
   ]);
+  const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
+  const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
+  const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : {} as AnalyticsOverview;
 
   return (
     <SharedShipmentsView

@@ -30,12 +30,13 @@ function renderSyncSummary(summary: Record<string, unknown> | null) {
 
 
 export default async function SettingsPage() {
-  await requireAdminUser();
-  const [shopsResult, integrationsResult, usersResult] = await Promise.allSettled([
+  const [userResult, shopsResult, integrationsResult, usersResult] = await Promise.allSettled([
+    requireAdminUser(),
     fetchShops(),
     fetchShopifyIntegrations(),
     fetchAdminUsers(),
   ]);
+  if (userResult.status === "rejected") throw userResult.reason;
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
   const users = usersResult.status === "fulfilled" ? usersResult.value : [];

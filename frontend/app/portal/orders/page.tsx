@@ -62,7 +62,9 @@ function getOrderItems(order: Order) {
 }
 
 export default async function PortalOrdersPage({ searchParams }: PortalOrdersPageProps) {
-  await requirePortalUser();
+  const [userResult, shopsResult] = await Promise.allSettled([requirePortalUser(), fetchMyShops()]);
+  if (userResult.status === "rejected") throw userResult.reason;
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const params = await searchParams;
   const page = Math.max(Number(params.page ?? "1") || 1, 1);
   const perPage = Math.min(Math.max(Number(params.per_page ?? "50") || 50, 1), 500);
@@ -70,19 +72,24 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
   const quickFilter = quickFilterOptions.some((item) => item.key === params.quick)
     ? (params.quick as PortalOrderQuickFilter)
     : "all";
-
-  const shops = await fetchMyShops();
   const tenantScope = resolveTenantScope(shops, params.shop_id);
   const branding = getTenantBranding(tenantScope.selectedShop ?? shops[0]);
 
-  // Todos los filtros se resuelven en el servidor
-  const { orders, totalCount } = await fetchOrders({
-    page,
-    per_page: perPage,
-    q: query || undefined,
-    ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
-    ...quickFilterToApiParams(quickFilter),
-  });
+  let orders: Order[] = [];
+  let totalCount = 0;
+  try {
+    const result = await fetchOrders({
+      page,
+      per_page: perPage,
+      q: query || undefined,
+      ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+      ...quickFilterToApiParams(quickFilter),
+    });
+    orders = result.orders;
+    totalCount = result.totalCount;
+  } catch {
+    // Backend unavailable — render with empty data
+  }
 
   const pageCount = Math.max(1, Math.ceil(totalCount / perPage));
   const safePage = Math.min(page, pageCount);

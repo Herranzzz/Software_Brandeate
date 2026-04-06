@@ -8,6 +8,7 @@ import {
 } from "@/components/shared-shipments-view";
 import { fetchAnalyticsOverview, fetchOrders, fetchShopifyIntegrations, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
+import type { AnalyticsOverview } from "@/lib/types";
 
 type ShipmentsPageProps = {
   searchParams: Promise<{
@@ -32,7 +33,7 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
   const quick = params.quick ?? "all";
   const perPage = Math.min(Math.max(Number(params.per_page ?? "100") || 100, 1), 500);
 
-  const [_user, orders, shops, integrations, analytics] = await Promise.all([
+  const [userResult, ordersResult, shopsResult, integrationsResult, analyticsResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchOrders({
       shop_id: params.shop_id,
@@ -46,6 +47,11 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
       date_to: dateTo,
     }),
   ]);
+  if (userResult.status === "rejected") throw userResult.reason;
+  const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
+  const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
+  const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : {} as AnalyticsOverview;
 
   return (
     <SharedShipmentsView
