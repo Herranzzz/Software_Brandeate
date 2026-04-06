@@ -377,19 +377,30 @@ function buildAddressLines(parts: Array<string | null | undefined>) {
 }
 
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
-  await requireAdminUser();
-  const { id } = await params;
+  const [, { id }] = await Promise.all([requireAdminUser(), params]);
   const token = await getAuthToken();
-  const [order, incidents] = await Promise.all([
-    fetchOrderById(id),
-    fetchOrderIncidents(id),
-  ]);
+
+  let order: Awaited<ReturnType<typeof fetchOrderById>>;
+  let incidents: Awaited<ReturnType<typeof fetchOrderIncidents>>;
+  try {
+    [order, incidents] = await Promise.all([
+      fetchOrderById(id),
+      fetchOrderIncidents(id),
+    ]);
+  } catch {
+    notFound();
+  }
 
   if (!order || incidents === null) {
     notFound();
   }
 
-  const catalogProducts = await fetchShopCatalogProducts(order.shop_id);
+  let catalogProducts: ShopCatalogProduct[] = [];
+  try {
+    catalogProducts = await fetchShopCatalogProducts(order.shop_id);
+  } catch {
+    // Non-critical — continue without catalog data
+  }
   const primaryItem = order.items[0] ?? null;
   const designPreviewUrl = getPrimaryDesignPreview(order.items);
   const primaryItemSummary = primaryItem ? getProductSummary(primaryItem, catalogProducts) : null;
@@ -525,11 +536,11 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
 
           <Card className="stack">
             <SectionTitle eyebrow="⚡ Automatización" title="Reglas aplicadas" />
-            {order.automation_flags.length > 0 || (order.automation_events?.length ?? 0) > 0 ? (
+            {(order.automation_flags ?? []).length > 0 || (order.automation_events?.length ?? 0) > 0 ? (
               <div className="stack">
-                {order.automation_flags.length > 0 ? (
+                {(order.automation_flags ?? []).length > 0 ? (
                   <div className="automation-flag-row">
-                    {order.automation_flags.map((flag) => (
+                    {(order.automation_flags ?? []).map((flag) => (
                       <AutomationFlagBadge flag={flag} key={`${order.id}-${flag.key}`} />
                     ))}
                   </div>
