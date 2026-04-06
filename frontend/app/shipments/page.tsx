@@ -23,7 +23,6 @@ type ShipmentsPageProps = {
 };
 
 export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps) {
-  await requireAdminUser();
   const params = await searchParams;
   const period = (params.period === "30d" || params.period === "ytd" || params.period === "custom" ? params.period : "7d") as ShipmentPeriod;
   const defaultRange = period === "custom" ? getDefaultShipmentDateRange() : getShipmentDateRange(period);
@@ -33,7 +32,8 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
   const quick = params.quick ?? "all";
   const perPage = Math.min(Math.max(Number(params.per_page ?? "100") || 100, 1), 500);
 
-  const [orders, shops, integrations, analytics] = await Promise.all([
+  const [_user, orders, shops, integrations, analytics] = await Promise.all([
+    requireAdminUser(),
     fetchOrders({
       shop_id: params.shop_id,
       per_page: perPage,

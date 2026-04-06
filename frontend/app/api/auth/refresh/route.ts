@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers as nextHeaders } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { apiUrl } from "@/lib/api";
@@ -28,15 +28,19 @@ export async function POST() {
   }
 
   const payload = (await response.json()) as { access_token: string; refresh_token: string };
+  const hdrs = await nextHeaders();
+  const isSecure = (hdrs.get("x-forwarded-proto") ?? "http") === "https";
   const nextResponse = NextResponse.json({ ok: true });
   nextResponse.cookies.set("auth_token", payload.access_token, {
     httpOnly: true,
     sameSite: "lax",
+    secure: isSecure,
     path: "/",
   });
   nextResponse.cookies.set("refresh_token", payload.refresh_token, {
     httpOnly: true,
     sameSite: "lax",
+    secure: isSecure,
     path: "/",
   });
   return nextResponse;

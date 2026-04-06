@@ -36,13 +36,13 @@ function readBooleanParam(value?: string) {
 
 
 export default async function OrdersPage({ searchParams }: OrdersPageProps) {
-  await requireAdminUser();
   const params = await searchParams;
   const page = Math.max(Number(params.page ?? "1") || 1, 1);
   const perPage = Math.min(Math.max(Number(params.per_page ?? "100") || 100, 1), 500);
   const view = params.view === "batches" ? "batches" : "queue";
 
-  const [ordersResult, shopsResult, batchesResult] = await Promise.allSettled([
+  const [userResult, ordersResult, shopsResult, batchesResult] = await Promise.allSettled([
+    requireAdminUser(),
     fetchOrders({
       shop_id: params.shop_id,
       is_personalized: readBooleanParam(params.is_personalized),
@@ -61,6 +61,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     fetchShops(),
     fetchPickBatches({ shop_id: params.shop_id }),
   ]);
+  if (userResult.status === "rejected") throw userResult.reason;
 
   const { orders, totalCount } =
     ordersResult.status === "fulfilled"

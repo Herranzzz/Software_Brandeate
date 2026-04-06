@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isPending, setIsPending] = useState(false);
@@ -35,8 +33,9 @@ export default function LoginPage() {
 
     setMessage({ kind: "success", text: "Sesión iniciada." });
     const role = payload?.user?.role;
-    router.push(role === "super_admin" || role === "ops_admin" ? "/dashboard" : "/portal");
-    router.refresh();
+    const dest = role === "super_admin" || role === "ops_admin" ? "/dashboard" : "/portal";
+    // Full navigation so the server picks up the new auth cookies
+    window.location.href = dest;
   }
 
   return (

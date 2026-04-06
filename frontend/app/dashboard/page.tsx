@@ -114,15 +114,17 @@ function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], d
 }
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  await requireAdminUser();
   const params = await searchParams;
   const range = resolveRangePreset(params.range);
   const rangeDays = getRangeDays(range);
-  const [shopsResult, ordersResultSettled, incidentsResult] = await Promise.allSettled([
+  const [userResult, shopsResult, ordersResultSettled, incidentsResult] = await Promise.allSettled([
+    requireAdminUser(),
     fetchShops(),
     fetchOrders({ shop_id: params.shop_id }),
     fetchIncidents({ shop_id: params.shop_id }),
   ]);
+  // requireAdminUser redirects on failure — re-throw to trigger it
+  if (userResult.status === "rejected") throw userResult.reason;
 
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const ordersResult =

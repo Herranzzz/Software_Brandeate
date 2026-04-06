@@ -116,11 +116,10 @@ function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], d
 }
 
 export default async function PortalPage({ searchParams }: PortalPageProps) {
-  await requirePortalUser();
+  const [, shops] = await Promise.all([requirePortalUser(), fetchMyShops()]);
   const params = await searchParams;
   const range = resolveRangePreset(params.range);
   const rangeDays = getRangeDays(range);
-  const shops = await fetchMyShops();
   const tenantScope = resolveTenantScope(shops, params.shop_id);
   const branding = getTenantBranding(tenantScope.selectedShop ?? shops[0]);
 
