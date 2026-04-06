@@ -8,8 +8,9 @@ import { ProductionBadge } from "@/components/production-badge";
 import { RenderPreviewLightbox } from "@/components/render-preview-lightbox";
 import { SectionTitle } from "@/components/section-title";
 import { StatusBadge } from "@/components/status-badge";
+import { ShippingOptionsPanel } from "@/components/shipping-options-panel";
 import { fetchOrderById, fetchOrderIncidents, fetchShopCatalogProducts } from "@/lib/api";
-import { requirePortalUser } from "@/lib/auth";
+import { getAuthToken, requirePortalUser } from "@/lib/auth";
 import { formatDateTime, sortTrackingEvents } from "@/lib/format";
 import type { OrderItem, ShopCatalogProduct } from "@/lib/types";
 
@@ -31,6 +32,23 @@ type OrderActivity = {
   meta: string;
   icon: string;
   tone: "neutral" | "accent" | "warning";
+};
+
+type ShippingSnapshot = {
+  first_name?: string | null;
+  last_name?: string | null;
+  name?: string | null;
+  company?: string | null;
+  address1?: string | null;
+  address2?: string | null;
+  city?: string | null;
+  province?: string | null;
+  province_code?: string | null;
+  zip?: string | null;
+  country?: string | null;
+  country_code?: string | null;
+  phone?: string | null;
+  email?: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -257,7 +275,7 @@ function buildOrderActivityFeed(
   if (order.shipment) {
     activities.push({
       id: `shipment-${order.shipment.id}`,
-      occurredAt: order.shipment.created_at,
+      occurredAt: order.shipment.label_created_at ?? order.shipment.created_at,
       title: "Envío creado",
       description: `${order.shipment.carrier} · ${order.shipment.tracking_number}`,
       meta: "Shipment",
@@ -300,10 +318,23 @@ function buildOrderActivityFeed(
   });
 }
 
+function getShippingSnapshot(order: Awaited<ReturnType<typeof fetchOrderById>>): ShippingSnapshot | null {
+  const snapshot = order?.shopify_shipping_snapshot_json;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+  return snapshot as ShippingSnapshot;
+}
+
+function buildAddressLines(parts: Array<string | null | undefined>) {
+  return parts.map((part) => (part ?? "").trim()).filter(Boolean);
+}
+
 
 export default async function PortalOrderDetailPage({ params }: PortalOrderDetailPageProps) {
   await requirePortalUser();
   const { id } = await params;
+  const token = await getAuthToken();
   const [order, incidents] = await Promise.all([
     fetchOrderById(id),
     fetchOrderIncidents(id),
@@ -320,6 +351,21 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
   const primaryItemSummary = primaryItem ? getProductSummary(primaryItem, catalogProducts) : null;
   const activityFeed = buildOrderActivityFeed(order, incidents);
   const fulfillmentOrders = getFulfillmentOrders(order);
+  const shippingSnapshot = getShippingSnapshot(order);
+  const shopifyAddressLines = buildAddressLines([
+    shippingSnapshot?.company,
+    shippingSnapshot?.address1,
+    shippingSnapshot?.address2,
+    [shippingSnapshot?.zip, shippingSnapshot?.city].filter(Boolean).join(" "),
+    [shippingSnapshot?.province, shippingSnapshot?.country].filter(Boolean).join(", "),
+  ]);
+  const operationalAddressLines = buildAddressLines([
+    order.shipping_name,
+    order.shipping_address_line1,
+    order.shipping_address_line2,
+    [order.shipping_postal_code, order.shipping_town].filter(Boolean).join(" "),
+    order.shipping_country_code,
+  ]);
 
   return (
     <div className="stack">
@@ -351,7 +397,7 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
           </Card>
 
           <Card className="stack">
-            <SectionTitle eyebrow="Producto" title="Contenido del pedido" />
+            <SectionTitle eyebrow="📦 Producto" title="Contenido del pedido" />
             <div className="items-list">
               {order.items.map((item) => {
                 const itemSummary = getProductSummary(item, catalogProducts);
@@ -396,7 +442,7 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
           </Card>
 
           <Card className="stack">
-            <SectionTitle eyebrow="Actividad" title="Timeline del pedido" />
+            <SectionTitle eyebrow="📋 Actividad" title="Timeline del pedido" />
             <div className="order-activity-timeline">
               {activityFeed.map((activity, index) => (
                 <article className={`order-activity-card order-activity-card-${activity.tone}`} key={activity.id}>
@@ -414,11 +460,13 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
               ))}
             </div>
           </Card>
+
+          <ShippingOptionsPanel order={order} token={token} />
         </div>
 
         <aside className="stack">
           <Card className="stack">
-            <SectionTitle eyebrow="Diseño" title="Render de personalización" />
+            <SectionTitle eyebrow="🎨 Diseño" title="Render de personalización" />
             {primaryItemSummary && designPreviewUrl ? (
               <div className="shipment-product-card">
                 <div className="shipment-product-copy">
@@ -442,7 +490,7 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
           </Card>
 
           <Card className="stack">
-            <SectionTitle eyebrow="Envío" title="Shipment" />
+            <SectionTitle eyebrow="🚚 Envío" title="Shipment" />
             {order.shipment ? (
               <div className="kv">
                 <div className="kv-row">
@@ -455,7 +503,29 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
                 </div>
                 <div className="kv-row">
                   <span className="kv-label">Creado</span>
-                  <div>{formatDateTime(order.shipment.created_at)}</div>
+                  <div>{formatDateTime(order.shipment.label_created_at ?? order.shipment.created_at)}</div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Estado envío</span>
+                  <div>{order.shipment.shipping_status_detail ?? order.shipment.shipping_status ?? "Etiqueta creada"}</div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Servicio</span>
+                  <div>{order.shipment.shipping_type_code ?? "CTT 24"}</div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Tramo</span>
+                  <div>{order.shipment.weight_tier_label ?? "No definido"}</div>
+                </div>
+                <div className="kv-row">
+                  <span className="kv-label">Tracking oficial</span>
+                  <div>
+                    {order.shipment.tracking_url ? (
+                      <a className="table-link table-link-strong" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">
+                        Abrir tracking del carrier
+                      </a>
+                    ) : "Pendiente"}
+                  </div>
                 </div>
                 <div className="kv-row">
                   <span className="kv-label">Tracking público</span>
@@ -472,9 +542,51 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
             )}
           </Card>
 
+          <Card className="stack">
+            <SectionTitle eyebrow="📍 Dirección" title="Snapshot Shopify y dirección operativa" />
+            <div className="kv">
+              <div className="kv-row">
+                <span className="kv-label">Shopify · contacto</span>
+                <div>
+                  {shippingSnapshot?.name || order.customer_name}
+                  {shippingSnapshot?.email ? ` · ${shippingSnapshot.email}` : ""}
+                  {shippingSnapshot?.phone ? ` · ${shippingSnapshot.phone}` : ""}
+                </div>
+              </div>
+              <div className="kv-row">
+                <span className="kv-label">Shopify · dirección</span>
+                <div className="stack" style={{ gap: "6px" }}>
+                  {shopifyAddressLines.length > 0 ? (
+                    shopifyAddressLines.map((line) => <span key={line}>{line}</span>)
+                  ) : (
+                    <span>Sin snapshot de dirección todavía</span>
+                  )}
+                </div>
+              </div>
+              <div className="kv-row">
+                <span className="kv-label">Operativa · CTT</span>
+                <div className="stack" style={{ gap: "6px" }}>
+                  {operationalAddressLines.length > 0 ? (
+                    operationalAddressLines.map((line) => <span key={line}>{line}</span>)
+                  ) : (
+                    <span>Sin dirección operativa cargada</span>
+                  )}
+                </div>
+              </div>
+              <div className="kv-row">
+                <span className="kv-label">Validación rápida</span>
+                <div>
+                  {order.shipping_address_line1 && order.shipping_postal_code && order.shipping_town
+                    ? "La dirección interna está lista para crear etiqueta."
+                    : "Faltan datos en la dirección interna; conviene resincronizar Shopify antes de etiquetar."}
+                </div>
+              </div>
+            </div>
+          </Card>
+
           {fulfillmentOrders.length > 0 ? (
             <Card className="stack">
-              <SectionTitle eyebrow="Shopify" title="Preparación de envío" />
+              <SectionTitle eyebrow="🛒 Shopify" title="Preparación de envío" />
               <div className="mini-table">
                 {fulfillmentOrders.map((fulfillmentOrder) => (
                   <div className="mini-table-row" key={fulfillmentOrder.id}>

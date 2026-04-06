@@ -12,7 +12,8 @@ from fastapi import HTTPException, status
 from app.models import User
 
 
-TOKEN_TTL_HOURS = 24
+TOKEN_TTL_HOURS = 2          # access token: 2 horas
+REFRESH_TOKEN_TTL_DAYS = 30  # refresh token: 30 días
 
 
 def hash_password(password: str) -> str:
@@ -35,14 +36,44 @@ def create_access_token(user: User, secret: str) -> str:
     payload = {
         "sub": user.id,
         "role": user.role.value,
+        "type": "access",
         "exp": int((datetime.now(timezone.utc) + timedelta(hours=TOKEN_TTL_HOURS)).timestamp()),
     }
+    return _sign_payload(payload, secret)
+
+
+def create_refresh_token(user: User, secret: str) -> str:
+    """Crea un refresh token de larga duración (30 días)."""
+    payload = {
+        "sub": user.id,
+        "type": "refresh",
+        "jti": secrets.token_hex(16),  # ID único para permitir revocación futura
+        "exp": int((datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_TTL_DAYS)).timestamp()),
+    }
+    return _sign_payload(payload, secret)
+
+
+def decode_access_token(token: str, secret: str) -> dict:
+    payload = _decode_and_verify(token, secret)
+    if payload.get("type") != "access":
+        raise _auth_error("Not an access token")
+    return payload
+
+
+def decode_refresh_token(token: str, secret: str) -> dict:
+    payload = _decode_and_verify(token, secret)
+    if payload.get("type") != "refresh":
+        raise _auth_error("Not a refresh token")
+    return payload
+
+
+def _sign_payload(payload: dict, secret: str) -> str:
     encoded_payload = _b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     signature = hmac.new(secret.encode("utf-8"), encoded_payload.encode("utf-8"), hashlib.sha256).digest()
     return f"{encoded_payload}.{_b64encode(signature)}"
 
 
-def decode_access_token(token: str, secret: str) -> dict:
+def _decode_and_verify(token: str, secret: str) -> dict:
     try:
         encoded_payload, encoded_signature = token.split(".", 1)
     except ValueError as exc:

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { AppModal } from "@/components/app-modal";
 
 type RenderPreviewLightboxProps = {
   alt: string;
@@ -30,27 +31,19 @@ export function RenderPreviewLightbox({ alt, src }: RenderPreviewLightboxProps) 
         </a>
       </div>
 
-      {isOpen ? (
-        <div
-          className="modal-backdrop shipment-lightbox-backdrop"
-          onClick={() => setIsOpen(false)}
-          role="presentation"
-        >
-          <div
-            aria-modal="true"
-            className="modal-sheet shipment-lightbox-sheet"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <div className="modal-head">
-              <div>
-                <span className="eyebrow">Preview</span>
-                <h3 className="section-title section-title-small">Render de personalización</h3>
-              </div>
-              <button className="button-secondary" onClick={() => setIsOpen(false)} type="button">
-                Cerrar
-              </button>
-            </div>
+      <AppModal
+        actions={(
+          <button className="button-secondary" onClick={() => setIsOpen(false)} type="button">
+            Cerrar
+          </button>
+        )}
+        bodyClassName="shipment-lightbox-modal-body"
+        eyebrow="Preview"
+        onClose={() => setIsOpen(false)}
+        open={isOpen}
+        title="Render de personalización"
+        width="wide"
+      >
             <div className="shipment-lightbox-body">
               <img alt={alt} className="shipment-lightbox-image" src={src} />
             </div>
@@ -59,9 +52,7 @@ export function RenderPreviewLightbox({ alt, src }: RenderPreviewLightboxProps) 
                 Abrir en pestaña nueva
               </a>
             </div>
-          </div>
-        </div>
-      ) : null}
+      </AppModal>
     </>
   );
 }

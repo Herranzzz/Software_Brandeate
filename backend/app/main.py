@@ -1,19 +1,37 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.core.config import get_settings
+from app.services.ctt_tracking_scheduler import scheduler as ctt_tracking_scheduler
 from app.services.shopify_scheduler import scheduler
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    scheduler.start()
+    if not get_settings().disable_scheduler:
+        scheduler.start()
+        ctt_tracking_scheduler.start()
     try:
         yield
     finally:
-        scheduler.stop()
+        if not get_settings().disable_scheduler:
+            ctt_tracking_scheduler.stop()
+            scheduler.stop()
 
 
 app = FastAPI(title="3PL Piloto Backend", lifespan=lifespan)
+
+settings = get_settings()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Total-Count"],
+)
+
 app.include_router(api_router)

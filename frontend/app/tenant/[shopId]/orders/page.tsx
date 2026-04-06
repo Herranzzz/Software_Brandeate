@@ -18,7 +18,7 @@ export default async function TenantOrdersPage({ params }: TenantOrdersPageProps
   const { shopId } = await params;
   const [shop, orders] = await Promise.all([
     fetchShopById(shopId),
-    fetchOrders({ shop_id: shopId }),
+    fetchOrders({ shop_id: shopId }).then(({ orders }) => orders),
   ]);
 
   if (!shop) {

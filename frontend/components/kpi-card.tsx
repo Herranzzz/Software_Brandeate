@@ -18,7 +18,9 @@ export function KpiCard({
         <span className="kpi-label">{label}</span>
         <span className="kpi-dot" />
       </div>
-      <strong className="kpi-value">{value}</strong>
+      <div className="kpi-value-row">
+        <strong className="kpi-value">{value}</strong>
+      </div>
       {delta ? <span className="kpi-delta">{delta}</span> : null}
     </article>
   );

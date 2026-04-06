@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import get_db
-from app.models import Shipment, TrackingEvent
+from app.models import Shipment, Shop, TrackingEvent
 from app.schemas.tracking import PublicTrackingRead
 
 
@@ -32,4 +32,6 @@ def get_public_tracking(public_token: str, db: Session = Depends(get_db)) -> Pub
         )
     )
 
-    return PublicTrackingRead.from_models(shipment=shipment, order=shipment.order, events=latest_events)
+    shop = db.get(Shop, shipment.order.shop_id) if shipment.order else None
+
+    return PublicTrackingRead.from_models(shipment=shipment, order=shipment.order, events=latest_events, shop=shop)

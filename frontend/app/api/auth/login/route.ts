@@ -23,10 +23,18 @@ export async function POST(request: NextRequest) {
   }
 
   const loginPayload = payload as LoginResponse;
+  const isSecure = request.nextUrl.protocol === "https:";
   const nextResponse = NextResponse.json(loginPayload, { status: response.status });
   nextResponse.cookies.set("auth_token", loginPayload.access_token, {
     httpOnly: true,
     sameSite: "lax",
+    secure: isSecure,
+    path: "/",
+  });
+  nextResponse.cookies.set("refresh_token", loginPayload.refresh_token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isSecure,
     path: "/",
   });
   return nextResponse;

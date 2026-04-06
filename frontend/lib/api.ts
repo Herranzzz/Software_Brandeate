@@ -6,6 +6,7 @@ import type {
   Order,
   PickBatch,
   PublicTracking,
+  Return,
   Shop,
   ShopCustomer,
   ShopCatalogProduct,
@@ -80,6 +81,8 @@ export async function fetchOrders(params?: {
   status?: string;
   production_status?: string;
   design_status?: string;
+  has_pending_asset?: boolean;
+  is_prepared?: boolean;
   priority?: string;
   shop_id?: string | number;
   is_personalized?: string | boolean;
@@ -88,9 +91,10 @@ export async function fetchOrders(params?: {
   variant_title?: string;
   channel?: string;
   carrier?: string;
+  q?: string;
   page?: string | number;
   per_page?: string | number;
-}) {
+}): Promise<{ orders: Order[]; totalCount: number }> {
   const searchParams = new URLSearchParams();
   if (params?.status) {
     searchParams.set("status", String(params.status));
@@ -100,6 +104,12 @@ export async function fetchOrders(params?: {
   }
   if (params?.design_status) {
     searchParams.set("design_status", String(params.design_status));
+  }
+  if (params?.has_pending_asset !== undefined) {
+    searchParams.set("has_pending_asset", String(params.has_pending_asset));
+  }
+  if (params?.is_prepared !== undefined) {
+    searchParams.set("is_prepared", String(params.is_prepared));
   }
   if (params?.priority) {
     searchParams.set("priority", String(params.priority));
@@ -125,6 +135,9 @@ export async function fetchOrders(params?: {
   if (params?.carrier) {
     searchParams.set("carrier", String(params.carrier));
   }
+  if (params?.q) {
+    searchParams.set("q", params.q);
+  }
   if (params?.page !== undefined && params.page !== "") {
     searchParams.set("page", String(params.page));
   }
@@ -138,7 +151,14 @@ export async function fetchOrders(params?: {
     cache: "no-store",
     headers,
   });
-  return parseResponse<Order[]>(response);
+
+  if (!response.ok) {
+    await parseResponse<Order[]>(response); // throws the error
+  }
+
+  const totalCount = Number(response.headers.get("X-Total-Count") ?? "0");
+  const orders = await response.json() as Order[];
+  return { orders, totalCount };
 }
 
 
@@ -403,4 +423,36 @@ export async function fetchAnalyticsOverview(params?: {
   });
 
   return parseResponse<AnalyticsOverview>(response);
+}
+
+
+export async function fetchReturns(params?: {
+  shop_id?: string | number;
+  status?: string;
+}): Promise<Return[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.shop_id !== undefined && params.shop_id !== "") {
+    searchParams.set("shop_id", String(params.shop_id));
+  }
+  if (params?.status) {
+    searchParams.set("status", params.status);
+  }
+  const query = searchParams.toString();
+  const headers = await buildAuthHeaders();
+  const response = await fetch(apiUrl(`/returns${query ? `?${query}` : ""}`), {
+    cache: "no-store",
+    headers,
+  });
+  return parseResponse<Return[]>(response);
+}
+
+
+export async function fetchReturnById(id: string | number): Promise<Return | null> {
+  const headers = await buildAuthHeaders();
+  const response = await fetch(apiUrl(`/returns/${id}`), {
+    cache: "no-store",
+    headers,
+  });
+  if (response.status === 404) return null;
+  return parseResponse<Return>(response);
 }

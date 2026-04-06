@@ -257,7 +257,30 @@ def build_analytics_overview(
         or ((latest := _latest_event(order.shipment)) is not None and _safe_text(latest.status_norm, "").lower() == "exception")
     ]
 
-    orders_by_day_counter: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "personalized": 0, "standard": 0})
+    # Flow metrics
+    orders_with_shipment = [o for o in orders if o.shipment is not None]
+
+    first_transit_times = []
+    for order in orders_with_shipment:
+        transit_events = [
+            e for e in (order.shipment.events or [])
+            if _safe_text(e.status_norm, "").lower() in {"in_transit", "out_for_delivery"}
+        ]
+        if transit_events:
+            first_transit = min(transit_events, key=lambda e: (_as_utc(e.occurred_at), e.id))
+            hours = _hours_between(order.shipment.created_at, first_transit.occurred_at)
+            if hours is not None and hours >= 0:
+                first_transit_times.append(hours)
+
+    total_hours_list = []
+    for order in orders:
+        delivered_ev = _delivered_event(order.shipment)
+        hours = _hours_between(order.created_at, delivered_ev.occurred_at if delivered_ev else None)
+        if hours is not None and hours >= 0:
+            total_hours_list.append(hours)
+
+    orders_by_day_counter: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "personalized": 0, "standard": 0, "delivered": 0, "exception": 0})
+    aging_buckets = {"bucket_0_24": 0, "bucket_24_48": 0, "bucket_48_72": 0, "bucket_72_plus": 0}
     status_counter: Counter[str] = Counter()
     shop_counter: Counter[tuple[int, str]] = Counter()
     incident_type_counter: Counter[str] = Counter()
@@ -281,7 +304,30 @@ def build_analytics_overview(
         orders_by_day_counter[date_key]["total"] += 1
         orders_by_day_counter[date_key]["personalized" if order.is_personalized else "standard"] += 1
 
-        status_counter[_safe_text(_enum_value(order.status), "unknown")] += 1
+        order_status_val = _safe_text(_enum_value(order.status), "unknown")
+        if order_status_val == "delivered":
+            orders_by_day_counter[date_key]["delivered"] += 1
+        if order_status_val == "exception" or any(
+            _enum_value(inc.status) != IncidentStatus.resolved.value for inc in order.incidents
+        ):
+            orders_by_day_counter[date_key]["exception"] += 1
+
+        # Aging buckets: classify active shipments by hours since last tracking update
+        if order.shipment and order_status_val not in ("delivered", "exception"):
+            latest_ev = _latest_event(order.shipment)
+            last_update = _as_utc(latest_ev.occurred_at if latest_ev else order.shipment.created_at)
+            if last_update is not None:
+                age_h = (now - last_update).total_seconds() / 3600
+                if age_h < 24:
+                    aging_buckets["bucket_0_24"] += 1
+                elif age_h < 48:
+                    aging_buckets["bucket_24_48"] += 1
+                elif age_h < 72:
+                    aging_buckets["bucket_48_72"] += 1
+                else:
+                    aging_buckets["bucket_72_plus"] += 1
+
+        status_counter[order_status_val] += 1
         shop_key = (order.shop_id, _safe_text(order.shop.name if order.shop else None, f"Shop #{order.shop_id}"))
         shop_counter[shop_key] += 1
         top_shop_buckets[shop_key]["orders"] += 1
@@ -350,6 +396,8 @@ def build_analytics_overview(
                 "total": values["total"],
                 "personalized": values["personalized"],
                 "standard": values["standard"],
+                "delivered": values["delivered"],
+                "exception": values["exception"],
             }
             for date_key, values in sorted(orders_by_day_counter.items())
         ],
@@ -470,6 +518,7 @@ def build_analytics_overview(
             "orders_without_shipment": len(orders_without_shipment),
             "stalled_tracking_orders": len(stalled_tracking_orders),
             "incident_rate": _percentage(len({incident.order_id for incident in open_incidents}), total_orders),
+            "aging_buckets": aging_buckets,
         },
         "personalization": {
             "personalized_share": _percentage(len(personalized_orders), total_orders),
@@ -491,4 +540,15 @@ def build_analytics_overview(
         },
         "charts": charts,
         "rankings": rankings,
+        "flow": {
+            "orders_received": total_orders,
+            "orders_prepared": len(orders_with_shipment),
+            "orders_in_transit": len(in_transit_orders),
+            "orders_delivered": len(delivered_orders),
+            "orders_exception": len(exception_orders),
+            "avg_order_to_label_hours": round(mean(sent_sla_hours), 1) if sent_sla_hours else None,
+            "avg_label_to_transit_hours": round(mean(first_transit_times), 1) if first_transit_times else None,
+            "avg_transit_to_delivery_hours": round(mean(delivery_hours), 1) if delivery_hours else None,
+            "avg_total_hours": round(mean(total_hours_list), 1) if total_hours_list else None,
+        },
     }

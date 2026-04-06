@@ -50,7 +50,7 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
   const tenantScope = resolveTenantScope(shops, params.shop_id);
 
   const [orders, incidents] = await Promise.all([
-    fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
+    fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined).then(({ orders }) => orders),
     fetchIncidents({
       ...(incidentStatus !== "all" ? { status: incidentStatus } : {}),
       ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),

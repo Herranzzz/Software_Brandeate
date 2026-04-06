@@ -1,22 +1,106 @@
 import Link from "next/link";
 
-import { Card } from "@/components/card";
-import { KpiCard } from "@/components/kpi-card";
+import { SharedDashboardView } from "@/components/shared-dashboard-view";
+import type { ShipmentSegment } from "@/components/shipment-donut";
 import { fetchIncidents, fetchOrders, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
+import type { Order } from "@/lib/types";
 
 type DashboardPageProps = {
   searchParams: Promise<{
     shop_id?: string;
+    range?: string;
   }>;
 };
 
-function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>) {
+type RangePreset = "today" | "7d" | "30d" | "90d";
+
+function resolveRangePreset(value?: string): RangePreset {
+  if (value === "today" || value === "30d" || value === "90d") return value;
+  return "7d";
+}
+
+function getRangeDays(range: RangePreset) {
+  switch (range) {
+    case "today":
+      return 1;
+    case "30d":
+      return 30;
+    case "90d":
+      return 90;
+    default:
+      return 7;
+  }
+}
+
+function isWithinLastDays(value: string, days: number) {
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  const start = new Date(end);
+  start.setDate(end.getDate() - (days - 1));
+  start.setHours(0, 0, 0, 0);
+  const time = new Date(value).getTime();
+  return time >= start.getTime() && time <= end.getTime();
+}
+
+function buildTimeFilters(range: RangePreset, shopId?: string) {
+  const base = "/dashboard";
+  const filters: Array<{ label: string; value: RangePreset }> = [
+    { label: "Hoy", value: "today" },
+    { label: "7 días", value: "7d" },
+    { label: "30 días", value: "30d" },
+    { label: "90 días", value: "90d" },
+  ];
+
+  return filters.map((filter) => {
+    const searchParams = new URLSearchParams();
+    searchParams.set("range", filter.value);
+    if (shopId) searchParams.set("shop_id", shopId);
+    return {
+      label: filter.label,
+      href: `${base}?${searchParams.toString()}`,
+      active: filter.value === range,
+    };
+  });
+}
+
+function buildDonutSegments(orders: Order[]): ShipmentSegment[] {
+  const withShipment = orders.filter((o) => o.shipment);
+  const getKey = (o: Order) => {
+    const s = o.shipment;
+    if (!s) return null;
+    const raw = s.shipping_status ?? null;
+    if (o.has_open_incident || raw === "exception") return "exception";
+    if (raw === "delivered" || o.status === "delivered") return "delivered";
+    if (raw === "out_for_delivery") return "out_for_delivery";
+    if (raw === "in_transit") return "in_transit";
+    if (raw === "pickup_available") return "pickup_available";
+    return "label_created";
+  };
+  const countKey = (key: string) => withShipment.filter((o) => getKey(o) === key).length;
+  const segments: ShipmentSegment[] = [
+    { key: "label_created", label: "🏷️ Etiqueta creada", value: countKey("label_created"), tone: "indigo" },
+    { key: "in_transit", label: "🚚 En tránsito", value: countKey("in_transit"), tone: "blue" },
+    { key: "out_for_delivery", label: "🚛 En reparto", value: countKey("out_for_delivery"), tone: "sky" },
+    { key: "pickup_available", label: "📍 Disponible recogida", value: countKey("pickup_available"), tone: "orange" },
+    { key: "delivered", label: "✅ Entregado", value: countKey("delivered"), tone: "green" },
+    { key: "exception", label: "🚨 Incidencia", value: countKey("exception"), tone: "red" },
+  ];
+  // Add the "no shipment" segment separately
+  const noShipment = orders.length - withShipment.length;
+  if (noShipment > 0) {
+    segments.unshift({ key: "without_shipment", label: "❌ Sin shipment", value: noShipment, tone: "slate" });
+  }
+  return segments.filter((s) => s.value > 0);
+}
+
+function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], days: number) {
   const today = new Date();
-  const points = Array.from({ length: 7 }).map((_, index) => {
+  const visibleDays = Math.min(days, 7);
+  const points = Array.from({ length: visibleDays }).map((_, index) => {
     const date = new Date(today);
-    date.setDate(today.getDate() - (6 - index));
+    date.setDate(today.getDate() - ((visibleDays - 1) - index));
     const dayKey = date.toISOString().slice(0, 10);
 
     return {
@@ -30,17 +114,31 @@ function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>) {
 }
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  await requireAdminUser();
   const params = await searchParams;
-  const [shops, orders, incidents] = await Promise.all([
+  const range = resolveRangePreset(params.range);
+  const rangeDays = getRangeDays(range);
+  const [userResult, shopsResult, ordersResultSettled, incidentsResult] = await Promise.allSettled([
+    requireAdminUser(),
     fetchShops(),
     fetchOrders({ shop_id: params.shop_id }),
     fetchIncidents({ shop_id: params.shop_id }),
   ]);
+  // requireAdminUser redirects on failure — re-throw to trigger it
+  if (userResult.status === "rejected") throw userResult.reason;
 
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
+  const ordersResult =
+    ordersResultSettled.status === "fulfilled"
+      ? ordersResultSettled.value
+      : { orders: [], totalCount: 0 };
+  const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
+
+  const orders = ordersResult.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
+  const incidentsInRange = incidents.filter((incident) => isWithinLastDays(incident.updated_at, rangeDays));
   const activeShop = shops.find((shop) => String(shop.id) === params.shop_id);
-  const chart = buildChart(orders);
-  const maxValue = Math.max(1, ...chart.map((item) => item.value));
+  const chart = buildChart(orders, rangeDays);
+  const donutSegments = buildDonutSegments(orders);
+  const timeFilters = buildTimeFilters(range, params.shop_id);
 
   const pendingOrders = orders.filter((order) => order.status === "pending").length;
   const inProductionOrders = orders.filter((order) => order.production_status === "in_production").length;
@@ -48,208 +146,97 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const deliveredOrders = orders.filter((order) => order.status === "delivered").length;
   const withShipment = orders.filter((order) => order.shipment).length;
   const personalizedOrders = orders.filter((order) => order.is_personalized).length;
-  const openIncidents = incidents.filter((incident) => incident.status !== "resolved").length;
-  const urgentIncidents = incidents.filter((incident) => incident.priority === "urgent" || incident.priority === "high").length;
-
-  const fulfillmentHealth = [
-    { label: "Pendientes", value: pendingOrders, hint: "esperando revisión" },
-    { label: "En producción", value: inProductionOrders, hint: "flujo activo" },
-    { label: "Con envío", value: withShipment, hint: "ya etiquetados" },
-    { label: "Entregados", value: deliveredOrders, hint: "cerrados correctamente" },
-  ];
+  const openIncidents = incidentsInRange.filter((incident) => incident.status !== "resolved").length;
+  const urgentIncidents = incidentsInRange.filter((incident) => incident.priority === "urgent" || incident.priority === "high").length;
 
   return (
-    <div className="stack admin-dashboard">
-      <section className="admin-dashboard-hero">
-        <div className="admin-dashboard-hero-copy">
-          <span className="eyebrow">Brandeate operations</span>
-          <h1 className="admin-dashboard-title">
-            {activeShop ? `Control de ${activeShop.name}` : "Bienvenido de nuevo"}
-          </h1>
-          <p className="admin-dashboard-subtitle">
-            Sigue el volumen de pedidos, el estado operativo y los puntos de atención más urgentes desde una sola vista.
-          </p>
-        </div>
-
-        <div className="admin-dashboard-hero-actions">
-          <form className="admin-dashboard-filter" method="get">
-            <label className="admin-dashboard-filter-label" htmlFor="shop_id">
-              Tienda
-            </label>
-            <select defaultValue={params.shop_id ?? ""} id="shop_id" name="shop_id">
-              <option value="">Todas las tiendas</option>
-              {shops.map((shop) => (
-                <option key={shop.id} value={shop.id}>
-                  {shop.name}
-                </option>
-              ))}
-            </select>
-            <button className="button button-secondary" type="submit">
-              Aplicar
-            </button>
-          </form>
-
-          {activeShop ? (
-            <Link className="button" href={`/tenant/${activeShop.id}/dashboard/overview`}>
-              Ver portal cliente
-            </Link>
-          ) : (
-            <Link className="button" href="/orders">
-              Ver pedidos
-            </Link>
-          )}
-        </div>
-      </section>
-
-      <section className="admin-dashboard-kpis">
-        <KpiCard label="Pedidos entrantes" value={String(orders.length)} delta={`${pendingOrders} pendientes`} tone="accent" />
-        <KpiCard label="Personalizados" value={String(personalizedOrders)} delta={`${orders.length - personalizedOrders} estándar`} tone="warning" />
-        <KpiCard label="Incidencias abiertas" value={String(openIncidents)} delta={`${urgentIncidents} prioritarias`} tone="danger" />
-        <KpiCard label="Enviados" value={String(shippedOrders)} delta={`${withShipment} con tracking`} tone="default" />
-        <KpiCard label="Tiendas activas" value={String(activeShop ? 1 : shops.length)} delta={activeShop ? "vista filtrada" : "operando ahora"} tone="success" />
-      </section>
-
-      <section className="admin-dashboard-columns">
-        <div className="stack admin-dashboard-column">
-          <Card className="stack admin-dashboard-panel admin-dashboard-panel-primary">
-            <div className="admin-dashboard-panel-head">
-              <div>
-                <span className="eyebrow">Volumen</span>
-                <h3 className="section-title section-title-small">Pedidos últimos 7 días</h3>
-              </div>
-              <Link className="admin-dashboard-inline-link" href="/orders">
-                Ir a pedidos
-              </Link>
-            </div>
-
-            <div className="chart-card admin-dashboard-chart-card">
-              {chart.map((point) => (
-                <div className="chart-bar-group" key={point.dayKey}>
-                  <div className="admin-dashboard-chart-plot">
-                    <div className="chart-bar admin-dashboard-chart-bar" style={{ height: `${Math.max(12, (point.value / maxValue) * 100)}%` }} />
-                  </div>
-                  <div className="chart-value">{point.value}</div>
-                  <div className="chart-label">{point.day}</div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card className="stack admin-dashboard-panel">
-            <div className="admin-dashboard-panel-head">
-              <div>
-                <span className="eyebrow">Actividad</span>
-                <h3 className="section-title section-title-small">Últimos pedidos</h3>
-              </div>
-              <Link className="admin-dashboard-inline-link" href="/orders">
-                Ver todos
-              </Link>
-            </div>
-
-            <div className="admin-orders-list">
-              {orders.slice(0, 6).map((order) => (
-                <article className="admin-orders-row" key={order.id}>
-                  <div className="admin-orders-main">
-                    <div className="activity-title">{order.external_id}</div>
-                    <div className="table-secondary">
-                      {order.customer_name} · {order.customer_email}
-                    </div>
-                  </div>
-                  <div className="admin-orders-meta">
-                    <span className="admin-orders-status">{order.status}</span>
-                    <span className="admin-orders-time">{formatDateTime(order.created_at)}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </Card>
-        </div>
-
-        <div className="stack admin-dashboard-column">
-          <Card className="stack admin-dashboard-panel">
-            <div className="admin-dashboard-panel-head">
-              <div>
-                <span className="eyebrow">Salud operativa</span>
-                <h3 className="section-title section-title-small">Estado de la cuenta</h3>
-              </div>
-            </div>
-
-            <div className="admin-health-grid">
-              {fulfillmentHealth.map((item) => (
-                <article className="admin-health-card" key={item.label}>
-                  <span className="admin-health-label">{item.label}</span>
-                  <strong className="admin-health-value">{item.value}</strong>
-                  <span className="admin-health-hint">{item.hint}</span>
-                </article>
-              ))}
-            </div>
-          </Card>
-
-          <Card className="stack admin-dashboard-panel">
-            <div className="admin-dashboard-panel-head">
-              <div>
-                <span className="eyebrow">Atención prioritaria</span>
-                <h3 className="section-title section-title-small">Incidencias recientes</h3>
-              </div>
-              <Link className="admin-dashboard-inline-link" href="/incidencias">
-                Ver incidencias
-              </Link>
-            </div>
-
-            <div className="incident-list incident-list-rich">
-              {incidents.slice(0, 4).map((incident) => (
-                <article className="incident-item incident-item-rich" key={incident.id}>
-                  <div className="incident-content">
-                    <div className="incident-topline">
-                      <div className="activity-title">{incident.title}</div>
-                      <span className={`incident-priority incident-priority-${incident.priority}`}>
-                        {incident.priority}
-                      </span>
-                    </div>
-                    <div className="table-secondary">
-                      {incident.order.external_id} · {incident.order.customer_name}
-                    </div>
-                    <div className="incident-meta-row">
-                      <span>{incident.status}</span>
-                      <span>{formatDateTime(incident.updated_at)}</span>
-                    </div>
-                  </div>
-                </article>
-              ))}
-
-              {incidents.length === 0 ? (
-                <div className="admin-dashboard-empty">
-                  No hay incidencias abiertas ahora mismo.
-                </div>
-              ) : null}
-            </div>
-          </Card>
-
-          <Card className="stack admin-dashboard-panel admin-dashboard-panel-note">
-            <div className="admin-dashboard-panel-head">
-              <div>
-                <span className="eyebrow">Siguiente paso</span>
-                <h3 className="section-title section-title-small">Empuja la operativa</h3>
-              </div>
-            </div>
-
-            <div className="admin-dashboard-note">
-              <p>
-                Usa este panel como centro de control de Brandeate: revisa pedidos nuevos, detecta bloqueos antes de packing
-                y salta rápido al portal del cliente cuando necesites validar cómo lo está viendo la tienda.
-              </p>
-              <div className="admin-dashboard-note-actions">
-                <Link className="button button-secondary" href="/shipments">
-                  Ver expediciones
-                </Link>
-                <Link className="button button-secondary" href="/orders">
-                  Ver pedidos
-                </Link>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </section>
-    </div>
+    <SharedDashboardView
+      chart={chart}
+      donutSegments={donutSegments}
+      chartLinkHref="/orders"
+      chartLinkLabel="Ir a pedidos"
+      timeFilters={timeFilters}
+      controls={
+        <form className="admin-dashboard-filter" method="get">
+          <label className="admin-dashboard-filter-label" htmlFor="shop_id">
+            Tienda
+          </label>
+          <select defaultValue={params.shop_id ?? ""} id="shop_id" name="shop_id">
+            <option value="">Todas las tiendas</option>
+            {shops.map((shop) => (
+              <option key={shop.id} value={shop.id}>
+                {shop.name}
+              </option>
+            ))}
+          </select>
+          <input name="range" type="hidden" value={range} />
+          <button className="button button-secondary" type="submit">
+            Aplicar
+          </button>
+        </form>
+      }
+      eyebrow="Brandeate operations"
+      healthItems={[
+        { label: "⏳ Pendientes", value: pendingOrders, hint: "esperando revisión" },
+        { label: "🔧 En producción", value: inProductionOrders, hint: "flujo activo" },
+        { label: "📦 Con envío", value: withShipment, hint: "ya etiquetados" },
+        { label: "✅ Entregados", value: deliveredOrders, hint: "cerrados correctamente" },
+      ]}
+      healthTitle="Estado de la cuenta"
+      heroAction={
+        activeShop ? (
+          <Link className="button" href={`/tenant/${activeShop.id}/dashboard/overview`}>
+            Ver portal cliente
+          </Link>
+        ) : (
+          <Link className="button" href="/orders">
+            Ver pedidos
+          </Link>
+        )
+      }
+      incidents={incidentsInRange.map((incident) => ({
+        id: incident.id,
+        title: incident.title,
+        priority: incident.priority,
+        secondary: `${incident.order.external_id} · ${incident.order.customer_name}`,
+        status: incident.status,
+        updatedAt: formatDateTime(incident.updated_at),
+      }))}
+      incidentsEmptyMessage="No hay incidencias abiertas ahora mismo."
+      incidentsLinkHref="/incidencias"
+      incidentsLinkLabel="Ver incidencias"
+      incidentsTitle="Incidencias recientes"
+      kpis={[
+        { label: "📦 Pedidos entrantes", value: String(orders.length), delta: `${pendingOrders} pendientes`, tone: "accent" },
+        { label: "🎨 Personalizados", value: String(personalizedOrders), delta: `${orders.length - personalizedOrders} estándar`, tone: "warning" },
+        { label: "⚠️ Incidencias abiertas", value: String(openIncidents), delta: `${urgentIncidents} prioritarias`, tone: "danger" },
+        { label: "🚚 Enviados", value: String(shippedOrders), delta: `${withShipment} con tracking`, tone: "default" },
+        { label: "🏪 Tiendas activas", value: String(activeShop ? 1 : shops.length), delta: activeShop ? "vista filtrada" : "operando ahora", tone: "success" },
+      ]}
+      noteActions={
+        <>
+          <Link className="button button-secondary" href="/shipments">
+            Ver expediciones
+          </Link>
+          <Link className="button button-secondary" href="/orders">
+            Ver pedidos
+          </Link>
+        </>
+      }
+      noteBody="Usa este panel como centro de control de Brandeate: revisa pedidos nuevos, detecta bloqueos antes de packing y salta rápido al portal del cliente cuando necesites validar cómo lo está viendo la tienda."
+      noteTitle="Empuja la operativa"
+      recentOrders={orders.slice(0, 6).map((order) => ({
+        id: order.id,
+        label: order.external_id,
+        secondary: `${order.customer_name} · ${order.customer_email}`,
+        status: order.status,
+        time: formatDateTime(order.created_at),
+      }))}
+      recentOrdersLinkHref="/orders"
+      recentOrdersLinkLabel="Ver todos"
+      recentOrdersTitle="Últimos pedidos"
+      subtitle="Sigue el volumen de pedidos, el estado operativo y los puntos de atención más urgentes desde una sola vista."
+      title={activeShop ? `Control de ${activeShop.name}` : "Bienvenido de nuevo"}
+    />
   );
 }

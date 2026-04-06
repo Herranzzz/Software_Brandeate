@@ -2,7 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models import DesignStatus, OrderItem, OrderPriority, OrderStatus, ProductionStatus
+from app.models import DesignStatus, DeliveryType, OrderItem, OrderPriority, OrderStatus, ProductionStatus
+from app.schemas.automation import AutomationEventRead
 from app.schemas.shipment import ShipmentRead
 
 
@@ -53,6 +54,27 @@ class OrderCreate(BaseModel):
     is_personalized: bool | None = None
     customer_name: str = Field(min_length=1, max_length=255)
     customer_email: str = Field(min_length=3, max_length=320)
+    shipping_name: str | None = Field(default=None, max_length=255)
+    shipping_phone: str | None = Field(default=None, max_length=64)
+    shipping_country_code: str | None = Field(default=None, max_length=8)
+    shipping_postal_code: str | None = Field(default=None, max_length=32)
+    shipping_address_line1: str | None = Field(default=None, max_length=255)
+    shipping_address_line2: str | None = Field(default=None, max_length=255)
+    shipping_town: str | None = Field(default=None, max_length=120)
+    shipping_province_code: str | None = Field(default=None, max_length=32)
+    shopify_shipping_snapshot_json: dict | list | None = None
+    shopify_shipping_rate_name: str | None = Field(default=None, max_length=255)
+    shopify_shipping_rate_amount: float | None = None
+    shopify_shipping_rate_currency: str | None = Field(default=None, max_length=8)
+    delivery_type: DeliveryType | None = None
+    shipping_service_code: str | None = Field(default=None, max_length=64)
+    shipping_service_name: str | None = Field(default=None, max_length=120)
+    shipping_rate_amount: float | None = None
+    shipping_rate_currency: str | None = Field(default=None, max_length=8)
+    shipping_rate_estimated_days_min: int | None = None
+    shipping_rate_estimated_days_max: int | None = None
+    shipping_rate_quote_id: int | None = None
+    pickup_point_json: dict | list | None = None
     note: str | None = Field(default=None, max_length=10000)
     tags_json: list[str] | None = None
     channel: str | None = Field(default=None, max_length=120)
@@ -70,6 +92,13 @@ class OrderCreate(BaseModel):
         return email
 
 
+class AutomationFlagRead(BaseModel):
+    key: str
+    label: str
+    tone: str
+    description: str
+
+
 class OrderRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -85,6 +114,27 @@ class OrderRead(BaseModel):
     is_personalized: bool
     customer_name: str
     customer_email: str
+    shipping_name: str | None
+    shipping_phone: str | None
+    shipping_country_code: str | None
+    shipping_postal_code: str | None
+    shipping_address_line1: str | None
+    shipping_address_line2: str | None
+    shipping_town: str | None
+    shipping_province_code: str | None
+    shopify_shipping_snapshot_json: dict | list | None
+    shopify_shipping_rate_name: str | None
+    shopify_shipping_rate_amount: float | None
+    shopify_shipping_rate_currency: str | None
+    delivery_type: DeliveryType | None
+    shipping_service_code: str | None
+    shipping_service_name: str | None
+    shipping_rate_amount: float | None
+    shipping_rate_currency: str | None
+    shipping_rate_estimated_days_min: int | None
+    shipping_rate_estimated_days_max: int | None
+    shipping_rate_quote_id: int | None
+    pickup_point_json: dict | list | None
     note: str | None
     tags_json: list[str] | None
     channel: str | None
@@ -94,12 +144,13 @@ class OrderRead(BaseModel):
     created_at: datetime
     has_open_incident: bool
     open_incidents_count: int
+    automation_flags: list["AutomationFlagRead"] = Field(default_factory=list)
     items: list[OrderItemRead]
     shipment: ShipmentRead | None = None
 
 
 class OrderDetailRead(OrderRead):
-    pass
+    automation_events: list[AutomationEventRead] = Field(default_factory=list)
 
 
 class OrderStatusUpdate(BaseModel):
@@ -112,3 +163,26 @@ class OrderProductionStatusUpdate(BaseModel):
 
 class OrderPriorityUpdate(BaseModel):
     priority: OrderPriority
+
+
+class OrderUpdate(BaseModel):
+    shipping_name: str | None = Field(default=None, max_length=255)
+    shipping_phone: str | None = Field(default=None, max_length=64)
+    shipping_country_code: str | None = Field(default=None, max_length=8)
+    shipping_postal_code: str | None = Field(default=None, max_length=32)
+    shipping_address_line1: str | None = Field(default=None, max_length=255)
+    shipping_address_line2: str | None = Field(default=None, max_length=255)
+    shipping_town: str | None = Field(default=None, max_length=120)
+    shipping_province_code: str | None = Field(default=None, max_length=32)
+    shopify_shipping_rate_name: str | None = Field(default=None, max_length=255)
+    shopify_shipping_rate_amount: float | None = None
+    shopify_shipping_rate_currency: str | None = Field(default=None, max_length=8)
+    delivery_type: DeliveryType | None = None
+    shipping_service_code: str | None = Field(default=None, max_length=64)
+    shipping_service_name: str | None = Field(default=None, max_length=120)
+    shipping_rate_amount: float | None = None
+    shipping_rate_currency: str | None = Field(default=None, max_length=8)
+    shipping_rate_estimated_days_min: int | None = None
+    shipping_rate_estimated_days_max: int | None = None
+    shipping_rate_quote_id: int | None = None
+    pickup_point_json: dict | list | None = None

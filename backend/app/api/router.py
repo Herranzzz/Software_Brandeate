@@ -1,13 +1,17 @@
 from fastapi import APIRouter
 
 from app.api.routes.analytics import router as analytics_router
+from app.api.routes.returns import router as returns_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.catalog import router as catalog_router
+from app.api.routes.ctt import router as ctt_router
 from app.api.routes.customers import router as customers_router
 from app.api.routes.health import router as health_router
 from app.api.routes.incidents import router as incidents_router
 from app.api.routes.integrations import router as integrations_router
 from app.api.routes.orders import router as orders_router
+from app.api.routes.shipping_options import router as shipping_options_router
+from app.api.routes.shipping_rules import router as shipping_rules_router
 from app.api.routes.shipments import router as shipments_router
 from app.api.routes.shops import router as shops_router
 from app.api.routes.tracking import router as tracking_router
@@ -27,5 +31,9 @@ api_router.include_router(orders_router)
 api_router.include_router(incidents_router)
 api_router.include_router(integrations_router)
 api_router.include_router(shipments_router)
+api_router.include_router(shipping_options_router)
+api_router.include_router(shipping_rules_router)
+api_router.include_router(ctt_router)
 api_router.include_router(tracking_router)
+api_router.include_router(returns_router)
 api_router.include_router(webhooks_router)

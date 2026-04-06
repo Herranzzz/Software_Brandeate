@@ -23,3 +23,6 @@ build/
 *.sqlite
 *.db
 .vercel/
+.vercel
+backups/
+frontend/tsconfig.tsbuildinfo

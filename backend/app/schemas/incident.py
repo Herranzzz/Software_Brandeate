@@ -43,6 +43,8 @@ class IncidentRead(IncidentBase):
 
     id: int
     order_id: int
+    is_automated: bool
+    automation_rule_name: str | None
     created_at: datetime
     updated_at: datetime
     order: IncidentOrderSummary

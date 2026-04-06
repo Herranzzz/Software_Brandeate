@@ -5,6 +5,12 @@ from pydantic import BaseModel
 from app.models import Order, Shipment, TrackingEvent
 
 
+class PublicTrackingShopRead(BaseModel):
+    id: int
+    name: str
+    slug: str
+
+
 class PublicTrackingOrderRead(BaseModel):
     id: int
     external_id: str
@@ -28,6 +34,8 @@ class PublicTrackingEventRead(BaseModel):
     id: int
     status_norm: str
     status_raw: str | None
+    source: str | None
+    location: str | None
     occurred_at: datetime
     created_at: datetime
 
@@ -36,6 +44,7 @@ class PublicTrackingRead(BaseModel):
     order: PublicTrackingOrderRead
     shipment: PublicTrackingShipmentRead
     tracking_events: list[PublicTrackingEventRead]
+    shop: PublicTrackingShopRead | None = None
 
     @classmethod
     def from_models(
@@ -43,7 +52,15 @@ class PublicTrackingRead(BaseModel):
         shipment: Shipment,
         order: Order,
         events: list[TrackingEvent],
+        shop=None,
     ) -> "PublicTrackingRead":
+        shop_data: PublicTrackingShopRead | None = None
+        if shop is not None:
+            shop_data = PublicTrackingShopRead(
+                id=shop.id,
+                name=shop.name,
+                slug=shop.slug,
+            )
         return cls(
             order=PublicTrackingOrderRead(
                 id=order.id,
@@ -67,9 +84,12 @@ class PublicTrackingRead(BaseModel):
                     id=event.id,
                     status_norm=event.status_norm,
                     status_raw=event.status_raw,
+                    source=event.source,
+                    location=event.location,
                     occurred_at=event.occurred_at,
                     created_at=event.created_at,
                 )
                 for event in events
             ],
+            shop=shop_data,
         )

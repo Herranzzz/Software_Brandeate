@@ -9,12 +9,11 @@ import {
   clientOrderStageMeta,
   getClientOrderStage,
   getLatestTrackingEvent,
-  matchesPortalOrderQuickFilter,
-  matchesPortalOrderSearch,
   type PortalOrderQuickFilter,
 } from "@/lib/client-hub";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
+import type { Order } from "@/lib/types";
 import { getTenantBranding } from "@/lib/tenant-branding";
 import { resolveTenantScope } from "@/lib/tenant-scope";
 
@@ -29,36 +28,43 @@ type PortalOrdersPageProps = {
 };
 
 const quickFilterOptions: Array<{ key: PortalOrderQuickFilter; label: string }> = [
-  { key: "all", label: "Todos" },
-  { key: "personalized", label: "Personalizados" },
-  { key: "standard", label: "Estándar" },
-  { key: "design_available", label: "Diseño disponible" },
-  { key: "pending_asset", label: "Pendiente de asset" },
-  { key: "incident", label: "Con incidencia" },
-  { key: "not_prepared", label: "No preparados" },
+  { key: "all", label: "📋 Todos" },
+  { key: "personalized", label: "🎨 Personalizados" },
+  { key: "standard", label: "📦 Estándar" },
+  { key: "design_available", label: "✅ Diseño disponible" },
+  { key: "pending_asset", label: "⏳ Pendiente de asset" },
+  { key: "incident", label: "⚠️ Con incidencia" },
+  { key: "not_prepared", label: "🔧 No preparados" },
 ];
 
-function getPrimaryItemSummary(order: Awaited<ReturnType<typeof fetchOrders>>[number]) {
-  const primary = order.items[0];
-  if (!primary) {
-    return {
-      title: "Sin producto",
-      variant: "Sin variante",
-      quantity: 0,
-      moreItems: 0,
-    };
+/** Traduce el quick filter del portal a los parámetros de la API. */
+function quickFilterToApiParams(filter: PortalOrderQuickFilter) {
+  switch (filter) {
+    case "personalized":
+      return { is_personalized: true };
+    case "standard":
+      return { is_personalized: false };
+    case "design_available":
+      return { design_status: "design_available" };
+    case "pending_asset":
+      return { has_pending_asset: true };
+    case "incident":
+      return { has_incident: true };
+    case "not_prepared":
+      return { is_prepared: false };
+    default:
+      return {};
   }
+}
 
-  return {
-    title: primary.title ?? primary.name,
-    variant: primary.variant_title ?? "Sin variante",
-    quantity: primary.quantity,
-    moreItems: Math.max(order.items.length - 1, 0),
-  };
+function getOrderItems(order: Order) {
+  return order.items ?? [];
 }
 
 export default async function PortalOrdersPage({ searchParams }: PortalOrdersPageProps) {
-  await requirePortalUser();
+  const [userResult, shopsResult] = await Promise.allSettled([requirePortalUser(), fetchMyShops()]);
+  if (userResult.status === "rejected") throw userResult.reason;
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const params = await searchParams;
   const page = Math.max(Number(params.page ?? "1") || 1, 1);
   const perPage = Math.min(Math.max(Number(params.per_page ?? "50") || 50, 1), 500);
@@ -66,22 +72,27 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
   const quickFilter = quickFilterOptions.some((item) => item.key === params.quick)
     ? (params.quick as PortalOrderQuickFilter)
     : "all";
-
-  const shops = await fetchMyShops();
   const tenantScope = resolveTenantScope(shops, params.shop_id);
-  const orders = await fetchOrders({
-    per_page: 500,
-    ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
-  });
   const branding = getTenantBranding(tenantScope.selectedShop ?? shops[0]);
 
-  const filteredOrders = orders
-    .filter((order) => matchesPortalOrderSearch(order, query))
-    .filter((order) => matchesPortalOrderQuickFilter(order, quickFilter));
+  let orders: Order[] = [];
+  let totalCount = 0;
+  try {
+    const result = await fetchOrders({
+      page,
+      per_page: perPage,
+      q: query || undefined,
+      ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+      ...quickFilterToApiParams(quickFilter),
+    });
+    orders = result.orders;
+    totalCount = result.totalCount;
+  } catch {
+    // Backend unavailable — render with empty data
+  }
 
-  const pageCount = Math.max(1, Math.ceil(filteredOrders.length / perPage));
+  const pageCount = Math.max(1, Math.ceil(totalCount / perPage));
   const safePage = Math.min(page, pageCount);
-  const paginatedOrders = filteredOrders.slice((safePage - 1) * perPage, safePage * perPage);
 
   return (
     <div className="stack portal-orders-page">
@@ -106,7 +117,7 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
           <input name="quick" type="hidden" value={quickFilter} />
           <label className="field portal-orders-search-field">
             <span>Buscar</span>
-            <input defaultValue={query} name="q" placeholder="Pedido, cliente, email o tracking" type="search" />
+            <input defaultValue={query} name="q" placeholder="Pedido, cliente, email, SKU o tracking" type="search" />
           </label>
           <button className="button" type="submit">Buscar</button>
           <Link
@@ -124,41 +135,40 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
         </form>
 
         <div className="portal-orders-pill-row">
-          {quickFilterOptions.map((item) => {
-            const count = orders.filter((order) => matchesPortalOrderQuickFilter(order, item.key)).length;
-            return (
-              <Link
-                className={`portal-soft-pill portal-filter-pill ${quickFilter === item.key ? "portal-filter-pill-active" : ""}`}
-                href={{
-                  pathname: "/portal/orders",
-                  query: {
-                    q: query || undefined,
-                    quick: item.key === "all" ? undefined : item.key,
-                    per_page: String(perPage),
-                    page: "1",
-                    ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
-                  },
-                }}
-                key={item.key}
-              >
-                <span>{item.label}</span>
-                <strong>{count}</strong>
-              </Link>
-            );
-          })}
+          {quickFilterOptions.map((item) => (
+            <Link
+              className={`portal-soft-pill portal-filter-pill ${quickFilter === item.key ? "portal-filter-pill-active" : ""}`}
+              href={{
+                pathname: "/portal/orders",
+                query: {
+                  q: query || undefined,
+                  quick: item.key === "all" ? undefined : item.key,
+                  per_page: String(perPage),
+                  page: "1",
+                  ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+                },
+              }}
+              key={item.key}
+            >
+              <span>{item.label}</span>
+              {quickFilter === item.key && <strong>{totalCount}</strong>}
+            </Link>
+          ))}
         </div>
       </Card>
 
       <Card className="portal-glass-card portal-orders-table-card">
         <div className="portal-dashboard-section-head">
           <div>
-            <span className="eyebrow">Pedidos</span>
+            <span className="eyebrow">📋 Pedidos</span>
             <h3 className="section-title section-title-small">Vista operativa del cliente</h3>
             <p className="subtitle">Estados claros, tracking visible y acceso rápido al detalle para transmitir confianza y control.</p>
           </div>
           <div className="portal-orders-table-meta">
             <span className="table-secondary">
-              Mostrando {paginatedOrders.length} de {filteredOrders.length} pedidos
+              {totalCount === 0
+                ? "Sin resultados"
+                : `Mostrando ${orders.length} de ${totalCount} pedidos`}
             </span>
             <form className="field portal-per-page-field" method="get">
               {tenantScope.selectedShopId ? <input name="shop_id" type="hidden" value={tenantScope.selectedShopId} /> : null}
@@ -178,12 +188,12 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
           </div>
         </div>
 
-        {paginatedOrders.length === 0 ? (
+        {orders.length === 0 ? (
           <EmptyState title="Sin pedidos visibles" description="No hemos encontrado pedidos con esos filtros. Prueba otro estado o limpia la búsqueda." />
         ) : (
           <div className="portal-orders-list">
-            {paginatedOrders.map((order) => {
-              const summary = getPrimaryItemSummary(order);
+            {orders.map((order) => {
+              const items = getOrderItems(order);
               const stage = clientOrderStageMeta[getClientOrderStage(order)];
               const latestEvent = getLatestTrackingEvent(order);
               return (
@@ -203,12 +213,30 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
 
                     <div className="portal-order-row-grid">
                       <div>
-                        <span className="portal-summary-label">Producto principal</span>
-                        <strong>{summary.title}</strong>
-                        <div className="table-secondary">
-                          {summary.variant}
-                          {summary.moreItems > 0 ? ` · +${summary.moreItems} más` : ""}
-                        </div>
+                        <span className="portal-summary-label">Productos</span>
+                        {items.length > 0 ? (
+                          <div className="portal-order-items-list">
+                            {items.map((item) => (
+                              <div className="portal-order-item-line" key={item.id}>
+                                <div className="portal-order-item-top">
+                                  <strong>{item.title ?? item.name}</strong>
+                                  {(item.quantity ?? 0) > 1 ? (
+                                    <span className="badge badge-quantity">x{item.quantity}</span>
+                                  ) : null}
+                                </div>
+                                <div className="table-secondary">
+                                  {item.variant_title ?? "Sin variante"}
+                                  {(item.quantity ?? 0) > 1 ? " · misma línea de Shopify" : ""}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <>
+                            <strong>Sin producto</strong>
+                            <div className="table-secondary">No hay líneas disponibles</div>
+                          </>
+                        )}
                       </div>
                       <div>
                         <span className="portal-summary-label">Tracking</span>
@@ -272,7 +300,7 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
           >
             Anterior
           </Link>
-          <div className="table-secondary">Página {safePage} de {pageCount}</div>
+          <div className="table-secondary">Página {safePage} de {pageCount} · {totalCount} pedidos</div>
           <Link
             className={`button-secondary ${safePage >= pageCount ? "button-disabled" : ""}`}
             href={{

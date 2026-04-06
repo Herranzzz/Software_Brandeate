@@ -1,7 +1,11 @@
+from app.models.automation_event import AutomationActionType, AutomationEntityType, AutomationEvent
+from app.models.return_ import Return, ReturnReason, ReturnStatus
 from app.models.incident import Incident, IncidentPriority, IncidentStatus, IncidentType
-from app.models.order import DesignStatus, Order, OrderItem, OrderPriority, OrderStatus, ProductionStatus
+from app.models.order import DesignStatus, DeliveryType, Order, OrderItem, OrderPriority, OrderStatus, ProductionStatus
 from app.models.pick_batch import PickBatch, PickBatchOrder, PickBatchStatus
 from app.models.shipment import Shipment, TrackingEvent
+from app.models.shipping_rate_quote import ShippingRateQuote, ShippingQuoteSource
+from app.models.shipping_rule import ShippingRule
 from app.models.shop import Shop
 from app.models.shop_catalog_product import ShopCatalogProduct, ShopCatalogVariant
 from app.models.shop_customer import ShopCustomer
@@ -10,14 +14,21 @@ from app.models.shop_sync_event import ShopSyncEvent
 from app.models.user import User, UserRole, UserShop
 
 __all__ = [
+    "Return",
+    "ReturnReason",
+    "ReturnStatus",
     "Incident",
     "IncidentPriority",
     "IncidentStatus",
     "IncidentType",
+    "AutomationActionType",
+    "AutomationEntityType",
+    "AutomationEvent",
     "PickBatch",
     "PickBatchOrder",
     "PickBatchStatus",
     "DesignStatus",
+    "DeliveryType",
     "Order",
     "OrderItem",
     "OrderPriority",
@@ -29,6 +40,9 @@ __all__ = [
     "ShopCustomer",
     "ShopIntegration",
     "ShopSyncEvent",
+    "ShippingRateQuote",
+    "ShippingQuoteSource",
+    "ShippingRule",
     "TrackingEvent",
     "ProductionStatus",
     "User",

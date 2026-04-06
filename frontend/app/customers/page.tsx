@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Card } from "@/components/card";
+import { CreateShopButton } from "@/components/create-shop-button";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { SearchInput } from "@/components/search-input";
@@ -77,12 +78,20 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
   const query = normalize(params.q);
   const selected = params.selected ?? "";
 
-  const [shops, orders, incidents, integrations] = await Promise.all([
+  const [shopsResult, ordersResult, incidentsResult, integrationsResult] = await Promise.allSettled([
     fetchShops(),
     fetchOrders({ per_page: 500 }),
     fetchIncidents(),
     fetchShopifyIntegrations(),
   ]);
+
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
+  const orders =
+    ordersResult.status === "fulfilled"
+      ? ordersResult.value.orders
+      : [];
+  const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
+  const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
 
   const rows = shops
     .map((shop) => {
@@ -253,6 +262,15 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
     <div className="stack customer-accounts-page">
       <Card className="stack customer-accounts-hero">
         <PageHeader
+          actions={
+            <CreateShopButton
+              buttonClassName="button"
+              buttonLabel="Nueva tienda"
+              description="Da de alta una nueva cuenta cliente y luego podrás completar integración, branding y accesos."
+              successRedirectPath="/customers"
+              title="Crear cuenta / tienda"
+            />
+          }
           eyebrow="Cuentas de cliente"
           title="Account management operativo"
           description="Lee todas las tiendas desde una unica vista: estado de la cuenta, sync, riesgo operativo, expediciones e incidencias sin perder contexto."

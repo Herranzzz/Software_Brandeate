@@ -70,22 +70,22 @@ function buildDonutSegments(items: Array<{ label: string; value: number; color: 
 function buildHighlights(analytics: AnalyticsOverview) {
   return [
     {
-      label: "Pedidos totales",
+      label: "📦 Pedidos totales",
       value: String(analytics.kpis.total_orders),
       meta: `${analytics.kpis.orders_today} hoy`,
     },
     {
-      label: "Personalización",
+      label: "🎨 Personalización",
       value: formatPercent(analytics.personalization.personalized_share),
       meta: `${analytics.personalization.pending_assets_orders} con assets pendientes`,
     },
     {
-      label: "Envíos a tiempo",
+      label: "🎯 Envíos a tiempo",
       value: formatPercent(analytics.operational.delivered_in_sla_rate),
       meta: `${analytics.shipping.delivered_orders} entregados`,
     },
     {
-      label: "Incidencias abiertas",
+      label: "⚠️ Incidencias abiertas",
       value: String(analytics.kpis.open_incidents),
       meta: `${analytics.shipping.exception_orders} envíos con excepción`,
     },
@@ -122,22 +122,22 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
   const statusCircumference = 2 * Math.PI * statusRadius;
   const statusSegments = buildDonutSegments(statusMix, statusRadius, statusCircumference);
   const riskItems = [
-    { label: "Bloqueados", value: analytics.operational.blocked_orders, meta: "requieren seguimiento" },
-    { label: "Sin envío", value: analytics.operational.orders_without_shipment, meta: "pendientes de etiqueta" },
-    { label: "Tracking parado", value: analytics.operational.stalled_tracking_orders, meta: "sin movimiento reciente" },
-    { label: "Incidencias", value: analytics.kpis.open_incidents, meta: "abiertas ahora mismo" },
+    { label: "🔒 Bloqueados", value: analytics.operational.blocked_orders, meta: "requieren seguimiento" },
+    { label: "❌ Sin envío", value: analytics.operational.orders_without_shipment, meta: "pendientes de etiqueta" },
+    { label: "⏸️ Tracking parado", value: analytics.operational.stalled_tracking_orders, meta: "sin movimiento reciente" },
+    { label: "⚠️ Incidencias", value: analytics.kpis.open_incidents, meta: "abiertas ahora mismo" },
   ];
   const serviceItems = [
-    { label: "Pedido a producción", value: formatHours(analytics.operational.avg_order_to_production_hours) },
-    { label: "Producción a envío", value: formatHours(analytics.operational.avg_production_to_shipping_hours) },
-    { label: "Envío a entrega", value: formatHours(analytics.operational.avg_shipping_to_delivery_hours) },
-    { label: "Entregado en SLA", value: formatPercent(analytics.operational.delivered_in_sla_rate) },
+    { label: "📋 Pedido a producción", value: formatHours(analytics.operational.avg_order_to_production_hours) },
+    { label: "🏷️ Producción a envío", value: formatHours(analytics.operational.avg_production_to_shipping_hours) },
+    { label: "🚚 Envío a entrega", value: formatHours(analytics.operational.avg_shipping_to_delivery_hours) },
+    { label: "🎯 Entregado en SLA", value: formatPercent(analytics.operational.delivered_in_sla_rate) },
   ];
   const mixItems = [
-    { label: "Personalizados", value: analytics.kpis.personalized_orders, meta: formatPercent(analytics.personalization.personalized_share) },
-    { label: "Estándar", value: analytics.kpis.standard_orders, meta: formatPercent(analytics.personalization.standard_share) },
-    { label: "Pend. assets", value: analytics.personalization.pending_assets_orders, meta: "falta material" },
-    { label: "Pend. revisión", value: analytics.personalization.pending_review_orders, meta: "requiere validación" },
+    { label: "🎨 Personalizados", value: analytics.kpis.personalized_orders, meta: formatPercent(analytics.personalization.personalized_share) },
+    { label: "📦 Estándar", value: analytics.kpis.standard_orders, meta: formatPercent(analytics.personalization.standard_share) },
+    { label: "⏳ Pend. assets", value: analytics.personalization.pending_assets_orders, meta: "falta material" },
+    { label: "🔍 Pend. revisión", value: analytics.personalization.pending_review_orders, meta: "requiere validación" },
   ];
 
   return (
@@ -175,13 +175,13 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
       <Card className="portal-glass-card portal-analytics-hero">
         <div className="portal-glass-header">
           <div>
-            <span className="eyebrow">Resumen ejecutivo</span>
+            <span className="eyebrow">📊 Resumen ejecutivo</span>
             <h3 className="section-title section-title-small">Qué está pasando ahora mismo</h3>
             <p className="subtitle">
               Una lectura rápida de volumen, cumplimiento y excepciones. Si necesitas más detalle, usa filtros o baja a rankings y tendencias.
             </p>
           </div>
-          <form action="/portal/reporting" className="portal-analytics-filter-row" method="get">
+          <form action="/portal/shipments" className="portal-analytics-filter-row" method="get">
             <div className="portal-analytics-date-field">
               <label className="portal-analytics-date-label" htmlFor="portal-analytics-date-from">
                 Desde
@@ -213,7 +213,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
               <option value="false">Solo estándar</option>
             </select>
             <button className="button button-secondary" type="submit">Aplicar</button>
-            <Link className="button button-secondary" href="/portal/reporting">Limpiar</Link>
+            <Link className="button button-secondary" href="/portal/shipments">Limpiar</Link>
           </form>
         </div>
 
@@ -232,7 +232,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
         <Card className="portal-glass-card stack portal-analytics-status-card">
           <div className="section-header-inline">
             <div>
-              <span className="eyebrow">Estado global</span>
+              <span className="eyebrow">🌍 Estado global</span>
               <h3 className="section-title section-title-small">Dónde están tus pedidos</h3>
             </div>
           </div>
@@ -273,7 +273,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
         <Card className="portal-glass-card stack">
           <div className="section-header-inline">
             <div>
-              <span className="eyebrow">Servicio</span>
+              <span className="eyebrow">⚙️ Servicio</span>
               <h3 className="section-title section-title-small">Ritmo operativo</h3>
             </div>
           </div>
@@ -290,7 +290,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
         <Card className="portal-glass-card stack">
           <div className="section-header-inline">
             <div>
-              <span className="eyebrow">Riesgo</span>
+              <span className="eyebrow">🚨 Riesgo</span>
               <h3 className="section-title section-title-small">Qué requiere atención</h3>
             </div>
           </div>
@@ -312,7 +312,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
         <Card className="portal-glass-card stack">
           <div className="section-header-inline">
             <div>
-              <span className="eyebrow">Mix</span>
+              <span className="eyebrow">🎨 Mix</span>
               <h3 className="section-title section-title-small">Personalización y carga</h3>
             </div>
           </div>
@@ -330,7 +330,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
         <Card className="portal-glass-card stack">
           <div className="section-header-inline">
             <div>
-              <span className="eyebrow">Excepciones</span>
+              <span className="eyebrow">⚠️ Excepciones</span>
               <h3 className="section-title section-title-small">Incidencias por tipo</h3>
             </div>
           </div>
@@ -352,7 +352,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
         <Card className="portal-glass-card stack">
           <div className="section-header-inline">
             <div>
-              <span className="eyebrow">Tendencia</span>
+              <span className="eyebrow">📈 Tendencia</span>
               <h3 className="section-title section-title-small">Pedidos por día</h3>
             </div>
           </div>
@@ -372,7 +372,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
         <Card className="portal-glass-card stack">
           <div className="section-header-inline">
             <div>
-              <span className="eyebrow">Carriers</span>
+              <span className="eyebrow">🚛 Carriers</span>
               <h3 className="section-title section-title-small">Servicio por transportista</h3>
             </div>
           </div>
@@ -394,7 +394,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
         <Card className="portal-glass-card stack">
           <div className="table-header">
             <div>
-              <span className="eyebrow">SKUs</span>
+              <span className="eyebrow">📦 SKUs</span>
               <h3 className="section-title section-title-small">Qué más estás moviendo</h3>
             </div>
           </div>
@@ -417,7 +417,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
         <Card className="portal-glass-card stack">
           <div className="table-header">
             <div>
-              <span className="eyebrow">Alertas</span>
+              <span className="eyebrow">🔔 Alertas</span>
               <h3 className="section-title section-title-small">Pedidos más retrasados</h3>
             </div>
           </div>
