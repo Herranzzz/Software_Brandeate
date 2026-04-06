@@ -51,7 +51,7 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
   const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
-  const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : {} as AnalyticsOverview;
+  const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : null;
 
   return (
     <SharedShipmentsView

@@ -39,7 +39,7 @@ type SharedShipmentsViewProps = {
   orders: Order[];
   shops: Shop[];
   integrations: ShopIntegration[];
-  analytics: AnalyticsOverview;
+  analytics: AnalyticsOverview | null;
   selectedShopId?: string;
   q: string;
   quick: ShipmentQuickFilter;
@@ -419,8 +419,11 @@ export function SharedShipmentsView({
   const incidents = statusBreakdown.find((s) => s.key === "exception")?.value ?? 0;
   const withoutTracking = filteredOrders.filter((o) => o.shipment && !o.shipment.tracking_number).length;
   const stalledCount = filteredOrders.filter((o) => isStalled(o)).length;
-  const onTimeDeliveryPct = analytics.operational.delivered_in_sla_rate;
-  const exceptionRatePct = analytics.operational.incident_rate;
+  const analyticsOp = analytics?.operational ?? {} as Record<string, unknown>;
+  const analyticsFlow = analytics?.flow ?? {} as Record<string, unknown>;
+  const analyticsCharts = analytics?.charts ?? {} as Record<string, unknown>;
+  const onTimeDeliveryPct = (analyticsOp.delivered_in_sla_rate as number | null) ?? null;
+  const exceptionRatePct = (analyticsOp.incident_rate as number | null) ?? null;
 
   const deliveredLeadTimes = filteredOrders
     .map((o) => daysBetween(o.created_at, getDeliveredAt(o)))
@@ -428,13 +431,13 @@ export function SharedShipmentsView({
   const avgDeliveryDays =
     deliveredLeadTimes.length > 0
       ? deliveredLeadTimes.reduce((sum, v) => sum + v, 0) / deliveredLeadTimes.length
-      : analytics.operational.avg_shipping_to_delivery_hours !== null
-        ? analytics.operational.avg_shipping_to_delivery_hours / 24
+      : (analyticsOp.avg_shipping_to_delivery_hours as number | null) !== null
+        ? (analyticsOp.avg_shipping_to_delivery_hours as number) / 24
         : null;
   const avgTransitHours =
-    analytics.flow.avg_label_to_transit_hours !== null && analytics.flow.avg_transit_to_delivery_hours !== null
-      ? analytics.flow.avg_label_to_transit_hours + analytics.flow.avg_transit_to_delivery_hours
-      : analytics.operational.avg_shipping_to_delivery_hours;
+    (analyticsFlow.avg_label_to_transit_hours as number | null) !== null && (analyticsFlow.avg_transit_to_delivery_hours as number | null) !== null
+      ? (analyticsFlow.avg_label_to_transit_hours as number) + (analyticsFlow.avg_transit_to_delivery_hours as number)
+      : (analyticsOp.avg_shipping_to_delivery_hours as number | null) ?? null;
 
   const deliveredPct = Math.round((delivered / total) * 100);
   const inTransitPct = Math.round((inTransit / total) * 100);
@@ -470,7 +473,7 @@ export function SharedShipmentsView({
   const totalAttention = attentionOrders.length;
 
   // ── Charts ──
-  const chartDays = analytics.charts.orders_by_day.slice(-7);
+  const chartDays = (Array.isArray(analyticsCharts.orders_by_day) ? analyticsCharts.orders_by_day : []).slice(-7) as Array<{ date: string; total: number; delivered?: number; exception?: number }>;
   const maxDay = Math.max(...chartDays.map((d) => d.total), 1);
   const bars = chartDays.map((d) => ({
     ...d,
@@ -481,8 +484,8 @@ export function SharedShipmentsView({
   }));
 
   // ── Efficiency / flow ──
-  const flow = analytics.flow;
-  const aging: AgingBuckets = analytics.operational.aging_buckets ?? { bucket_0_24: 0, bucket_24_48: 0, bucket_48_72: 0, bucket_72_plus: 0 };
+  const flow = analytics?.flow ?? null;
+  const aging: AgingBuckets = (analyticsOp.aging_buckets as AgingBuckets | undefined) ?? { bucket_0_24: 0, bucket_24_48: 0, bucket_48_72: 0, bucket_72_plus: 0 };
   const agingTotal = Math.max(aging.bucket_0_24 + aging.bucket_24_48 + aging.bucket_48_72 + aging.bucket_72_plus, 1);
 
   const selectedIntegration =
@@ -836,15 +839,15 @@ export function SharedShipmentsView({
             <div className="sct-flow-phases">
               <div className="sct-flow-phase">
                 <span>Pedido → Etiqueta</span>
-                <strong>{formatHoursAsShort(flow.avg_order_to_label_hours)}</strong>
+                <strong>{formatHoursAsShort(flow?.avg_order_to_label_hours ?? null)}</strong>
               </div>
               <div className="sct-flow-phase">
                 <span>Etiqueta → Tránsito</span>
-                <strong>{formatHoursAsShort(flow.avg_label_to_transit_hours)}</strong>
+                <strong>{formatHoursAsShort(flow?.avg_label_to_transit_hours ?? null)}</strong>
               </div>
               <div className="sct-flow-phase">
                 <span>Tránsito → Entrega</span>
-                <strong>{formatHoursAsShort(flow.avg_transit_to_delivery_hours)}</strong>
+                <strong>{formatHoursAsShort(flow?.avg_transit_to_delivery_hours ?? null)}</strong>
               </div>
             </div>
           </div>
@@ -861,7 +864,7 @@ export function SharedShipmentsView({
           <div>
             <div className="sct-sla-grid">
               <div className="sct-sla-card is-green">
-                <strong>{analytics.operational.sent_in_sla_rate !== null ? `${analytics.operational.sent_in_sla_rate}%` : "—"}</strong>
+                <strong>{analyticsOp.sent_in_sla_rate as number | null !== null ? `${analyticsOp.sent_in_sla_rate as number | null}%` : "—"}</strong>
                 <span>Enviado en SLA (48h)</span>
               </div>
               <div className="sct-sla-card is-green">
@@ -872,19 +875,19 @@ export function SharedShipmentsView({
             <div className="sct-efficiency-phases">
               <div className="sct-efficiency-phase">
                 <span className="sct-efficiency-phase-label">Pedido → Etiqueta</span>
-                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow.avg_order_to_label_hours)}</span>
+                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow?.avg_order_to_label_hours ?? null)}</span>
               </div>
               <div className="sct-efficiency-phase">
                 <span className="sct-efficiency-phase-label">Etiqueta → Tránsito</span>
-                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow.avg_label_to_transit_hours)}</span>
+                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow?.avg_label_to_transit_hours ?? null)}</span>
               </div>
               <div className="sct-efficiency-phase">
                 <span className="sct-efficiency-phase-label">Tránsito → Entrega</span>
-                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow.avg_transit_to_delivery_hours)}</span>
+                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow?.avg_transit_to_delivery_hours ?? null)}</span>
               </div>
               <div className="sct-efficiency-phase">
                 <span className="sct-efficiency-phase-label">Ciclo completo</span>
-                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow.avg_total_hours)}</span>
+                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow?.avg_total_hours ?? null)}</span>
               </div>
             </div>
           </div>
@@ -922,15 +925,15 @@ export function SharedShipmentsView({
               <div className="sct-efficiency-phases">
                 <div className="sct-efficiency-phase">
                   <span className="sct-efficiency-phase-label">Bloqueados</span>
-                  <span className="sct-efficiency-phase-value">{analytics.operational.blocked_orders}</span>
+                  <span className="sct-efficiency-phase-value">{(analyticsOp.blocked_orders as number) ?? 0}</span>
                 </div>
                 <div className="sct-efficiency-phase">
                   <span className="sct-efficiency-phase-label">Sin shipment</span>
-                  <span className="sct-efficiency-phase-value">{analytics.operational.orders_without_shipment}</span>
+                  <span className="sct-efficiency-phase-value">{(analyticsOp.orders_without_shipment as number) ?? 0}</span>
                 </div>
                 <div className="sct-efficiency-phase">
                   <span className="sct-efficiency-phase-label">Tracking parado</span>
-                  <span className="sct-efficiency-phase-value">{analytics.operational.stalled_tracking_orders}</span>
+                  <span className="sct-efficiency-phase-value">{(analyticsOp.stalled_tracking_orders as number) ?? 0}</span>
                 </div>
               </div>
             </div>
