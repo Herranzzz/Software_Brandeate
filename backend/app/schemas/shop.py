@@ -19,6 +19,9 @@ class ShopShippingSettings(BaseModel):
     recipient_email_notifications: bool = True
     default_package_strategy: str | None = Field(default="per_order", max_length=32)
     default_package_count: int | None = Field(default=1, ge=1, le=99)
+    printer_name: str | None = Field(default=None, max_length=255)
+    printer_label_format: str | None = Field(default="PDF", max_length=8)
+    printer_auto_print: bool = False
 
     @field_validator(
         "sender_name",
@@ -33,6 +36,8 @@ class ShopShippingSettings(BaseModel):
         "default_weight_tier_code",
         "label_reference_mode",
         "default_package_strategy",
+        "printer_name",
+        "printer_label_format",
     )
     @classmethod
     def strip_nullable_text(cls, value: str | None) -> str | None:

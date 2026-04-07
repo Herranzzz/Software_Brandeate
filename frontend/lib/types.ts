@@ -287,6 +287,9 @@ export type ShopShippingSettings = {
   recipient_email_notifications: boolean;
   default_package_strategy: string | null;
   default_package_count: number | null;
+  printer_name: string | null;
+  printer_label_format: string | null;
+  printer_auto_print: boolean;
 };
 
 export type ShopCustomer = {

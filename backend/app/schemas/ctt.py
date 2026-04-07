@@ -37,3 +37,26 @@ class CTTCreateShippingResponse(BaseModel):
     shopify_sync_status: str | None = None
     shipment: ShipmentRead | None = None
     ctt_response: dict
+
+
+class CTTBulkShippingRequest(BaseModel):
+    order_ids: list[int] = Field(min_length=1, max_length=200)
+    weight_tier_code: str | None = None
+    shipping_type_code: str | None = None
+    item_count: int = Field(default=1, ge=1, le=99)
+
+
+class CTTBulkShippingResult(BaseModel):
+    order_id: int
+    external_id: str | None = None
+    status: str  # "created" | "skipped" | "failed"
+    reason: str | None = None
+    shipping_code: str | None = None
+    tracking_url: str | None = None
+
+
+class CTTBulkShippingResponse(BaseModel):
+    results: list[CTTBulkShippingResult]
+    created_count: int
+    skipped_count: int
+    failed_count: int

@@ -27,6 +27,9 @@ type ShippingFormState = {
   recipient_email_notifications: boolean;
   default_package_strategy: string;
   default_package_count: string;
+  printer_name: string;
+  printer_label_format: string;
+  printer_auto_print: boolean;
 };
 
 const SHIPPING_SERVICE_OPTIONS = [
@@ -64,6 +67,9 @@ function buildInitialState(settings: ShopShippingSettings | null | undefined): S
     recipient_email_notifications: settings?.recipient_email_notifications ?? true,
     default_package_strategy: settings?.default_package_strategy ?? "per_order",
     default_package_count: String(settings?.default_package_count ?? 1),
+    printer_name: settings?.printer_name ?? "",
+    printer_label_format: settings?.printer_label_format ?? "PDF",
+    printer_auto_print: settings?.printer_auto_print ?? false,
   };
 }
 
@@ -90,6 +96,9 @@ function buildPayload(state: ShippingFormState) {
       recipient_email_notifications: state.recipient_email_notifications,
       default_package_strategy: normalizeNullable(state.default_package_strategy),
       default_package_count: Math.max(Number.parseInt(state.default_package_count || "1", 10) || 1, 1),
+      printer_name: normalizeNullable(state.printer_name),
+      printer_label_format: normalizeNullable(state.printer_label_format) ?? "PDF",
+      printer_auto_print: state.printer_auto_print,
     },
   };
 }
@@ -358,6 +367,59 @@ export function ShopShippingSettingsForm({
           </div>
         </section>
       </div>
+
+      <section className="shipping-settings-panel">
+        <div className="shipping-settings-panel-head">
+          <div>
+            <span className="eyebrow">🖨️ Impresión</span>
+            <h4 className="section-title section-title-small">Impresora de etiquetas</h4>
+            <p className="subtitle">
+              Configura la impresora que se usará al crear etiquetas con impresión automática activada.
+            </p>
+          </div>
+        </div>
+
+        <div className="portal-settings-grid">
+          <div className="field field-span-2">
+            <label htmlFor={`printer-name-${shop.id}`}>Nombre de la impresora</label>
+            <input
+              id={`printer-name-${shop.id}`}
+              onChange={(event) => updateField("printer_name", event.target.value)}
+              placeholder="Ej: Zebra ZD420 · Almacén"
+              value={form.printer_name}
+            />
+            <span className="field-hint">
+              Solo descriptivo. Identifica la impresora configurada en tu sistema operativo.
+            </span>
+          </div>
+
+          <div className="field">
+            <label htmlFor={`printer-format-${shop.id}`}>Formato de etiqueta</label>
+            <select
+              id={`printer-format-${shop.id}`}
+              onChange={(event) => updateField("printer_label_format", event.target.value)}
+              value={form.printer_label_format}
+            >
+              <option value="PDF">PDF (impresora estándar o térmica vía driver)</option>
+              <option value="ZPL">ZPL (descarga directa para Zebra / red)</option>
+            </select>
+          </div>
+        </div>
+
+        <label className="shipping-settings-toggle">
+          <input
+            checked={form.printer_auto_print}
+            onChange={(event) => updateField("printer_auto_print", event.target.checked)}
+            type="checkbox"
+          />
+          <div>
+            <div className="table-primary">Activar impresión automática por defecto</div>
+            <div className="table-secondary">
+              Si está activado, al crear etiquetas (individual o en bulk) se lanzará el diálogo de impresión del navegador automáticamente sin pasos adicionales.
+            </div>
+          </div>
+        </label>
+      </section>
 
       <div className="actions-row">
         <button className="button" disabled={isPending} type="submit">

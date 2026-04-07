@@ -4,7 +4,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_db, require_admin_user
 from app.models import Order, Shipment, User
-from app.schemas.ctt import CTTCreateShippingRequest, CTTCreateShippingResponse
+from app.schemas.ctt import (
+    CTTBulkShippingRequest,
+    CTTBulkShippingResponse,
+    CTTBulkShippingResult,
+    CTTCreateShippingRequest,
+    CTTCreateShippingResponse,
+)
 from app.services.ctt import CTTError, get_label
 from app.services.ctt_shipments import (
     CTTShipmentDuplicateError,
@@ -51,6 +57,108 @@ def create_ctt_shipping(
         shopify_sync_status=result.shopify_sync_status,
         shipment=result.shipment,
         ctt_response=result.ctt_response,
+    )
+
+
+@router.post(
+    "/shippings/bulk",
+    response_model=CTTBulkShippingResponse,
+    status_code=status.HTTP_200_OK,
+)
+def create_ctt_shippings_bulk(
+    payload: CTTBulkShippingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+) -> CTTBulkShippingResponse:
+    results: list[CTTBulkShippingResult] = []
+
+    for order_id in payload.order_ids:
+        order = db.scalar(
+            select(Order)
+            .options(selectinload(Order.shipment).selectinload(Shipment.events))
+            .where(Order.id == order_id)
+        )
+        if order is None:
+            results.append(
+                CTTBulkShippingResult(
+                    order_id=order_id,
+                    status="failed",
+                    reason="Pedido no encontrado",
+                )
+            )
+            continue
+
+        has_existing_ctt = (
+            order.shipment is not None
+            and bool((order.shipment.tracking_number or "").strip())
+            and (order.shipment.carrier or "").strip().lower().startswith("ctt")
+        )
+
+        if has_existing_ctt:
+            results.append(
+                CTTBulkShippingResult(
+                    order_id=order_id,
+                    external_id=order.external_id,
+                    status="skipped",
+                    reason="Ya tiene etiqueta CTT creada",
+                    shipping_code=order.shipment.tracking_number,
+                    tracking_url=order.shipment.tracking_url,
+                )
+            )
+            continue
+
+        shipping_request = CTTCreateShippingRequest(
+            order_id=order_id,
+            weight_tier_code=payload.weight_tier_code,
+            shipping_type_code=payload.shipping_type_code,
+            item_count=payload.item_count,
+            resolution_mode="automatic",
+        )
+
+        try:
+            result = create_ctt_shipment_for_order(db=db, order=order, payload=shipping_request)
+            db.commit()
+            db.refresh(result.shipment)
+            results.append(
+                CTTBulkShippingResult(
+                    order_id=order_id,
+                    external_id=order.external_id,
+                    status="created",
+                    shipping_code=result.shipping_code,
+                    tracking_url=result.tracking_url,
+                )
+            )
+        except CTTShipmentDuplicateError as exc:
+            db.rollback()
+            results.append(
+                CTTBulkShippingResult(
+                    order_id=order_id,
+                    external_id=order.external_id,
+                    status="skipped",
+                    reason=str(exc),
+                    shipping_code=order.shipment.tracking_number if order.shipment else None,
+                )
+            )
+        except CTTShipmentOrchestrationError as exc:
+            db.rollback()
+            results.append(
+                CTTBulkShippingResult(
+                    order_id=order_id,
+                    external_id=order.external_id,
+                    status="failed",
+                    reason=str(exc),
+                )
+            )
+
+    created_count = sum(1 for r in results if r.status == "created")
+    skipped_count = sum(1 for r in results if r.status == "skipped")
+    failed_count = sum(1 for r in results if r.status == "failed")
+
+    return CTTBulkShippingResponse(
+        results=results,
+        created_count=created_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
     )
 
 

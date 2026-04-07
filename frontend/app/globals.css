@@ -1421,19 +1421,19 @@ a.admin-orders-row:hover {
 }
 
 .kpi-accent {
-  background: var(--surface);
+  border-left: 3px solid var(--accent);
 }
 
 .kpi-warning {
-  background: var(--surface);
+  border-left: 3px solid var(--warning);
 }
 
 .kpi-success {
-  background: var(--surface);
+  border-left: 3px solid var(--success);
 }
 
 .kpi-danger {
-  background: var(--surface);
+  border-left: 3px solid var(--danger);
 }
 
 .dashboard-grid {
@@ -2153,6 +2153,138 @@ a.admin-orders-row:hover {
   border-radius: var(--radius-control);
   padding: 10px 13px;
   background: var(--surface);
+}
+
+/* ── Bulk label button (highlight in bulk bar) ─────────────────────────── */
+.bulk-label-button {
+  margin-left: auto;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.bulk-label-button:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+/* ── Bulk label modal – config ─────────────────────────────────────────── */
+.bulk-label-config {
+  display: grid;
+  gap: 24px;
+}
+
+.bulk-label-config-section {
+  display: grid;
+  gap: 14px;
+}
+
+/* ── Bulk label modal – loading state ──────────────────────────────────── */
+.bulk-label-loading {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 28px 0;
+}
+
+.bulk-label-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: bulk-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes bulk-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Bulk label modal – results summary ────────────────────────────────── */
+.bulk-label-summary {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.bulk-label-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 24px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  min-width: 90px;
+  gap: 4px;
+}
+
+.bulk-label-stat-success {
+  background: var(--success-soft);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.bulk-label-stat-neutral {
+  background: var(--surface-soft);
+}
+
+.bulk-label-stat-error {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.bulk-label-stat-number {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bulk-label-stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.8;
+}
+
+/* ── Bulk label skipped details ────────────────────────────────────────── */
+.bulk-label-skipped {
+  margin-top: 4px;
+}
+
+.bulk-label-skipped summary {
+  cursor: pointer;
+  padding: 6px 0;
+  list-style: none;
+}
+
+.bulk-label-skipped summary::-webkit-details-marker { display: none; }
+.bulk-label-skipped summary::before { content: "▸ "; }
+details[open] .bulk-label-skipped summary::before { content: "▾ "; }
+
+.bulk-label-skipped-list {
+  list-style: none;
+  padding: 8px 0 0 0;
+  display: grid;
+  gap: 4px;
+}
+
+/* ── Field hint text ───────────────────────────────────────────────────── */
+.field-hint {
+  font-size: 0.78rem;
+  color: var(--text-soft, var(--muted));
+  margin-top: 4px;
+  display: block;
+}
+
+/* ── feedback-info (neutral tone for info messages) ───────────────────── */
+.feedback-info {
+  background: var(--surface-soft);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 13px 15px;
+  border-radius: 14px;
 }
 
 .orders-ops-table th:first-child,
@@ -3010,6 +3142,34 @@ a.admin-orders-row:hover {
   background: var(--surface-soft);
 }
 
+.shipment-render-broken {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 16px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.shipment-render-broken-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.shipment-render-broken-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.shipment-render-broken-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .shipment-lightbox-backdrop {
   padding: 28px;
 }
@@ -3521,12 +3681,34 @@ a.admin-orders-row:hover {
 .empty-state {
   display: grid;
   gap: 10px;
-  padding: 26px;
+  padding: 32px 26px;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-card);
   background: var(--surface-soft);
   color: var(--muted);
-  justify-items: start;
+  justify-items: center;
+  text-align: center;
+}
+
+.empty-state-icon {
+  font-size: 1.75rem;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.empty-state-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.empty-state-description {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  max-width: 360px;
 }
 
 .empty-orb {
@@ -3594,6 +3776,20 @@ a.admin-orders-row:hover {
   border: 1px solid var(--border);
   background: var(--surface-soft);
   color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.info-banner-warning {
+  background: var(--warning-soft);
+  border-color: rgba(217, 119, 6, 0.20);
+  color: var(--warning);
+}
+
+.info-banner-danger {
+  background: var(--danger-soft);
+  border-color: rgba(229, 57, 53, 0.20);
+  color: var(--danger);
 }
 
 .control-panel {
@@ -4087,6 +4283,22 @@ a.admin-orders-row:hover {
 :root[data-theme="dark"] .ctt-label-preview,
 :root[data-theme="dark"] .ctt-label-frame,
 :root[data-theme="dark"] .shipment-lightbox-body {
+  border-color: var(--border);
+  background: var(--surface-soft);
+}
+
+:root[data-theme="dark"] .shipment-render-broken {
+  border-color: var(--border);
+  background: var(--surface-soft);
+}
+
+:root[data-theme="dark"] .info-banner {
+  background: var(--surface-soft);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .empty-state {
   border-color: var(--border);
   background: var(--surface-soft);
 }

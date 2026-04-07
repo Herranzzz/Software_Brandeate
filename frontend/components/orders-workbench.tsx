@@ -5,13 +5,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { AutomationFlagBadge } from "@/components/automation-flag-badge";
+import { BulkLabelModal } from "@/components/bulk-label-modal";
 import { Card } from "@/components/card";
 import { CttLabelCell } from "@/components/ctt-label-cell";
 import { DesignAvailabilityBadge } from "@/components/design-availability-badge";
 import { EmptyState } from "@/components/empty-state";
 import { PriorityBadge } from "@/components/priority-badge";
 import { ProductionBadge } from "@/components/production-badge";
-import { RenderPreviewLightbox } from "@/components/render-preview-lightbox";
+import { DesignPreviewWithValidation } from "@/components/design-preview-with-validation";
 import { StatusBadge } from "@/components/status-badge";
 import { getOrderShipmentLabelUrl } from "@/lib/ctt";
 import {
@@ -22,6 +23,12 @@ import {
   productionStatusOptions,
   sortTrackingEvents,
 } from "@/lib/format";
+import {
+  getItemPrimaryAsset,
+  getPrimaryDesignPreview,
+  getVisibleAssets,
+  isImageAsset,
+} from "@/lib/personalization";
 import type {
   Incident,
   Order,
@@ -121,141 +128,7 @@ function getOrderItemQuantityLabel(orderItem: Order["items"][number]) {
 }
 
 
-function getDesignLink(order: Order) {
-  return order.items.find((item) => item.design_link)?.design_link ?? null;
-}
 
-
-type PersonalizationAsset = {
-  type: string;
-  url: string;
-};
-
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-
-function inferAssetType(url: string) {
-  const normalizedUrl = url.toLowerCase();
-  if (
-    normalizedUrl.endsWith(".png") ||
-    normalizedUrl.endsWith(".jpg") ||
-    normalizedUrl.endsWith(".jpeg") ||
-    normalizedUrl.endsWith(".webp") ||
-    normalizedUrl.endsWith(".gif") ||
-    normalizedUrl.endsWith(".svg")
-  ) {
-    return "image";
-  }
-  return "file";
-}
-
-
-function getPersonalizationAssets(item: Order["items"][number]): PersonalizationAsset[] {
-  const rawAssets = item.personalization_assets_json;
-  if (!rawAssets) {
-    return [];
-  }
-
-  if (Array.isArray(rawAssets)) {
-    return rawAssets
-      .map((entry) => {
-        if (typeof entry === "string") {
-          return { type: inferAssetType(entry), url: entry };
-        }
-        if (!isRecord(entry)) {
-          return null;
-        }
-        const url = typeof entry.url === "string" ? entry.url : null;
-        if (!url) {
-          return null;
-        }
-        return {
-          type: typeof entry.type === "string" && entry.type.trim() ? entry.type : inferAssetType(url),
-          url,
-        };
-      })
-      .filter((entry): entry is PersonalizationAsset => entry !== null);
-  }
-
-  if (isRecord(rawAssets)) {
-    return Object.entries(rawAssets)
-      .map(([key, value]) => {
-        if (typeof value === "string") {
-          return { type: key, url: value };
-        }
-        if (!isRecord(value)) {
-          return null;
-        }
-        const url = typeof value.url === "string" ? value.url : null;
-        if (!url) {
-          return null;
-        }
-        return {
-          type: typeof value.type === "string" && value.type.trim() ? value.type : key,
-          url,
-        };
-      })
-      .filter((entry): entry is PersonalizationAsset => entry !== null);
-  }
-
-  return [];
-}
-
-
-function isImageAsset(url: string) {
-  const normalizedUrl = url.toLowerCase();
-  return [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"].some((extension) => normalizedUrl.includes(extension));
-}
-
-
-function getPrimaryPreview(order: Order) {
-  const scored = order.items
-    .flatMap((item) => getPersonalizationAssets(item))
-    .filter((asset) => isImageAsset(asset.url))
-    .map((asset) => {
-      const normalizedType = asset.type.toLowerCase();
-      let score = 0;
-      if (normalizedType.includes("render")) score += 5;
-      if (normalizedType.includes("preview")) score += 4;
-      if (normalizedType.includes("mockup")) score += 3;
-      if (normalizedType.includes("image")) score += 2;
-      if (normalizedType.includes("design")) score += 1;
-      return { ...asset, score };
-    })
-    .sort((left, right) => right.score - left.score);
-
-  if (scored[0]) {
-    return scored[0].url;
-  }
-
-  const designLink = getDesignLink(order);
-  return designLink && isImageAsset(designLink) ? designLink : null;
-}
-
-function getItemPreview(item: Order["items"][number]) {
-  const scored = getPersonalizationAssets(item)
-    .filter((asset) => isImageAsset(asset.url))
-    .map((asset) => {
-      const normalizedType = asset.type.toLowerCase();
-      let score = 0;
-      if (normalizedType.includes("render")) score += 5;
-      if (normalizedType.includes("preview")) score += 4;
-      if (normalizedType.includes("mockup")) score += 3;
-      if (normalizedType.includes("image")) score += 2;
-      if (normalizedType.includes("design")) score += 1;
-      return { ...asset, score };
-    })
-    .sort((left, right) => right.score - left.score);
-
-  if (scored[0]) {
-    return scored[0].url;
-  }
-
-  return item.design_link && isImageAsset(item.design_link) ? item.design_link : null;
-}
 
 function getOrderItemsSearchTerms(order: Order) {
   return getOrderItems(order).flatMap((item) => [
@@ -439,6 +312,7 @@ export function OrdersWorkbench({
   const [detailIncidents, setDetailIncidents] = useState<Incident[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [showBulkLabelModal, setShowBulkLabelModal] = useState(false);
   const [query, setQuery] = useState(initialQuery);
   const [selectedShopId, setSelectedShopId] = useState<string>(initialShopId);
   const [totalCount, setTotalCount] = useState(initialTotalCount);
@@ -815,8 +689,29 @@ export function OrdersWorkbench({
               <button className="button-secondary" disabled={isPending} onClick={() => downloadCsv(selectedOrders)} type="button">
                 Exportar lista
               </button>
+              <button
+                className="button bulk-label-button"
+                disabled={isPending}
+                onClick={() => setShowBulkLabelModal(true)}
+                title={`Crear etiquetas CTT para ${selectedCount} pedidos seleccionados`}
+                type="button"
+              >
+                Crear etiquetas
+              </button>
             </div>
           </Card>
+        ) : null}
+
+        {showBulkLabelModal ? (
+          <BulkLabelModal
+            orders={selectedOrders}
+            shop={shops.find((s) => String(s.id) === selectedShopId) ?? shops[0] ?? null}
+            onClose={() => setShowBulkLabelModal(false)}
+            onComplete={(updatedIds) => {
+              setShowBulkLabelModal(false);
+              setFeedback(`Etiquetas creadas para ${updatedIds.length} pedido${updatedIds.length !== 1 ? "s" : ""}. Recarga para ver el estado actualizado.`);
+            }}
+          />
         ) : null}
 
         {view === "queue" ? (
@@ -983,10 +878,10 @@ export function OrdersWorkbench({
                           <td>
                             <div className="orders-preview-stack">
                               {displayItems.map((displayItem, index) => {
-                                const previewSrc = getItemPreview(displayItem);
-                                return previewSrc ? (
+                                const previewAsset = getItemPrimaryAsset(displayItem);
+                                return previewAsset ? (
                                   <div className="orders-preview-cell" key={`${order.id}-preview-${displayItem.id ?? index}`}>
-                                    <RenderPreviewLightbox alt={`Preview ${order.external_id}`} src={previewSrc} />
+                                    <DesignPreviewWithValidation alt={`Preview ${order.external_id}`} src={previewAsset.url} orderId={order.id} itemId={displayItem.id} />
                                   </div>
                                 ) : (
                                   <div className="orders-preview-empty" key={`${order.id}-preview-empty-${displayItem.id ?? index}`}>Sin preview</div>
@@ -1160,7 +1055,7 @@ export function OrdersWorkbench({
                   </div>
                   <div className="orders-drawer-metric">
                     <span>Assets</span>
-                    <strong>{Array.isArray(quickItem?.personalization_assets_json) ? quickItem.personalization_assets_json.length : 0}</strong>
+                    <strong>{quickItem ? getVisibleAssets(quickItem).length : 0}</strong>
                   </div>
                 </div>
                 {getAdditionalItemsCount(quickDetail) > 0 ? (
