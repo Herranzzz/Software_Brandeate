@@ -123,24 +123,30 @@ def _is_tracking_stalled(order: Order, reference_time: datetime) -> bool:
 
 
 def _effective_tracking_status(order: Order, order_status_val: str) -> str:
-    """For shipped/ready_to_ship orders, resolve a finer-grained status from
-    the latest tracking event so the donut can show 'in_transit' and
-    'out_for_delivery' as separate segments."""
+    """For shipped/ready_to_ship orders resolve a finer-grained status from
+    the latest tracking event so the donut distinguishes:
+      - label_created  → label generated, carrier hasn't scanned yet
+      - in_transit     → carrier has the package (any real scan ≠ label_created)
+      - out_for_delivery → out for delivery
+    Any status that is NOT one of those three falls back to 'in_transit'
+    because any carrier event means the carrier already has the parcel."""
     if order_status_val not in ("shipped", "ready_to_ship"):
         return order_status_val
     if not order.shipment:
         return order_status_val
     latest = _latest_event(order.shipment)
     if latest is None:
-        return order_status_val
+        # Shipment exists but no tracking events yet → still at label stage
+        return "label_created"
     norm = _safe_text(latest.status_norm, "").lower()
     if norm == "out_for_delivery":
         return "out_for_delivery"
     if norm in ("in_transit", "pickup_available", "attempted_delivery"):
         return "in_transit"
-    if norm == "label_created":
+    if norm in ("label_created", ""):
         return "label_created"
-    return order_status_val
+    # Any other carrier event (unknown norm) = carrier has the package = in_transit
+    return "in_transit"
 
 
 def _carrier_for_order(order: Order) -> str | None:

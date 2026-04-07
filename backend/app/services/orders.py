@@ -61,40 +61,13 @@ def _resolve_target_status(order: Order, latest_event_or_status: str) -> OrderSt
 
 
 def infer_order_is_personalized(items: list[object]) -> bool:
+    """An order is personalized exclusively when at least one item has a design_link
+    (the image URL that represents the customer's personalised design).
+    All other signals (customization_id, notes, assets, keywords) no longer count."""
     for item in items:
-        customization_id = getattr(item, "customization_id", None)
         design_link = getattr(item, "design_link", None)
-        personalization_details = getattr(item, "personalization_details_json", None)
-        personalization_notes = getattr(item, "personalization_notes", None)
-        personalization_assets = getattr(item, "personalization_assets_json", None)
-        name = (getattr(item, "name", "") or "").lower()
-        sku = (getattr(item, "sku", "") or "").lower()
-
-        if customization_id and str(customization_id).strip():
-            return True
-
         if design_link and str(design_link).strip():
             return True
-
-        if isinstance(personalization_details, list) and len(personalization_details) > 0:
-            return True
-
-        if isinstance(personalization_details, dict) and len(personalization_details) > 0:
-            return True
-
-        if personalization_notes and str(personalization_notes).strip():
-            return True
-
-        if isinstance(personalization_assets, list) and len(personalization_assets) > 0:
-            return True
-
-        if isinstance(personalization_assets, dict) and len(personalization_assets) > 0:
-            return True
-
-        haystack = f"{name} {sku}"
-        if any(keyword in haystack for keyword in PERSONALIZATION_KEYWORDS):
-            return True
-
     return False
 
 
@@ -105,31 +78,8 @@ def infer_design_status(item: object, *, is_personalized: bool | None = None) ->
     if not is_personalized:
         return None
 
-    design_link = (getattr(item, "design_link", None) or "").strip()
-    customization_id = (getattr(item, "customization_id", None) or "").strip()
-    personalization_notes = (getattr(item, "personalization_notes", None) or "").strip()
-    personalization_details = getattr(item, "personalization_details_json", None)
-    personalization_assets = getattr(item, "personalization_assets_json", None)
-
-    if design_link:
-        return DesignStatus.design_available
-
-    has_assets = False
-    if isinstance(personalization_assets, list):
-        has_assets = len(personalization_assets) > 0
-    elif isinstance(personalization_assets, dict):
-        has_assets = len(personalization_assets) > 0
-
-    has_details = False
-    if isinstance(personalization_details, list):
-        has_details = len(personalization_details) > 0
-    elif isinstance(personalization_details, dict):
-        has_details = len(personalization_details) > 0
-
-    if customization_id or has_assets or has_details or personalization_notes:
-        return DesignStatus.pending_asset
-
-    return DesignStatus.missing_asset
+    # is_personalized is True iff design_link is present, so always design_available here.
+    return DesignStatus.design_available
 
 
 def sync_order_item_design_statuses(order: Order) -> None:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ssl
+import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,7 +24,10 @@ from app.models import (
 )
 
 
-PENDING_ORDER_RISK_HOURS = 24
+# An order is flagged as "preparation at risk" only after this many business days
+# (Mon–Fri) without transitioning out of pending/in_progress.
+PREPARATION_RISK_BUSINESS_DAYS = 3
+
 READY_IDLE_HOURS = 12
 TRACKING_STALLED_HOURS = 48
 
@@ -167,18 +172,28 @@ def evaluate_order_automation_rules(
     order: Order,
     source: str,
 ) -> None:
+    """Create incidents only for the three approved automatic triggers:
+    1. Order stuck in pending/in_progress for more than PREPARATION_RISK_BUSINESS_DAYS business days.
+    2. Tracking stalled (carrier has not updated the shipment in TRACKING_STALLED_HOURS hours).
+    3. The order's design_link URL returns JSON instead of an image (broken/expired link).
+    All other flags remain as visual badges but no longer generate incidents automatically.
+    """
     flags = build_order_automation_flags(order)
     flag_keys = {flag["key"] for flag in flags}
 
-    if "missing_design" in flag_keys:
+    # ── 1. Preparation stuck ≥ 3 business days ──────────────────────────────
+    if "preparation_risk" in flag_keys:
         _ensure_incident(
             db=db,
             order=order,
-            incident_type=IncidentType.missing_asset,
-            title="Pedido personalizado sin diseño",
-            description="El pedido personalizado no tiene design link ni assets suficientes para entrar en producción.",
+            incident_type=IncidentType.shipping_exception,
+            title="Pedido sin preparar desde hace más de 3 días hábiles",
+            description=(
+                f"El pedido lleva más de {PREPARATION_RISK_BUSINESS_DAYS} días hábiles "
+                "en estado pendiente o en producción sin avanzar. Requiere revisión."
+            ),
             priority=IncidentPriority.high,
-            rule_name="personalization_missing_design",
+            rule_name="preparation_risk",
         )
         _ensure_automation_event(
             db=db,
@@ -186,71 +201,13 @@ def evaluate_order_automation_rules(
             shipment_id=order.shipment.id if order.shipment else None,
             entity_type=AutomationEntityType.order,
             entity_id=order.id,
-            rule_name="personalization_missing_design",
+            rule_name="preparation_risk",
             action_type=AutomationActionType.flag_detected,
-            summary="Automatización detectó un pedido personalizado sin diseño listo.",
-            payload={
-                "source": source,
-                "design_statuses": sorted(
-                    status.value for status in {item.design_status for item in order.items if item.design_status is not None}
-                ),
-            },
-        )
-    elif "pending_asset" in flag_keys:
-        _ensure_incident(
-            db=db,
-            order=order,
-            incident_type=IncidentType.missing_asset,
-            title="Pedido personalizado pendiente de asset",
-            description="El pedido personalizado está identificado, pero todavía faltan assets o datos para producirlo.",
-            priority=IncidentPriority.medium,
-            rule_name="personalization_pending_asset",
-        )
-        _ensure_automation_event(
-            db=db,
-            order=order,
-            shipment_id=order.shipment.id if order.shipment else None,
-            entity_type=AutomationEntityType.order,
-            entity_id=order.id,
-            rule_name="personalization_pending_asset",
-            action_type=AutomationActionType.flag_detected,
-            summary="Automatización detectó un pedido personalizado pendiente de assets.",
-            payload={"source": source},
+            summary="Automatización marcó el pedido como atascado en preparación (≥3 días hábiles).",
+            payload={"source": source, "created_at": order.created_at.isoformat()},
         )
 
-    if "address_incomplete" in flag_keys:
-        _ensure_incident(
-            db=db,
-            order=order,
-            incident_type=IncidentType.address_issue,
-            title="Dirección de envío incompleta",
-            description="Faltan campos esenciales de la dirección o contacto del cliente para poder expedir.",
-            priority=IncidentPriority.high,
-            rule_name="address_incomplete",
-        )
-
-    if "missing_shipment" in flag_keys:
-        _ensure_incident(
-            db=db,
-            order=order,
-            incident_type=IncidentType.shipping_exception,
-            title="Pedido enviado sin shipment interno",
-            description="El pedido está marcado como enviado, pero no existe expedición interna registrada.",
-            priority=IncidentPriority.urgent,
-            rule_name="shipped_without_shipment",
-        )
-
-    if "missing_tracking" in flag_keys:
-        _ensure_incident(
-            db=db,
-            order=order,
-            incident_type=IncidentType.shipping_exception,
-            title="Shipment sin tracking number",
-            description="Existe una expedición, pero todavía no tiene tracking number disponible.",
-            priority=IncidentPriority.high,
-            rule_name="shipment_missing_tracking",
-        )
-
+    # ── 2. Tracking stalled ──────────────────────────────────────────────────
     if "tracking_stalled" in flag_keys:
         _ensure_incident(
             db=db,
@@ -276,19 +233,33 @@ def evaluate_order_automation_rules(
             },
         )
 
-    if "preparation_risk" in flag_keys:
+    # ── 3. Broken design link (URL returns JSON instead of an image) ─────────
+    if order.is_personalized and _has_broken_design_link(order):
+        _ensure_incident(
+            db=db,
+            order=order,
+            incident_type=IncidentType.missing_asset,
+            title="Link de diseño roto (devuelve JSON)",
+            description=(
+                "El link de imagen del pedido responde con JSON en lugar de una imagen. "
+                "El link puede haber caducado o el servicio de personalización tiene un error."
+            ),
+            priority=IncidentPriority.high,
+            rule_name="broken_design_link",
+        )
         _ensure_automation_event(
             db=db,
             order=order,
             shipment_id=order.shipment.id if order.shipment else None,
             entity_type=AutomationEntityType.order,
             entity_id=order.id,
-            rule_name="preparation_risk",
+            rule_name="broken_design_link",
             action_type=AutomationActionType.flag_detected,
-            summary="Automatización marcó el pedido como lento en preparación.",
-            payload={"source": source, "created_at": order.created_at.isoformat()},
+            summary="Automatización detectó un design_link que devuelve JSON en lugar de imagen.",
+            payload={"source": source},
         )
 
+    # Automation events only (no incident) for other notable flags
     if "ready_idle" in flag_keys:
         _ensure_automation_event(
             db=db,
@@ -469,11 +440,61 @@ def _is_tracking_stalled(order: Order) -> bool:
     return hours is not None and hours >= TRACKING_STALLED_HOURS
 
 
+def _business_days_since(value: datetime | None) -> float | None:
+    """Return the number of completed business days (Mon–Fri) since *value*."""
+    if value is None:
+        return None
+    now = datetime.now(timezone.utc)
+    start = value.astimezone(timezone.utc)
+    if now <= start:
+        return 0.0
+    count = 0
+    current = start.date()
+    end_date = now.date()
+    while current < end_date:
+        if current.weekday() < 5:  # 0=Mon … 4=Fri
+            count += 1
+        current += timedelta(days=1)
+    return float(count)
+
+
 def _is_order_pending_too_long(order: Order) -> bool:
     if order.status not in {OrderStatus.pending, OrderStatus.in_progress}:
         return False
-    hours = _hours_since(order.created_at)
-    return hours is not None and hours >= PENDING_ORDER_RISK_HOURS
+    days = _business_days_since(order.created_at)
+    return days is not None and days >= PREPARATION_RISK_BUSINESS_DAYS
+
+
+def _url_returns_json(url: str, timeout: int = 4) -> bool:
+    """Return True if the URL responds with a JSON Content-Type instead of an image.
+    Returns False on any network/timeout error (don't flag uncertain cases)."""
+    try:
+        ctx = ssl.create_default_context()
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            content_type = (resp.headers.get("Content-Type") or "").lower()
+            return "json" in content_type
+    except Exception:
+        return False
+
+
+def _has_broken_design_link(order: Order) -> bool:
+    """Return True if any item has a design_link that responds with JSON.
+    Skips the HTTP check when the order already has an open broken_design_link incident
+    (idempotency – avoids hammering the same URL repeatedly)."""
+    already_flagged = any(
+        getattr(inc, "automation_rule_name", None) == "broken_design_link"
+        and inc.status != IncidentStatus.resolved
+        for inc in order.incidents
+    )
+    if already_flagged:
+        return True  # Already known broken; let _ensure_incident handle idempotency
+
+    for item in order.items:
+        url = (item.design_link or "").strip()
+        if url and _url_returns_json(url):
+            return True
+    return False
 
 
 def _is_ready_without_movement(order: Order) -> bool:
