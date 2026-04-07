@@ -3,25 +3,21 @@ import { notFound } from "next/navigation";
 
 import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
+import { DesignPreviewWithValidation } from "@/components/design-preview-with-validation";
 import { PersonalizationBadge } from "@/components/personalization-badge";
 import { ProductionBadge } from "@/components/production-badge";
-import { RenderPreviewLightbox } from "@/components/render-preview-lightbox";
 import { SectionTitle } from "@/components/section-title";
 import { StatusBadge } from "@/components/status-badge";
 import { ShippingOptionsPanel } from "@/components/shipping-options-panel";
 import { fetchOrderById, fetchOrderIncidents, fetchShopCatalogProducts } from "@/lib/api";
 import { getAuthToken, requirePortalUser } from "@/lib/auth";
 import { formatDateTime, sortTrackingEvents } from "@/lib/format";
+import { getPrimaryDesignPreview, isImageAsset } from "@/lib/personalization";
 import type { OrderItem, ShopCatalogProduct } from "@/lib/types";
 
 
 type PortalOrderDetailPageProps = {
   params: Promise<{ id: string }>;
-};
-
-type PersonalizationAsset = {
-  type: string;
-  url: string;
 };
 
 type OrderActivity = {
@@ -53,125 +49,6 @@ type ShippingSnapshot = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function inferAssetType(url: string) {
-  const normalizedUrl = url.toLowerCase();
-
-  if (
-    normalizedUrl.endsWith(".png") ||
-    normalizedUrl.endsWith(".jpg") ||
-    normalizedUrl.endsWith(".jpeg") ||
-    normalizedUrl.endsWith(".webp") ||
-    normalizedUrl.endsWith(".gif") ||
-    normalizedUrl.endsWith(".svg")
-  ) {
-    return "image";
-  }
-
-  return "file";
-}
-
-function getPersonalizationAssets(item: OrderItem): PersonalizationAsset[] {
-  const rawAssets = item.personalization_assets_json;
-
-  if (!rawAssets) {
-    return [];
-  }
-
-  if (Array.isArray(rawAssets)) {
-    return rawAssets
-      .map((entry) => {
-        if (typeof entry === "string") {
-          return { type: inferAssetType(entry), url: entry };
-        }
-
-        if (!isRecord(entry)) {
-          return null;
-        }
-
-        const url = typeof entry.url === "string" ? entry.url : null;
-        if (!url) {
-          return null;
-        }
-
-        const type =
-          typeof entry.type === "string" && entry.type.trim()
-            ? entry.type
-            : inferAssetType(url);
-
-        return { type, url };
-      })
-      .filter((entry): entry is PersonalizationAsset => entry !== null);
-  }
-
-  if (isRecord(rawAssets)) {
-    return Object.entries(rawAssets)
-      .map(([key, value]) => {
-        if (typeof value === "string") {
-          return { type: key, url: value };
-        }
-
-        if (!isRecord(value)) {
-          return null;
-        }
-
-        const url = typeof value.url === "string" ? value.url : null;
-        if (!url) {
-          return null;
-        }
-
-        return {
-          type: typeof value.type === "string" && value.type.trim() ? value.type : key,
-          url,
-        };
-      })
-      .filter((entry): entry is PersonalizationAsset => entry !== null);
-  }
-
-  return [];
-}
-
-function isImageAsset(url: string) {
-  const normalizedUrl = url.toLowerCase();
-
-  return [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"].some((extension) =>
-    normalizedUrl.includes(extension),
-  );
-}
-
-function getPrimaryRenderedAsset(orderItems: OrderItem[]) {
-  const scored = orderItems
-    .flatMap((item) => getPersonalizationAssets(item))
-    .filter((asset) => isImageAsset(asset.url))
-    .map((asset) => {
-      const normalizedType = asset.type.toLowerCase();
-      let score = 0;
-
-      if (normalizedType.includes("render")) score += 5;
-      if (normalizedType.includes("preview")) score += 4;
-      if (normalizedType.includes("mockup")) score += 3;
-      if (normalizedType.includes("image")) score += 2;
-      if (normalizedType.includes("design")) score += 1;
-
-      return { ...asset, score };
-    })
-    .sort((left, right) => right.score - left.score);
-
-  return scored[0] ?? null;
-}
-
-function getPrimaryDesignPreview(orderItems: OrderItem[]) {
-  const renderedAsset = getPrimaryRenderedAsset(orderItems);
-  if (renderedAsset) {
-    return renderedAsset.url;
-  }
-
-  const designLinkItem = orderItems.find(
-    (item) => typeof item.design_link === "string" && item.design_link.trim() && isImageAsset(item.design_link),
-  );
-
-  return designLinkItem?.design_link ?? null;
 }
 
 function getProductSummary(item: OrderItem, catalogProducts: ShopCatalogProduct[]) {
@@ -475,9 +352,11 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
                   <div className="shipment-product-variant">{primaryItemSummary.variantName}</div>
                 </div>
                 <div className="shipment-render-preview">
-                  <RenderPreviewLightbox
+                  <DesignPreviewWithValidation
                     alt={`Render de ${primaryItemSummary.productName}`}
                     src={designPreviewUrl}
+                    orderId={order.id}
+                    itemId={primaryItem!.id}
                   />
                 </div>
               </div>

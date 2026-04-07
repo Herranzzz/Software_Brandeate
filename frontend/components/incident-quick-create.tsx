@@ -70,7 +70,7 @@ export function IncidentQuickCreate({ orderId }: IncidentQuickCreateProps) {
         <span className="eyebrow">Incidencias</span>
         <h3 className="section-title section-title-small">Crear incidencia</h3>
         <p className="subtitle">
-          Registra bloqueos de personalizacion, produccion o envio sin salir de la operativa.
+          Registra bloqueos de personalización, producción o envío sin salir de la operativa.
         </p>
       </div>
 

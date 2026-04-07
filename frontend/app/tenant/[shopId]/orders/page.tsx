@@ -48,8 +48,8 @@ export default async function TenantOrdersPage({ params }: TenantOrdersPageProps
                   <th>Cliente</th>
                   <th>Tipo</th>
                   <th>Status</th>
-                  <th>Produccion</th>
-                  <th>Envio</th>
+                  <th>Producción</th>
+                  <th>Envío</th>
                 </tr>
               </thead>
               <tbody>

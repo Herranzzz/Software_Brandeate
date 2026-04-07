@@ -51,7 +51,7 @@ function getHealthMeta(health: AccountHealth) {
       };
     case "attention":
       return {
-        label: "Atencion",
+        label: "Atención",
         className: "customer-account-health customer-account-health-attention",
       };
     default:
@@ -287,7 +287,7 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
             <select defaultValue={params.health ?? "all"} id="health" name="health">
               <option value="all">Todas</option>
               <option value="healthy">Saludables</option>
-              <option value="attention">Atencion</option>
+              <option value="attention">Atención</option>
               <option value="risk">Riesgo</option>
             </select>
           </div>
@@ -353,12 +353,12 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
           <span className="table-secondary">sincronizadas en las ultimas 6 horas</span>
         </Card>
         <Card className="customer-accounts-kpi">
-          <span className="customer-accounts-kpi-label">En produccion</span>
+          <span className="customer-accounts-kpi-label">En producción</span>
           <strong>{kpis.production}</strong>
           <span className="table-secondary">cuentas con trabajo interno en marcha</span>
         </Card>
         <Card className="customer-accounts-kpi">
-          <span className="customer-accounts-kpi-label">En transito</span>
+          <span className="customer-accounts-kpi-label">En tránsito</span>
           <strong>{kpis.transit}</strong>
           <span className="table-secondary">cuentas con expediciones vivas</span>
         </Card>
@@ -434,7 +434,7 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
                         <strong>{entry.metrics.activeOrders}</strong>
                       </div>
                       <div>
-                        <span className="customer-account-mini-label">Produccion</span>
+                        <span className="customer-account-mini-label">Producción</span>
                         <strong>{entry.metrics.inProduction}</strong>
                       </div>
                       <div>
@@ -461,7 +461,7 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
                           Ver pedidos
                         </Link>
                         <Link className="table-link" href={`/shipments?shop_id=${entry.shop.id}`}>
-                          Ver envios
+                          Ver envíos
                         </Link>
                       </div>
                     </div>
@@ -503,11 +503,11 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
                     <strong>{selectedEntry.metrics.ordersToday}</strong>
                   </div>
                   <div className="customer-account-drawer-stat">
-                    <span className="customer-account-mini-label">En produccion</span>
+                    <span className="customer-account-mini-label">En producción</span>
                     <strong>{selectedEntry.metrics.inProduction}</strong>
                   </div>
                   <div className="customer-account-drawer-stat">
-                    <span className="customer-account-mini-label">En transito</span>
+                    <span className="customer-account-mini-label">En tránsito</span>
                     <strong>{selectedEntry.metrics.inTransit}</strong>
                   </div>
                   <div className="customer-account-drawer-stat">
@@ -518,11 +518,11 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
 
                 <div className="status-summary-list">
                   <div className="status-summary-row">
-                    <span>Ultima sincronizacion</span>
+                    <span>Última sincronización</span>
                     <strong>
                       {selectedEntry.integration?.last_synced_at
                         ? formatDateTime(selectedEntry.integration.last_synced_at)
-                        : "Sin sincronizacion"}
+                        : "Sin sincronización"}
                     </strong>
                   </div>
                   <div className="status-summary-row">
@@ -586,7 +586,7 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
                     Ver pedidos
                   </Link>
                   <Link className="button button-secondary" href={`/shipments?shop_id=${selectedEntry.shop.id}`}>
-                    Ver envios
+                    Ver envíos
                   </Link>
                   <Link className="button button-secondary" href={`/analytics?shop_id=${selectedEntry.shop.id}`}>
                     Ver analytics

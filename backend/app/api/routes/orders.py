@@ -683,3 +683,29 @@ def update_order(
     evaluate_order_automation_rules(db=db, order=order, source="order_update")
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))
+
+
+@router.post("/{order_id}/items/{item_id}/report-broken-asset")
+def report_broken_asset(
+    order_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> dict:
+    """Mark an item's design asset as broken, setting design_status to pending_asset."""
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+
+    item = next((i for i in order.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    if item.design_status != DesignStatus.pending_asset:
+        item.design_status = DesignStatus.pending_asset
+        evaluate_order_automation_rules(db=db, order=order, source="broken_asset_report")
+        db.commit()
+
+    return {"ok": True, "design_status": "pending_asset"}

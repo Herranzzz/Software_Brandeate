@@ -77,8 +77,8 @@ export function ShopifySyncPanel({
         kind: "success",
         text:
           action === "import"
-            ? "Importacion historica completada."
-            : "Sincronizacion incremental completada.",
+            ? "Importación histórica completada."
+            : "Sincronización incremental completada.",
       });
       startTransition(() => {
         router.refresh();
@@ -120,7 +120,7 @@ export function ShopifySyncPanel({
           </div>
         ) : (
           <div className="info-banner">
-            Sincronizacion configurada para <strong>{shops[0]?.name ?? `shop #${shopId}`}</strong>.
+            Sincronización configurada para <strong>{shops[0]?.name ?? `shop #${shopId}`}</strong>.
           </div>
         )}
 

@@ -60,7 +60,7 @@ export default async function TenantDashboardPage({ params }: TenantDashboardPag
         </Card>
 
         <Card className="stack">
-          <SectionTitle eyebrow="Incidencias" title="Atencion prioritaria" />
+          <SectionTitle eyebrow="Incidencias" title="Atención prioritaria" />
           <div className="incident-list">
             {incidents.slice(0, 5).map((incident) => (
               <article className="incident-item" key={incident.id}>

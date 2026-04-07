@@ -117,7 +117,7 @@ export function ShipmentOperations({ orderId, shipment }: ShipmentOperationsProp
             <span className="eyebrow">Crear envio</span>
             <h3 className="section-title section-title-small">Generar shipment</h3>
             <p className="subtitle">
-              Crea el envio para activar el flujo logistico y habilitar el tracking del pedido.
+              Crea el envío para activar el flujo logístico y habilitar el tracking del pedido.
             </p>
           </div>
 

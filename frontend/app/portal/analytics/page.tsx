@@ -108,7 +108,39 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
     production_status: readValue(params.production_status),
     carrier: readValue(params.carrier),
   };
-  const analytics = await fetchAnalyticsOverview(filters);
+  let analytics: AnalyticsOverview | null = null;
+  try {
+    analytics = await fetchAnalyticsOverview(filters);
+  } catch {
+    // Graceful degradation — rendered below
+  }
+
+  if (!analytics) {
+    return (
+      <div className="stack">
+        <PageHeader
+          eyebrow="Reporting"
+          title="Rendimiento de tu operativa"
+          description="No hemos podido cargar los datos de analítica en este momento. Inténtalo de nuevo más tarde."
+        />
+        <PortalTenantControl
+          action="/portal/analytics"
+          hiddenFields={{}}
+          selectedShopId={tenantScope.selectedShopId}
+          shops={tenantScope.shops}
+          submitLabel="Ver"
+        />
+        <Card className="portal-glass-card">
+          <div className="empty-state">
+            <div className="empty-state-icon">⚠️</div>
+            <h3 className="empty-state-title">Datos no disponibles</h3>
+            <p className="empty-state-description">El servicio de analítica no respondió correctamente. Prueba a recargar la página.</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   const highlights = buildHighlights(analytics);
   const ordersByDayMax = maxValue(analytics.charts.orders_by_day.map((point) => ({ value: point.total })));
   const carrierMax = maxValue(analytics.charts.carrier_performance);

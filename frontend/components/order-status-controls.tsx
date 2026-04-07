@@ -52,7 +52,7 @@ export function OrderStatusControls({
       <div>
         <span className="eyebrow">Acciones</span>
         <h3 className="section-title section-title-small">Estados del pedido</h3>
-        <p className="subtitle">Actualiza el estado logistico y de produccion desde una sola card.</p>
+        <p className="subtitle">Actualiza el estado logístico y de producción desde una sola card.</p>
       </div>
 
       <div className="grid grid-2">

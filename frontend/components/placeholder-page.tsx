@@ -19,9 +19,9 @@ export function PlaceholderPage({
       <PageHeader eyebrow={eyebrow} title={title} description={description} />
       <Card className="stack">
         <div className="placeholder-panel">
-          <h3 className="section-title section-title-small">En preparacion</h3>
+          <h3 className="section-title section-title-small">En preparación</h3>
           <p className="subtitle">
-            Esta seccion queda lista en la navegacion para el siguiente paso del MVP.
+            Esta sección queda lista en la navegación para el siguiente paso del MVP.
           </p>
         </div>
       </Card>

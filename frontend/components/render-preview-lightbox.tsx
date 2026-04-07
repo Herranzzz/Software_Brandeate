@@ -7,10 +7,30 @@ import { AppModal } from "@/components/app-modal";
 type RenderPreviewLightboxProps = {
   alt: string;
   src: string;
+  onLoadError?: () => void;
 };
 
-export function RenderPreviewLightbox({ alt, src }: RenderPreviewLightboxProps) {
+export function RenderPreviewLightbox({ alt, src, onLoadError }: RenderPreviewLightboxProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isBroken, setIsBroken] = useState(false);
+
+  function handleError() {
+    setIsBroken(true);
+    onLoadError?.();
+  }
+
+  if (isBroken) {
+    return (
+      <div className="shipment-render-broken">
+        <div className="shipment-render-broken-icon">⚠️</div>
+        <span className="shipment-render-broken-label">Imagen no disponible</span>
+        <span className="shipment-render-broken-hint">El asset de personalización no carga correctamente.</span>
+        <a className="table-link table-link-strong" href={src} rel="noreferrer" target="_blank">
+          Abrir enlace original
+        </a>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -19,7 +39,7 @@ export function RenderPreviewLightbox({ alt, src }: RenderPreviewLightboxProps) 
         onClick={() => setIsOpen(true)}
         type="button"
       >
-        <img alt={alt} className="shipment-render-image" src={src} />
+        <img alt={alt} className="shipment-render-image" onError={handleError} src={src} />
       </button>
 
       <div className="shipment-render-meta">
@@ -45,7 +65,7 @@ export function RenderPreviewLightbox({ alt, src }: RenderPreviewLightboxProps) 
         width="wide"
       >
             <div className="shipment-lightbox-body">
-              <img alt={alt} className="shipment-lightbox-image" src={src} />
+              <img alt={alt} className="shipment-lightbox-image" onError={handleError} src={src} />
             </div>
             <div className="modal-footer">
               <a className="button button-secondary" href={src} rel="noreferrer" target="_blank">

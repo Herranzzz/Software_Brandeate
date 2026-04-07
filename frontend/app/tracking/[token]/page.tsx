@@ -30,18 +30,17 @@ const FLOW_STEPS = [
 
 type FlowStepKey = (typeof FLOW_STEPS)[number]["key"];
 
-function getStepState(stepKey: FlowStepKey, currentStatus: FlowStatus): "done" | "active" | "pending" {
+function getStepState(stepKey: FlowStepKey, currentStatus: FlowStatus, lastKnownStep?: FlowStepKey): "done" | "active" | "pending" {
+  const order: FlowStepKey[] = ["received", "prepared", "in_transit", "out_for_delivery", "delivered"];
+  const stepIdx = order.indexOf(stepKey);
+
   if (currentStatus === "exception") {
-    const order = ["received", "prepared", "in_transit", "out_for_delivery", "delivered"];
-    const stepIdx = order.indexOf(stepKey);
-    const currentIdx = order.indexOf("in_transit");
-    if (stepIdx < currentIdx) return "done";
-    if (stepIdx === currentIdx) return "active";
+    const pivotIdx = order.indexOf(lastKnownStep ?? "in_transit");
+    if (stepIdx < pivotIdx) return "done";
+    if (stepIdx === pivotIdx) return "active";
     return "pending";
   }
 
-  const order: FlowStepKey[] = ["received", "prepared", "in_transit", "out_for_delivery", "delivered"];
-  const stepIdx = order.indexOf(stepKey);
   const currentIdx = order.indexOf(currentStatus);
   if (stepIdx < currentIdx) return "done";
   if (stepIdx === currentIdx) return "active";
@@ -79,13 +78,24 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
   const headline = getStatusHeadline(flowStatus, latestEvent?.status_raw);
   const isException = flowStatus === "exception";
 
+  // Determine last known step before exception for stepper display
+  const lastKnownStep: FlowStepKey | undefined = isException
+    ? (() => {
+        const preExceptionStatus = getFlowStatus(tracking.order.status, sortedEvents.find((e) => e.status_norm !== "exception")?.status_norm);
+        const steps: FlowStepKey[] = ["received", "prepared", "in_transit", "out_for_delivery", "delivered"];
+        return steps.includes(preExceptionStatus as FlowStepKey) ? (preExceptionStatus as FlowStepKey) : "in_transit";
+      })()
+    : undefined;
+
   const trackingNumber =
     tracking.shipment.tracking_number?.trim() &&
     tracking.shipment.tracking_number !== tracking.order.external_id
       ? tracking.shipment.tracking_number
       : null;
 
-  const shopName = (tracking as any).shop?.name ?? null;
+  const trackingData = tracking as Record<string, unknown>;
+  const shopRecord = typeof trackingData.shop === "object" && trackingData.shop !== null ? trackingData.shop as Record<string, unknown> : null;
+  const shopName = typeof shopRecord?.name === "string" ? shopRecord.name : null;
 
   return (
     <div className="tracking-premium-page">
@@ -129,7 +139,7 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
         <div className="tracking-flow-stepper-wrap">
           <div className="tracking-flow-stepper">
             {FLOW_STEPS.map((step) => {
-              const state = getStepState(step.key, flowStatus);
+              const state = getStepState(step.key, flowStatus, lastKnownStep);
               return (
                 <div className={`tracking-flow-step tracking-flow-step-${state}`} key={step.key}>
                   <div className="tracking-flow-step-dot">

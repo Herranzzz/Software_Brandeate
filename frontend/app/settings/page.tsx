@@ -14,7 +14,7 @@ import { getTenantBranding } from "@/lib/tenant-branding";
 
 function renderSyncSummary(summary: Record<string, unknown> | null) {
   if (!summary) {
-    return "Sin resumen";
+    return "Sin datos de sincronización";
   }
 
   const parts = [
