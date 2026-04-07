@@ -122,6 +122,27 @@ def _is_tracking_stalled(order: Order, reference_time: datetime) -> bool:
     return (reference_time - latest_occurred_at) >= timedelta(hours=TRACKING_STALLED_HOURS)
 
 
+def _effective_tracking_status(order: Order, order_status_val: str) -> str:
+    """For shipped/ready_to_ship orders, resolve a finer-grained status from
+    the latest tracking event so the donut can show 'in_transit' and
+    'out_for_delivery' as separate segments."""
+    if order_status_val not in ("shipped", "ready_to_ship"):
+        return order_status_val
+    if not order.shipment:
+        return order_status_val
+    latest = _latest_event(order.shipment)
+    if latest is None:
+        return order_status_val
+    norm = _safe_text(latest.status_norm, "").lower()
+    if norm == "out_for_delivery":
+        return "out_for_delivery"
+    if norm in ("in_transit", "pickup_available", "attempted_delivery"):
+        return "in_transit"
+    if norm == "label_created":
+        return "label_created"
+    return order_status_val
+
+
 def _carrier_for_order(order: Order) -> str | None:
     if order.shipment is None or not order.shipment.carrier:
         return None
@@ -327,7 +348,9 @@ def build_analytics_overview(
                 else:
                     aging_buckets["bucket_72_plus"] += 1
 
-        status_counter[order_status_val] += 1
+        # Use fine-grained tracking status for shipped orders when available
+        effective_status = _effective_tracking_status(order, order_status_val)
+        status_counter[effective_status] += 1
         shop_key = (order.shop_id, _safe_text(order.shop.name if order.shop else None, f"Shop #{order.shop_id}"))
         shop_counter[shop_key] += 1
         top_shop_buckets[shop_key]["orders"] += 1

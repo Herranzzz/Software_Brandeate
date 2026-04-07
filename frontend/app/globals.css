@@ -2287,6 +2287,35 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   border-radius: 14px;
 }
 
+/* ── Bulk design download modal ────────────────────────────────────────── */
+.bulk-design-info {
+  display: grid;
+  gap: 14px;
+}
+
+.bulk-design-info-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.bulk-design-info-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.bulk-design-name-example {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.78rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+  display: inline-block;
+  margin-top: 4px;
+}
+
 .orders-ops-table th:first-child,
 .orders-ops-table td:first-child {
   width: 44px;

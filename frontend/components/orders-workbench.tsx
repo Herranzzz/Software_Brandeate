@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { AutomationFlagBadge } from "@/components/automation-flag-badge";
+import { BulkDesignDownloadModal } from "@/components/bulk-design-download-modal";
 import { BulkLabelModal } from "@/components/bulk-label-modal";
 import { Card } from "@/components/card";
 import { CttLabelCell } from "@/components/ctt-label-cell";
@@ -313,6 +314,7 @@ export function OrdersWorkbench({
   const [detailLoading, setDetailLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [showBulkLabelModal, setShowBulkLabelModal] = useState(false);
+  const [showBulkDesignModal, setShowBulkDesignModal] = useState(false);
   const [query, setQuery] = useState(initialQuery);
   const [selectedShopId, setSelectedShopId] = useState<string>(initialShopId);
   const [totalCount, setTotalCount] = useState(initialTotalCount);
@@ -690,6 +692,15 @@ export function OrdersWorkbench({
                 Exportar lista
               </button>
               <button
+                className="button-secondary"
+                disabled={isPending}
+                onClick={() => setShowBulkDesignModal(true)}
+                title={`Descargar diseños de ${selectedCount} pedidos seleccionados`}
+                type="button"
+              >
+                Descargar diseños
+              </button>
+              <button
                 className="button bulk-label-button"
                 disabled={isPending}
                 onClick={() => setShowBulkLabelModal(true)}
@@ -700,6 +711,13 @@ export function OrdersWorkbench({
               </button>
             </div>
           </Card>
+        ) : null}
+
+        {showBulkDesignModal ? (
+          <BulkDesignDownloadModal
+            orders={selectedOrders}
+            onClose={() => setShowBulkDesignModal(false)}
+          />
         ) : null}
 
         {showBulkLabelModal ? (

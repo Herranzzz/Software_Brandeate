@@ -1,6 +1,11 @@
 import csv
 import io
+import re
+import ssl
+import urllib.request
+import zipfile
 from datetime import timezone
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 import sqlalchemy as sa
@@ -709,3 +714,213 @@ def report_broken_asset(
         db.commit()
 
     return {"ok": True, "design_status": "pending_asset"}
+
+
+# ── Bulk design download ──────────────────────────────────────────────────────
+
+_HIDDEN_ASSET_TYPES = frozenset({
+    "_customization_image", "customization_image",
+    "_preview_image", "preview_image",
+})
+
+_KNOWN_IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".pdf", ".tiff", ".tif"})
+
+_CONTENT_TYPE_EXT: dict[str, str] = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/svg+xml": ".svg",
+    "image/tiff": ".tiff",
+    "application/pdf": ".pdf",
+}
+
+_DESIGN_FETCH_TIMEOUT = 12  # seconds per asset
+
+
+def _score_asset_type(type_str: str) -> int:
+    t = type_str.lower()
+    if "_tib_design_link" in t:
+        return 10
+    if "render" in t:
+        return 5
+    if "preview" in t:
+        return 4
+    if "mockup" in t:
+        return 3
+    if t in _HIDDEN_ASSET_TYPES:
+        return -1
+    if "image" in t:
+        return 2
+    if "design" in t:
+        return 1
+    return 0
+
+
+def _extract_assets_from_json(raw: object) -> list[tuple[str, str]]:
+    """Returns list of (asset_type, url) from personalization_assets_json."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        result: list[tuple[str, str]] = []
+        for entry in raw:
+            if isinstance(entry, str) and entry.strip():
+                result.append(("unknown", entry.strip()))
+            elif isinstance(entry, dict):
+                url = entry.get("url") or entry.get("value", "")
+                t = entry.get("type", "unknown")
+                if isinstance(url, str) and url.strip():
+                    result.append((str(t), url.strip()))
+        return result
+    if isinstance(raw, dict):
+        result = []
+        for key, value in raw.items():
+            if isinstance(value, str) and value.strip():
+                result.append((key, value.strip()))
+            elif isinstance(value, dict):
+                url = value.get("url", "")
+                if isinstance(url, str) and url.strip():
+                    result.append((key, url.strip()))
+        return result
+    return []
+
+
+def _get_primary_design_url(item: OrderItem) -> str | None:
+    assets = _extract_assets_from_json(item.personalization_assets_json)
+    visible = [(t, url) for t, url in assets if t.lower() not in _HIDDEN_ASSET_TYPES]
+    if visible:
+        best = max(visible, key=lambda a: _score_asset_type(a[0]))
+        if _score_asset_type(best[0]) >= 0 and best[1]:
+            return best[1]
+    if item.design_link and item.design_link.strip():
+        return item.design_link.strip()
+    return None
+
+
+def _guess_ext_from_url(url: str) -> str:
+    try:
+        path = urlparse(url).path.lower()
+        for ext in _KNOWN_IMAGE_EXTS:
+            if path.endswith(ext):
+                return ext
+    except Exception:
+        pass
+    return ""
+
+
+def _sanitize_filename(name: str) -> str:
+    """Remove characters invalid for filenames across OS."""
+    sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name)
+    sanitized = sanitized.strip(". ")
+    return sanitized or "diseño"
+
+
+def _unique_name(base: str, ext: str, used: set[str]) -> str:
+    candidate = f"{base}{ext}"
+    if candidate not in used:
+        return candidate
+    counter = 1
+    while True:
+        candidate = f"{base} ({counter}){ext}"
+        if candidate not in used:
+            return candidate
+        counter += 1
+
+
+def _fetch_asset(url: str) -> tuple[bytes, str]:
+    """Fetch asset bytes from URL; returns (data, detected_ext)."""
+    ctx = ssl.create_default_context()
+    req = urllib.request.Request(url, headers={"User-Agent": "BrandeateOps/1.0"})
+    with urllib.request.urlopen(req, timeout=_DESIGN_FETCH_TIMEOUT, context=ctx) as resp:
+        content_type = (resp.headers.get("Content-Type") or "").lower().split(";")[0].strip()
+        ext = _CONTENT_TYPE_EXT.get(content_type, "")
+        data = resp.read()
+    return data, ext
+
+
+@router.post("/bulk/download-designs", status_code=status.HTTP_200_OK)
+def bulk_download_designs(
+    payload: "BulkDesignDownloadRequest",
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> Response:
+    """Generate and return a ZIP file with design assets for selected orders."""
+    orders = list(db.scalars(
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(Order.id.in_(payload.order_ids))
+    ))
+
+    if accessible_shop_ids is not None:
+        orders = [o for o in accessible_shop_ids and orders if o.shop_id in accessible_shop_ids]
+
+    zip_buffer = io.BytesIO()
+    used_names: set[str] = set()
+    results: list[dict] = []
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for order in orders:
+            items_with_design = [
+                (item, _get_primary_design_url(item))
+                for item in order.items
+                if _get_primary_design_url(item)
+            ]
+
+            if not items_with_design:
+                results.append({
+                    "order_id": order.id,
+                    "external_id": order.external_id,
+                    "status": "no_design",
+                })
+                continue
+
+            for item, design_url in items_with_design:
+                item_name = (item.name or item.title or "Producto").strip()
+                url_ext = _guess_ext_from_url(design_url or "")
+                base = _sanitize_filename(f"{order.external_id} - {item_name}")
+
+                try:
+                    data, fetched_ext = _fetch_asset(design_url)  # type: ignore[arg-type]
+                    ext = url_ext or fetched_ext or ".bin"
+                    filename = _unique_name(base, ext, used_names)
+                    used_names.add(filename)
+                    zf.writestr(filename, data)
+                    results.append({
+                        "order_id": order.id,
+                        "external_id": order.external_id,
+                        "status": "ok",
+                        "filename": filename,
+                    })
+                except Exception as exc:
+                    results.append({
+                        "order_id": order.id,
+                        "external_id": order.external_id,
+                        "status": "failed",
+                        "reason": str(exc)[:200],
+                    })
+
+    ok_count = sum(1 for r in results if r["status"] == "ok")
+    if ok_count == 0:
+        # Return JSON summary instead of empty ZIP
+        return Response(
+            content=io.BytesIO(b"{}").read(),
+            media_type="application/json",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+    zip_buffer.seek(0)
+    return Response(
+        content=zip_buffer.read(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="diseños-bulk.zip"',
+            "X-Design-Results": str(ok_count),
+        },
+    )
+
+
+from pydantic import BaseModel as _BaseModel  # noqa: E402
+
+
+class BulkDesignDownloadRequest(_BaseModel):
+    order_ids: list[int]

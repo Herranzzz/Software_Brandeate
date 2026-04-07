@@ -49,6 +49,42 @@ function formatNumber(value: number | null) {
   return value === null ? "n/d" : new Intl.NumberFormat("es-ES").format(value);
 }
 
+/** Maps raw backend status keys to Spanish display labels */
+const STATUS_DISPLAY_LABELS: Record<string, string> = {
+  pending: "Pendiente",
+  in_progress: "En producción",
+  ready_to_ship: "Preparado",
+  label_created: "Etiqueta creada",
+  shipped: "Enviado",
+  in_transit: "En tránsito",
+  out_for_delivery: "En reparto",
+  delivered: "Entregado",
+  exception: "Excepción",
+  unknown: "Desconocido",
+};
+
+/** Semantic colors per status — consistent across light/dark */
+const STATUS_COLORS: Record<string, string> = {
+  pending: "#94A3B8",        // slate  — sin movimiento
+  in_progress: "#F59E0B",    // amber  — en producción
+  ready_to_ship: "#38BDF8",  // sky    — preparado
+  label_created: "#38BDF8",  // sky    — etiqueta creada
+  shipped: "#6366F1",        // indigo — enviado genérico
+  in_transit: "#6366F1",     // indigo — en tránsito
+  out_for_delivery: "#F97316", // orange — en reparto (cerca del destinatario)
+  delivered: "#22C55E",      // green  — entregado
+  exception: "#EF4444",      // red    — excepción
+  unknown: "#94A3B8",        // slate  — fallback
+};
+
+function resolveStatusLabel(raw: string): string {
+  return STATUS_DISPLAY_LABELS[raw] ?? raw;
+}
+
+function resolveStatusColor(raw: string, fallbackIndex: number): string {
+  return STATUS_COLORS[raw] ?? ["#94A3B8", "#F59E0B", "#38BDF8", "#22C55E", "#F97316", "#6366F1"][fallbackIndex % 6];
+}
+
 function buildDonutSegments(items: Array<{ label: string; value: number; color: string }>, radius: number, circumference: number) {
   const total = items.reduce((sum, item) => sum + item.value, 0) || 1;
   let offset = 0;
@@ -147,7 +183,9 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
   const statusMix = analytics.charts.status_distribution
     .map((item, index) => ({
       ...item,
-      color: ["#94A3B8", "#F59E0B", "#38BDF8", "#22C55E", "#F97316", "#6366F1"][index % 6],
+      label: resolveStatusLabel(item.label),
+      _raw: item.label,
+      color: resolveStatusColor(item.label, index),
     }))
     .filter((item) => item.value > 0);
   const statusRadius = 56;
