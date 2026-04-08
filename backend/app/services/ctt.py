@@ -61,26 +61,14 @@ def get_token() -> str:
         if not settings.ctt_client_id or not settings.ctt_client_secret:
             raise CTTError("CTT credentials not configured (CTT_CLIENT_ID / CTT_CLIENT_SECRET)")
 
-        # Use password grant when username+password are provided (required for CTT UAT/sandbox),
-        # fall back to client_credentials for production environments that support it.
-        if settings.ctt_user_name and settings.ctt_password:
-            token_payload: dict = {
-                "client_id": settings.ctt_client_id,
-                "client_secret": settings.ctt_client_secret,
-                "username": settings.ctt_user_name,
-                "password": settings.ctt_password,
-                "scope": "urn:com:ctt-express:integration-clients:scopes:common/ALL",
-                "grant_type": "password",
-            }
-        else:
-            token_payload = {
-                "client_id": settings.ctt_client_id,
-                "client_secret": settings.ctt_client_secret,
-                "scope": "urn:com:ctt-express:integration-clients:scopes:common/ALL",
-                "grant_type": "client_credentials",
-            }
-
-        data = urlencode(token_payload).encode()
+        # CTT always uses client_credentials for the token.
+        # user_name + password are sent as HTTP headers on each API request (see _api_headers).
+        data = urlencode({
+            "client_id": settings.ctt_client_id,
+            "client_secret": settings.ctt_client_secret,
+            "scope": "urn:com:ctt-express:integration-clients:scopes:common/ALL",
+            "grant_type": "client_credentials",
+        }).encode()
 
         req = request.Request(
             f"{_base_url()}/integrations/oauth2/token",
