@@ -11,6 +11,7 @@ import {
   getInitialCttWeightBand,
   getOrderShippingContact,
 } from "@/lib/ctt";
+import { printLabel } from "@/lib/print-utils";
 import type { Order, ShippingRuleResolution, Shop } from "@/lib/types";
 
 
@@ -33,6 +34,8 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
   const [labelUrl, setLabelUrl] = useState("");
   const [shopifySyncStatus, setShopifySyncStatus] = useState("");
   const [isRefreshingOrder, setIsRefreshingOrder] = useState(false);
+  const [isPreviewVisible, setIsPreviewVisible] = useState(false);
+  const [isPrintingLabel, setIsPrintingLabel] = useState(false);
 
   const [recipientName, setRecipientName] = useState(initialContact.recipientName);
   const [recipientEmail, setRecipientEmail] = useState(initialContact.recipientEmail);
@@ -141,6 +144,7 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
     setError("");
     setShippingCode(hasExistingLabel ? order.shipment?.tracking_number ?? "" : "");
     setLabelUrl(hasExistingLabel ? existingLabelUrl ?? "" : "");
+    setIsPreviewVisible(false);
     setOpen(true);
     setShopifySyncStatus(hasExistingLabel ? order.shipment?.shopify_sync_status ?? "" : "");
     void refreshOrderSnapshot();
@@ -150,6 +154,23 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
     setOpen(false);
     setShippingCode("");
     setLabelUrl("");
+    setIsPreviewVisible(false);
+    setIsPrintingLabel(false);
+  }
+
+  async function handlePrintLabel() {
+    if (!shippingCode || isPrintingLabel) {
+      return;
+    }
+    setIsPrintingLabel(true);
+    try {
+      await printLabel(shippingCode, { format: "PDF" });
+    } catch (err) {
+      setStatus("error");
+      setError(err instanceof Error ? err.message : "No se pudo abrir la impresión");
+    } finally {
+      setIsPrintingLabel(false);
+    }
   }
 
   async function handleSubmit() {
@@ -194,6 +215,7 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
 
       setShippingCode(shipping_code);
       setLabelUrl(nextLabelUrl);
+      setIsPreviewVisible(false);
       setShopifySyncStatus(shopify_sync_status || "");
       setStatus("success");
       onShipmentCreated?.(shipping_code);
@@ -252,28 +274,59 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
                         : "La etiqueta se creó sin sincronización activa con Shopify."}
                   </div>
                 ) : null}
-                {labelUrl ? (
+                <div className="ctt-label-hero">
+                  <div className="ctt-label-hero-main">
+                    <div>
+                      <strong>Etiqueta lista para expedición</strong>
+                      <p>Imprime primero. La vista previa queda disponible solo cuando la quieras revisar.</p>
+                    </div>
+                    {shippingCode ? <span className="ctt-label-code-pill">{shippingCode}</span> : null}
+                  </div>
+                  <div className="ctt-label-action-panel">
+                    <button
+                      className="button ctt-label-primary-action"
+                      disabled={isPrintingLabel || !shippingCode}
+                      onClick={handlePrintLabel}
+                      type="button"
+                    >
+                      {isPrintingLabel ? "Abriendo impresión..." : "Imprimir etiqueta"}
+                    </button>
+                    <div className="ctt-label-secondary-actions">
+                      {labelUrl ? (
+                        <a
+                          className="button-secondary"
+                          href={labelUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Abrir PDF
+                        </a>
+                      ) : null}
+                      {labelUrl ? (
+                        <button
+                          className="button-secondary"
+                          onClick={() => setIsPreviewVisible((current) => !current)}
+                          type="button"
+                        >
+                          {isPreviewVisible ? "Ocultar vista previa" : "Ver vista previa"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                {labelUrl && isPreviewVisible ? (
                   <div className="ctt-label-preview">
                     <div className="ctt-label-preview-head">
                       <div>
-                        <strong>Etiqueta lista</strong>
-                        <p>La etiqueta se muestra aquí para evitar bloqueos del navegador.</p>
+                        <strong>Vista previa</strong>
+                        <p>Consulta rápida del PDF sin perder foco operativo.</p>
                       </div>
-                      <a
-                        className="button-secondary"
-                        href={labelUrl}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        Abrir PDF individual
-                      </a>
                     </div>
                     <iframe className="ctt-label-frame" src={labelUrl} title={`Etiqueta CTT ${shippingCode}`} />
                   </div>
                 ) : null}
                 {shippingCode ? (
-                  <div className="modal-footer">
-                    <>
+                  <div className="modal-footer ctt-modal-footer-success">
                       <a
                         className="button-secondary"
                         href={existingDownloadUrl || `${labelUrl || `/api/ctt/shippings/${shippingCode}/label`}?download=1`}
@@ -281,7 +334,7 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
                         rel="noreferrer"
                         target="_blank"
                       >
-                        Descargar PDF térmico
+                        Descargar PDF
                       </a>
                       <a
                         className="button-secondary"
@@ -292,7 +345,6 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
                       >
                         Descargar ZPL
                       </a>
-                    </>
                     <button className="button-secondary" onClick={closeModal} type="button">
                       Cerrar
                     </button>
@@ -301,77 +353,17 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
               </div>
             ) : (
               <div className="stack">
-                <div className="ctt-source-note">
-                  <strong>Datos precargados desde Shopify</strong>
-                  <span>
-                    {recipientAddress || "Sin dirección"} · {recipientPostalCode || "Sin CP"} · {recipientTown || "Sin ciudad"}
-                    {isRefreshingOrder ? " · Actualizando datos..." : ""}
-                  </span>
-                </div>
-                <div className="ctt-resolution-banner">
-                  <strong>
-                    {ruleResolution?.matched
-                      ? `${ruleResolution.zone_name ?? "Zona"} · ${ruleResolution.carrier_service_label ?? ruleResolution.carrier_service_code}`
-                      : "Sin coincidencia automática"}
-                  </strong>
-                  <span>
-                    {manualServiceOverride
-                      ? "Servicio ajustado manualmente por operaciones."
-                      : ruleResolution?.match_reason ?? "Se usará el servicio por defecto de la tienda."}
-                  </span>
-                </div>
-                <div className="grid grid-2">
-                  <div className="field">
-                    <label htmlFor={`ctt-name-${order.id}`}>Destinatario</label>
-                    <input
-                      id={`ctt-name-${order.id}`}
-                      onChange={(e) => setRecipientName(e.target.value)}
-                      value={recipientName}
-                    />
+                <div className="ctt-create-hero">
+                  <div className="ctt-create-hero-copy">
+                    <strong>Etiqueta lista para preparar</strong>
+                    <p>Revisa estos datos y usa el botón fijo para lanzar la etiqueta sin tener que recorrer todo el modal.</p>
                   </div>
-                  <div className="field">
-                    <label htmlFor={`ctt-phone-${order.id}`}>Teléfono</label>
-                    <input
-                      id={`ctt-phone-${order.id}`}
-                      onChange={(e) => setRecipientPhone(e.target.value)}
-                      placeholder="612345678"
-                      type="tel"
-                      value={recipientPhone}
-                    />
+                  <div className="ctt-create-hero-metrics">
+                    <span>{shippingTypeCode || "Sin servicio"}</span>
+                    <span>{CTT_WEIGHT_BANDS.find((band) => band.code === weightTierCode)?.label ?? "Peso"}</span>
+                    <span>{Math.max(parseInt(itemCount, 10) || 1, 1)} bulto(s)</span>
                   </div>
                 </div>
-
-                <div className="field">
-                  <label htmlFor={`ctt-address-${order.id}`}>Dirección</label>
-                  <input
-                    id={`ctt-address-${order.id}`}
-                    onChange={(e) => setRecipientAddress(e.target.value)}
-                    placeholder="Calle Mayor 10, 2ºA"
-                    value={recipientAddress}
-                  />
-                </div>
-
-                <div className="grid grid-2">
-                  <div className="field">
-                    <label htmlFor={`ctt-cp-${order.id}`}>CP</label>
-                    <input
-                      id={`ctt-cp-${order.id}`}
-                      onChange={(e) => setRecipientPostalCode(e.target.value)}
-                      placeholder="28001"
-                      value={recipientPostalCode}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor={`ctt-town-${order.id}`}>Ciudad</label>
-                    <input
-                      id={`ctt-town-${order.id}`}
-                      onChange={(e) => setRecipientTown(e.target.value)}
-                      placeholder="Madrid"
-                      value={recipientTown}
-                    />
-                  </div>
-                </div>
-
                 <div className="grid grid-2">
                   <div className="field">
                     <label htmlFor={`ctt-service-${order.id}`}>Servicio CTT</label>
@@ -407,6 +399,61 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
                     </div>
                   </div>
                   <div className="field">
+                    <label htmlFor={`ctt-name-${order.id}`}>Destinatario</label>
+                    <input
+                      id={`ctt-name-${order.id}`}
+                      onChange={(e) => setRecipientName(e.target.value)}
+                      value={recipientName}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`ctt-phone-${order.id}`}>Teléfono</label>
+                    <input
+                      id={`ctt-phone-${order.id}`}
+                      onChange={(e) => setRecipientPhone(e.target.value)}
+                      placeholder="612345678"
+                      type="tel"
+                      value={recipientPhone}
+                    />
+                  </div>
+                </div>
+                {isRefreshingOrder ? (
+                  <div className="table-secondary">Actualizando datos del pedido...</div>
+                ) : null}
+
+                <div className="field">
+                  <label htmlFor={`ctt-address-${order.id}`}>Dirección</label>
+                  <input
+                    id={`ctt-address-${order.id}`}
+                    onChange={(e) => setRecipientAddress(e.target.value)}
+                    placeholder="Calle Mayor 10, 2ºA"
+                    value={recipientAddress}
+                  />
+                </div>
+
+                <div className="grid grid-2">
+                  <div className="field">
+                    <label htmlFor={`ctt-cp-${order.id}`}>CP</label>
+                    <input
+                      id={`ctt-cp-${order.id}`}
+                      onChange={(e) => setRecipientPostalCode(e.target.value)}
+                      placeholder="28001"
+                      value={recipientPostalCode}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`ctt-town-${order.id}`}>Ciudad</label>
+                    <input
+                      id={`ctt-town-${order.id}`}
+                      onChange={(e) => setRecipientTown(e.target.value)}
+                      placeholder="Madrid"
+                      value={recipientTown}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-2">
+                  <div className="field">
                     <label htmlFor={`ctt-email-${order.id}`}>Email destinatario</label>
                     <input
                       id={`ctt-email-${order.id}`}
@@ -428,9 +475,15 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
                   />
                 </div>
 
-                <div className="modal-footer">
+                <div className="ctt-create-sticky-bar">
+                  <div className="ctt-create-sticky-copy">
+                    <strong>Crear etiqueta CTT</strong>
+                    <span>
+                      Servicio {shippingTypeCode || "pendiente"} · {Math.max(parseInt(itemCount, 10) || 1, 1)} bulto(s)
+                    </span>
+                  </div>
                   <button
-                    className="button"
+                    className="button ctt-create-sticky-button"
                     disabled={isLoading || !canSubmit}
                     onClick={handleSubmit}
                     type="button"

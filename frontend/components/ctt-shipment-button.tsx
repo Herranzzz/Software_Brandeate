@@ -12,6 +12,7 @@ import {
   getInitialCttWeightBand,
   getOrderShippingContact,
 } from "@/lib/ctt";
+import { printLabel } from "@/lib/print-utils";
 import type { Order, ShippingRuleResolution, Shop } from "@/lib/types";
 
 
@@ -35,6 +36,8 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
   const [labelUrl, setLabelUrl] = useState("");
   const [shopifySyncStatus, setShopifySyncStatus] = useState("");
   const [isRefreshingOrder, setIsRefreshingOrder] = useState(false);
+  const [isPreviewVisible, setIsPreviewVisible] = useState(false);
+  const [isPrintingLabel, setIsPrintingLabel] = useState(false);
 
   // Recipient fields — pre-filled from order data
   const [recipientName, setRecipientName] = useState(initialContact.recipientName);
@@ -145,6 +148,8 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
     setShippingCode("");
     setLabelUrl("");
     setShopifySyncStatus("");
+    setIsPreviewVisible(false);
+    setIsPrintingLabel(false);
   }
 
   function closeModal() {
@@ -159,8 +164,24 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
     setShippingCode(hasExistingLabel ? (order.shipment?.tracking_number ?? "") : "");
     setLabelUrl(hasExistingLabel ? (existingLabelUrl ?? "") : "");
     setShopifySyncStatus(hasExistingLabel ? (order.shipment?.shopify_sync_status ?? "") : "");
+    setIsPreviewVisible(false);
     setOpen(true);
     void refreshOrderSnapshot();
+  }
+
+  async function handlePrintLabel() {
+    if (!shippingCode || isPrintingLabel) {
+      return;
+    }
+    setIsPrintingLabel(true);
+    try {
+      await printLabel(shippingCode, { format: "PDF" });
+    } catch (err) {
+      setCttStatus("error");
+      setErrorMessage(err instanceof Error ? err.message : "No se pudo abrir la impresión");
+    } finally {
+      setIsPrintingLabel(false);
+    }
   }
 
   async function handleCreateAndPrint() {
@@ -207,6 +228,7 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
 
       setCttStatus("loading-label");
       setLabelUrl(`/api/ctt/shippings/${shipping_code}/label`);
+      setIsPreviewVisible(false);
 
       setCttStatus("success");
       startTransition(() => { router.refresh(); });
@@ -256,13 +278,55 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
       >
             {cttStatus !== "success" ? (
               <div className="stack">
-                <div className="ctt-source-note">
-                  <strong>Datos precargados desde Shopify</strong>
-                  <span>
-                    {recipientAddress || "Sin dirección"} · {recipientPostalCode || "Sin CP"} · {recipientTown || "Sin ciudad"}
-                    {isRefreshingOrder ? " · Actualizando datos..." : ""}
-                  </span>
+                <div className="ctt-create-hero">
+                  <div className="ctt-create-hero-copy">
+                    <strong>Etiqueta lista para preparar</strong>
+                    <p>Revisa los datos y usa el botón fijo para lanzar la etiqueta sin bajar al final del formulario.</p>
+                  </div>
+                  <div className="ctt-create-hero-metrics">
+                    <span>{shippingTypeCode || "Sin servicio"}</span>
+                    <span>{CTT_WEIGHT_BANDS.find((band) => band.code === weightTierCode)?.label ?? "Peso"}</span>
+                    <span>{Math.max(parseInt(itemCount, 10) || 1, 1)} bulto(s)</span>
+                  </div>
                 </div>
+                <div className="grid grid-2">
+                  <div className="field">
+                    <label htmlFor="ctt-service-code">Servicio CTT</label>
+                    <select
+                      id="ctt-service-code"
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        setShippingTypeCode(nextValue);
+                        setManualServiceOverride(nextValue !== (ruleResolution?.carrier_service_code ?? nextValue));
+                      }}
+                      value={shippingTypeCode}
+                    >
+                      {CTT_SERVICE_OPTIONS.map((service) => (
+                        <option key={service.code} value={service.code}>
+                          {service.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>{isRefreshingOrder ? "Tramo de peso · actualizando dirección..." : "Tramo de peso"}</label>
+                    <div className="ctt-weight-grid">
+                      {CTT_WEIGHT_BANDS.map((band) => (
+                        <button
+                          className={`orders-filter-pill ctt-weight-pill ${weightTierCode === band.code ? "orders-filter-pill-active" : ""}`}
+                          key={band.code}
+                          onClick={() => setWeightTierCode(band.code)}
+                          type="button"
+                        >
+                          {band.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {isRefreshingOrder ? (
+                  <div className="table-secondary">Actualizando datos del pedido...</div>
+                ) : null}
                 <div className="grid grid-2">
                   <div className="field">
                     <label htmlFor="ctt-recipient-name">Nombre destinatario</label>
@@ -338,70 +402,26 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
                   </div>
                 </div>
 
-                <div className="grid grid-2">
-                  <div className="field field-span-2">
-                    <label>Regla detectada</label>
-                    <div className="ctt-resolution-banner">
-                      <strong>
-                        {ruleResolution?.matched
-                          ? `${ruleResolution.zone_name ?? "Zona"} · ${ruleResolution.carrier_service_label ?? ruleResolution.carrier_service_code}`
-                          : "Sin coincidencia automática"}
-                      </strong>
-                      <span>
-                        {manualServiceOverride
-                          ? "Servicio ajustado manualmente por operaciones."
-                          : ruleResolution?.match_reason ?? "Se usará el servicio por defecto de la tienda."}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="ctt-service-code">Servicio CTT</label>
-                    <select
-                      id="ctt-service-code"
-                      onChange={(e) => {
-                        const nextValue = e.target.value;
-                        setShippingTypeCode(nextValue);
-                        setManualServiceOverride(nextValue !== (ruleResolution?.carrier_service_code ?? nextValue));
-                      }}
-                      value={shippingTypeCode}
-                    >
-                      {CTT_SERVICE_OPTIONS.map((service) => (
-                        <option key={service.code} value={service.code}>
-                          {service.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>{isRefreshingOrder ? "Tramo de peso · actualizando dirección..." : "Tramo de peso"}</label>
-                    <div className="ctt-weight-grid">
-                      {CTT_WEIGHT_BANDS.map((band) => (
-                        <button
-                          className={`orders-filter-pill ctt-weight-pill ${weightTierCode === band.code ? "orders-filter-pill-active" : ""}`}
-                          key={band.code}
-                          onClick={() => setWeightTierCode(band.code)}
-                          type="button"
-                        >
-                          {band.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="ctt-item-count">Nº bultos</label>
-                    <input
-                      id="ctt-item-count"
-                      min="1"
-                      onChange={(e) => setItemCount(e.target.value)}
-                      type="number"
-                      value={itemCount}
-                    />
-                  </div>
+                <div className="field">
+                  <label htmlFor="ctt-item-count">Nº bultos</label>
+                  <input
+                    id="ctt-item-count"
+                    min="1"
+                    onChange={(e) => setItemCount(e.target.value)}
+                    type="number"
+                    value={itemCount}
+                  />
                 </div>
 
-                <div className="modal-footer">
+                <div className="ctt-create-sticky-bar">
+                  <div className="ctt-create-sticky-copy">
+                    <strong>Crear etiqueta CTT</strong>
+                    <span>
+                      Servicio {shippingTypeCode || "pendiente"} · {Math.max(parseInt(itemCount, 10) || 1, 1)} bulto(s)
+                    </span>
+                  </div>
                   <button
-                    className="button"
+                    className="button ctt-create-sticky-button"
                     disabled={isLoading || !canSubmit}
                     onClick={handleCreateAndPrint}
                     type="button"
@@ -428,26 +448,58 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
                         : "La etiqueta se creó sin sincronización activa con Shopify."}
                   </div>
                 ) : null}
-                {labelUrl ? (
+                <div className="ctt-label-hero">
+                  <div className="ctt-label-hero-main">
+                    <div>
+                      <strong>Etiqueta lista para expedición</strong>
+                      <p>Imprime primero. La vista previa queda disponible solo si la necesitas revisar.</p>
+                    </div>
+                    {shippingCode ? <span className="ctt-label-code-pill">{shippingCode}</span> : null}
+                  </div>
+                  <div className="ctt-label-action-panel">
+                    <button
+                      className="button ctt-label-primary-action"
+                      disabled={isPrintingLabel || !shippingCode}
+                      onClick={handlePrintLabel}
+                      type="button"
+                    >
+                      {isPrintingLabel ? "Abriendo impresión..." : "Imprimir etiqueta"}
+                    </button>
+                    <div className="ctt-label-secondary-actions">
+                      {labelUrl ? (
+                        <a
+                          className="button-secondary"
+                          href={labelUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Abrir PDF
+                        </a>
+                      ) : null}
+                      {labelUrl ? (
+                        <button
+                          className="button-secondary"
+                          onClick={() => setIsPreviewVisible((current) => !current)}
+                          type="button"
+                        >
+                          {isPreviewVisible ? "Ocultar vista previa" : "Ver vista previa"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                {labelUrl && isPreviewVisible ? (
                   <div className="ctt-label-preview">
                     <div className="ctt-label-preview-head">
                       <div>
-                        <strong>Etiqueta lista</strong>
-                        <p>La vista previa se mantiene fija aquí hasta que cierres el modal.</p>
+                        <strong>Vista previa</strong>
+                        <p>Consulta rápida del PDF sin salir del flujo de trabajo.</p>
                       </div>
-                      <a
-                        className="button-secondary"
-                        href={labelUrl}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        Abrir PDF individual
-                      </a>
                     </div>
                     <iframe className="ctt-label-frame" src={labelUrl} title={`Etiqueta CTT ${shippingCode}`} />
                   </div>
                 ) : null}
-                <div className="modal-footer">
+                <div className="modal-footer ctt-modal-footer-success">
                   {shippingCode ? (
                     <>
                       <a
@@ -457,7 +509,7 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
                         rel="noreferrer"
                         target="_blank"
                       >
-                        Descargar PDF térmico
+                        Descargar PDF
                       </a>
                       <a
                         className="button-secondary"

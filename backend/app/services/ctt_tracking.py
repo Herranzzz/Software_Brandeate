@@ -190,6 +190,7 @@ def sync_ctt_tracking_for_active_shipments(
     limit: int = 100,
     shop_id: int | None = None,
     log_failures: bool = True,
+    before_shipment_id: int | None = None,
 ) -> list[ShipmentTrackingSyncResult]:
     stmt = (
         select(Shipment)
@@ -200,11 +201,13 @@ def sync_ctt_tracking_for_active_shipments(
         )
         .where(Shipment.carrier.ilike("%ctt%"))
         .where(Shipment.tracking_number != "")
-        .order_by(Shipment.label_created_at.desc().nullslast(), Shipment.id.desc())
+        .order_by(Shipment.id.desc())
         .limit(limit)
     )
     if shop_id is not None:
         stmt = stmt.where(Order.shop_id == shop_id)
+    if before_shipment_id is not None:
+        stmt = stmt.where(Shipment.id < before_shipment_id)
 
     shipments = list(db.scalars(stmt))
     results: list[ShipmentTrackingSyncResult] = []
@@ -230,6 +233,51 @@ def sync_ctt_tracking_for_active_shipments(
                 )
         except Exception:
             logger.exception("Unexpected tracking sync failure shipment_id=%s tracking=%s", shipment.id, shipment.tracking_number)
+    return results
+
+
+def sync_all_ctt_tracking_for_active_shipments(
+    *,
+    db: Session,
+    batch_size: int = 100,
+    shop_id: int | None = None,
+    log_failures: bool = True,
+) -> list[ShipmentTrackingSyncResult]:
+    results: list[ShipmentTrackingSyncResult] = []
+    cursor: int | None = None
+    safe_batch_size = max(1, min(batch_size, 500))
+
+    while True:
+        stmt = (
+            select(Shipment.id)
+            .join(Shipment.order)
+            .where(Shipment.carrier.ilike("%ctt%"))
+            .where(Shipment.tracking_number != "")
+            .order_by(Shipment.id.desc())
+            .limit(safe_batch_size)
+        )
+        if shop_id is not None:
+            stmt = stmt.where(Order.shop_id == shop_id)
+        if cursor is not None:
+            stmt = stmt.where(Shipment.id < cursor)
+
+        batch_ids = list(db.scalars(stmt))
+        if not batch_ids:
+            break
+
+        batch_results = sync_ctt_tracking_for_active_shipments(
+            db=db,
+            limit=safe_batch_size,
+            shop_id=shop_id,
+            log_failures=log_failures,
+            before_shipment_id=cursor,
+        )
+        results.extend(batch_results)
+        cursor = min(batch_ids)
+
+        if len(batch_ids) < safe_batch_size:
+            break
+
     return results
 
 

@@ -54,7 +54,6 @@ def _load_users(
     query = (
         select(User)
         .options(selectinload(User.user_shops).selectinload(UserShop.shop))
-        .where(User.role != UserRole.super_admin)
         .order_by(User.is_active.desc(), User.created_at.desc(), User.id.desc())
     )
     if role is not None:

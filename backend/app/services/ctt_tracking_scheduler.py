@@ -5,7 +5,7 @@ import threading
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.services.ctt_tracking import sync_ctt_tracking_for_active_shipments
+from app.services.ctt_tracking import sync_all_ctt_tracking_for_active_shipments
 
 
 logger = logging.getLogger(__name__)
@@ -51,13 +51,14 @@ class CTTTrackingScheduler:
 
         try:
             with SessionLocal() as db:
-                results = sync_ctt_tracking_for_active_shipments(
+                results = sync_all_ctt_tracking_for_active_shipments(
                     db=db,
-                    limit=get_settings().ctt_tracking_sync_batch_size,
+                    batch_size=get_settings().ctt_tracking_sync_batch_size,
                     log_failures=False,
                 )
                 if results:
                     db.commit()
+                logger.info("CTT tracking scheduler processed %s shipments in this cycle", len(results))
         except Exception:
             logger.exception("CTT tracking scheduler run failed")
         finally:
