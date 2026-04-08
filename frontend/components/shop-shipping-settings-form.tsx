@@ -30,6 +30,7 @@ type ShippingFormState = {
   printer_name: string;
   printer_label_format: string;
   printer_auto_print: boolean;
+  ctt_client_center_code: string;
 };
 
 const SHIPPING_SERVICE_OPTIONS = [
@@ -70,6 +71,7 @@ function buildInitialState(settings: ShopShippingSettings | null | undefined): S
     printer_name: settings?.printer_name ?? "",
     printer_label_format: settings?.printer_label_format ?? "PDF",
     printer_auto_print: settings?.printer_auto_print ?? false,
+    ctt_client_center_code: settings?.ctt_client_center_code ?? "",
   };
 }
 
@@ -99,6 +101,7 @@ function buildPayload(state: ShippingFormState) {
       printer_name: normalizeNullable(state.printer_name),
       printer_label_format: normalizeNullable(state.printer_label_format) ?? "PDF",
       printer_auto_print: state.printer_auto_print,
+      ctt_client_center_code: normalizeNullable(state.ctt_client_center_code),
     },
   };
 }
@@ -275,6 +278,19 @@ export function ShopShippingSettingsForm({
           </div>
 
           <div className="portal-settings-grid">
+            <div className="field field-span-2">
+              <label htmlFor={`shipping-ctt-center-${shop.id}`}>Código de centro CTT</label>
+              <input
+                id={`shipping-ctt-center-${shop.id}`}
+                onChange={(event) => updateField("ctt_client_center_code", event.target.value)}
+                placeholder="Ej: 0002 (proporcionado por CTT Express)"
+                value={form.ctt_client_center_code}
+              />
+              <span className="field-hint">
+                Código de cliente que CTT Express te asigna. Requerido para crear etiquetas.
+              </span>
+            </div>
+
             <div className="field">
               <label htmlFor={`shipping-service-${shop.id}`}>Servicio CTT</label>
               <select

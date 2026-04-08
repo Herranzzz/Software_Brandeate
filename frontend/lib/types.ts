@@ -290,6 +290,7 @@ export type ShopShippingSettings = {
   printer_name: string | null;
   printer_label_format: string | null;
   printer_auto_print: boolean;
+  ctt_client_center_code: string | null;
 };
 
 export type ShopCustomer = {

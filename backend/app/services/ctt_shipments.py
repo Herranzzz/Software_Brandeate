@@ -68,7 +68,13 @@ def create_ctt_shipment_for_order(
         if getattr(order, "shop", None) is not None and isinstance(order.shop.shipping_settings_json, dict)
         else {}
     )
-    if not settings.ctt_client_center_code:
+    # client_center_code: shop settings override takes priority over env var
+    client_center_code = (
+        _shipping_setting(shop_shipping_settings, "ctt_client_center_code")
+        or (settings.ctt_client_center_code or "").strip()
+        or None
+    )
+    if not client_center_code:
         raise CTTShipmentOrchestrationError("CTT Express no está configurado (CTT_CLIENT_CENTER_CODE ausente)")
 
     if order.shipment is not None and (order.shipment.tracking_number or "").strip():
@@ -180,7 +186,7 @@ def create_ctt_shipment_for_order(
 
     ctt_payload: dict = {
         "client_bar_code": "",
-        "client_center_code": settings.ctt_client_center_code,
+        "client_center_code": client_center_code,
         "shipping_type_code": shipping_type_code,
         "client_references": [label_reference, ""],
         "shipping_weight_declared": shipping_weight_declared,
