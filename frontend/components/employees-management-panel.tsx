@@ -43,6 +43,7 @@ type EmployeeFormState = {
 };
 
 const roleOptions: Array<{ value: UserRole; label: string; hint: string }> = [
+  { value: "super_admin", label: "Super admin", hint: "Control total del sistema, configuración global y administración avanzada." },
   { value: "ops_admin", label: "Ops admin", hint: "Acceso global a operativa, etiquetas y paneles internos." },
   { value: "shop_admin", label: "Shop admin", hint: "Gestiona una o varias tiendas concretas con capacidad operativa." },
   { value: "shop_viewer", label: "Shop viewer", hint: "Solo consulta y seguimiento para cuentas con acceso más acotado." },
@@ -72,8 +73,14 @@ function getPeriodCount(employee: EmployeeAnalyticsRow, period: EmployeeMetricsP
 
 async function readErrorMessage(response: Response) {
   try {
-    const payload = (await response.json()) as { detail?: string } | null;
-    return payload?.detail ?? "No se pudo completar la operación.";
+    const contentType = response.headers.get("Content-Type") ?? "";
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as { detail?: string } | null;
+      return payload?.detail ?? "No se pudo completar la operación.";
+    }
+
+    const text = (await response.text()).trim();
+    return text || "No se pudo completar la operación.";
   } catch {
     return "No se pudo completar la operación.";
   }
@@ -312,7 +319,11 @@ export function EmployeesManagementPanel({
     setter: Dispatch<SetStateAction<EmployeeFormState>>,
   ) {
     const needsShops = form.role === "shop_admin" || form.role === "shop_viewer";
-    const selectedRole = roleOptions.find((option) => option.value === form.role);
+    const editingSuperAdmin = mode === "edit" && selectedEmployee?.role === "super_admin";
+    const availableRoleOptions = editingSuperAdmin
+      ? roleOptions
+      : roleOptions.filter((option) => option.value !== "super_admin");
+    const selectedRole = availableRoleOptions.find((option) => option.value === form.role) ?? roleOptions.find((option) => option.value === form.role);
     const editingEmployee = mode === "edit" ? selectedEmployee : null;
 
     return (
@@ -366,7 +377,7 @@ export function EmployeesManagementPanel({
               }
               value={form.role}
             >
-              {roleOptions.map((role) => (
+              {availableRoleOptions.map((role) => (
                 <option key={role.value} value={role.value}>
                   {role.label}
                 </option>
