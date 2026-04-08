@@ -5,6 +5,7 @@ import logging
 import ssl
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -682,23 +683,23 @@ def build_shopify_shipping_snapshot(shopify_order: ShopifyOrder) -> dict[str, st
     }
 
 
-def fetch_recent_orders(
+def _iter_recent_orders(
     shop_domain: str,
     access_token: str,
     first: int | None = None,
     updated_since: datetime | None = None,
-) -> list[ShopifyOrder]:
+) -> Iterator[ShopifyOrder]:
     max_orders = first or get_settings().shopify_sync_max_orders
     query_filter = _build_orders_query_filter(updated_since)
-    orders: list[ShopifyOrder] = []
+    fetched = 0
     after: str | None = None
 
-    while len(orders) < max_orders:
+    while fetched < max_orders:
         # This query is intentionally rich because we use it to hydrate
         # customer, customization and fulfillment state in one pass.
         # Shopify's GraphQL cost limit is 1000 per request, so keep the
         # page size conservative to avoid sync failures on real stores.
-        batch_size = min(SHOPIFY_RECENT_ORDERS_PAGE_SIZE, max_orders - len(orders))
+        batch_size = min(SHOPIFY_RECENT_ORDERS_PAGE_SIZE, max_orders - fetched)
         parsed = _run_shopify_graphql(
             shop_domain=shop_domain,
             access_token=access_token,
@@ -714,7 +715,10 @@ def fetch_recent_orders(
         if not order_edges:
             break
 
-        orders.extend(_map_order(edge.get("node", {})) for edge in order_edges)
+        mapped_orders = [_map_order(edge.get("node", {})) for edge in order_edges]
+        for order in mapped_orders:
+            yield order
+        fetched += len(mapped_orders)
 
         page_info = orders_payload.get("pageInfo", {}) or {}
         if not page_info.get("hasNextPage"):
@@ -723,7 +727,21 @@ def fetch_recent_orders(
         if not after:
             break
 
-    return orders[:max_orders]
+
+def fetch_recent_orders(
+    shop_domain: str,
+    access_token: str,
+    first: int | None = None,
+    updated_since: datetime | None = None,
+) -> list[ShopifyOrder]:
+    return list(
+        _iter_recent_orders(
+            shop_domain=shop_domain,
+            access_token=access_token,
+            first=first,
+            updated_since=updated_since,
+        )
+    )
 
 
 def fetch_shopify_order_by_name(
@@ -1203,15 +1221,10 @@ def import_shopify_orders(
     integration: ShopIntegration,
     create_missing_orders: bool = True,
     updated_since: datetime | None = None,
+    max_orders: int | None = None,
     access_token: str | None = None,
     source: str = "shopify_sync",
 ) -> ShopifyImportResult:
-    recent_orders = fetch_recent_orders(
-        shop_domain=integration.shop_domain,
-        access_token=access_token or integration.access_token,
-        updated_since=updated_since,
-    )
-
     result = ShopifyImportResult(
         imported_count=0,
         updated_count=0,
@@ -1223,10 +1236,16 @@ def import_shopify_orders(
         external_ids_migrated_count=0,
         tracking_events_created_count=0,
         incidents_created_count=0,
-        total_fetched=len(recent_orders),
+        total_fetched=0,
     )
 
-    for shopify_order in recent_orders:
+    for shopify_order in _iter_recent_orders(
+        shop_domain=integration.shop_domain,
+        access_token=access_token or integration.access_token,
+        first=max_orders,
+        updated_since=updated_since,
+    ):
+        result.total_fetched += 1
         external_id = shopify_public_order_id(shopify_order)
         if not external_id:
             result.skipped_count += 1
@@ -1411,6 +1430,14 @@ def run_shopify_sync_cycle(
 
     try:
         access_token = resolve_shopify_access_token(db, integration)
+        settings = get_settings()
+        # Full imports can be large by design. Incremental syncs are capped lower by default
+        # to avoid memory spikes on small instances.
+        max_orders = (
+            settings.shopify_sync_max_orders
+            if full_sync
+            else settings.shopify_incremental_sync_max_orders
+        )
         # full_sync=True (manual import from settings) → no date filter, fetch all history.
         # full_sync=False (scheduler / incremental) → cap at 3 months so we never pull
         # older orders unless explicitly requested.
@@ -1428,6 +1455,7 @@ def run_shopify_sync_cycle(
             integration=integration,
             create_missing_orders=create_missing_orders,
             updated_since=updated_since,
+            max_orders=max_orders,
             access_token=access_token,
         )
         customers_created_count, customers_updated_count = sync_shopify_customers_for_shop(

@@ -102,6 +102,14 @@ async def _handle_shopify_webhook(
     if shop_id is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shopify integration not found")
 
+    if not get_settings().shopify_webhook_immediate_sync_enabled:
+        return {
+            "ok": True,
+            "scheduled": False,
+            "topic": topic,
+            "detail": "Immediate webhook sync disabled; background scheduler will process changes.",
+        }
+
     try:
         sync_shopify_shop(shop_id, full_sync=False, source=f"webhook:{topic}")
     except ShopifySyncInProgressError:

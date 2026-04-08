@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     shopify_sync_enabled: bool = True
     shopify_sync_interval_minutes: int = 5
     shopify_sync_max_orders: int = 5000
+    # To protect memory on small instances, incremental syncs (scheduler/webhooks/manual sync)
+    # use a lower cap than full imports by default.
+    shopify_incremental_sync_max_orders: int = 500
+    # When enabled, webhooks trigger an immediate sync in the web process.
+    # Keeping this disabled by default avoids random RAM spikes on low-memory instances.
+    shopify_webhook_immediate_sync_enabled: bool = False
     shopify_webhook_secret: str | None = None
     shopify_ssl_verify: bool = True
     shopify_ssl_cafile: str | None = None
