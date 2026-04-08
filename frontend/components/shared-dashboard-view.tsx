@@ -110,7 +110,7 @@ export function SharedDashboardView({
   const highPriorityIncidents = incidents.filter(
     (incident) => incident.priority === "urgent" || incident.priority === "high",
   ).length;
-  const incidentsPreview = incidents.slice(0, 4);
+  const incidentsPreview = incidents.slice(0, 3);
   const incidentSummaryText = highPriorityIncidents > 0 ? `${highPriorityIncidents} urgentes` : "abiertas";
 
   return (

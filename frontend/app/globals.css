@@ -11429,23 +11429,15 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   grid-template-columns: 280px 1fr 300px;
   gap: 16px;
   align-items: stretch;
-  grid-auto-rows: 1fr;
 }
 
 .dash-analytics-grid > .card {
   height: 100%;
-  min-height: 500px;
-  overflow: hidden;
 }
 
 @media (max-width: 1280px) {
   .dash-analytics-grid {
     grid-template-columns: 1fr 1fr;
-  }
-
-  .dash-analytics-grid > .card {
-    min-height: 0;
-    height: auto;
   }
 }
 
@@ -11472,7 +11464,7 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   display: grid;
   gap: 16px;
   align-content: start;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto auto auto;
 }
 
 .dash-chart-hero {
@@ -11503,8 +11495,7 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  height: auto;
-  min-height: 188px;
+  height: 180px;
   padding: 8px 4px 0;
   border-radius: 10px;
   background: var(--surface-soft);
@@ -11556,31 +11547,30 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 
 .dash-analytics-grid .exp-donut-card {
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto;
 }
 
 .dash-analytics-grid .exp-donut-wrap {
-  min-height: 232px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .dash-analytics-grid .exp-status-list {
   align-content: start;
-  gap: 7px;
+  gap: 8px;
 }
 
 .dash-analytics-grid .exp-alert-card {
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto auto auto;
 }
 
 .dash-analytics-grid .exp-alert-list {
-  min-height: 0;
+  max-height: 324px;
   overflow: auto;
   padding-right: 4px;
 }
 
 .dash-analytics-grid .exp-alert-row {
-  min-height: 86px;
+  min-height: 74px;
 }
 
 .dash-health-row {
