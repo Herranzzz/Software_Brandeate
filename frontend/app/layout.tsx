@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Outfit } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import { LayoutStateProvider } from "@/components/layout-state-provider";
 
 import "./globals.css";
 
-const inter = Inter({
+const outfit = Outfit({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-inter",
+  variable: "--font-outfit",
+  weight: ["300", "400", "500", "600", "700", "800"],
 });
 
 
@@ -27,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" suppressHydrationWarning className={inter.variable}>
+    <html lang="es" suppressHydrationWarning className={outfit.variable}>
       <body>
         <script
           dangerouslySetInnerHTML={{

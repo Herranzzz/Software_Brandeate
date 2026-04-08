@@ -141,8 +141,8 @@ export function SharedDashboardView({
       ) : null}
 
       <section className="admin-dashboard-kpis">
-        {kpis.map((item) => (
-          <KpiCard key={item.label} label={item.label} value={item.value} delta={item.delta} tone={item.tone} />
+        {kpis.map((item, i) => (
+          <KpiCard key={item.label} label={item.label} value={item.value} delta={item.delta} tone={item.tone} index={i} />
         ))}
       </section>
 
