@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Card } from "@/components/card";
-import { KpiCard } from "@/components/kpi-card";
 import { ShipmentDonut, type ShipmentSegment } from "@/components/shipment-donut";
 
 type DashboardTone = "accent" | "warning" | "danger" | "default" | "success";
@@ -142,64 +141,139 @@ export function SharedDashboardView({
         </section>
       ) : null}
 
-      <section className="admin-dashboard-kpis">
-        {kpis.map((item, i) => (
-          <KpiCard key={item.label} label={item.label} value={item.value} delta={item.delta} tone={item.tone} index={i} />
-        ))}
+      {/* ── KPI pipeline strip (6 tarjetas) ───────────────── */}
+      <section className="dash-kpi-strip">
+        {kpis.map((item) => {
+          const colorClass =
+            item.tone === "accent"  ? "is-accent"  :
+            item.tone === "danger"  ? "is-red"     :
+            item.tone === "success" ? "is-green"   :
+            item.tone === "warning" ? "is-orange"  : "is-slate";
+          return (
+            <article className={`exp-kpi-card ${colorClass}`} key={item.label}>
+              <span className="exp-kpi-label">{item.label}</span>
+              <strong className="exp-kpi-value">{item.value}</strong>
+              <small className="exp-kpi-hint">{item.delta}</small>
+            </article>
+          );
+        })}
       </section>
 
-      <section className="admin-dashboard-analytics-section">
-        <Card className="stack admin-dashboard-panel admin-dashboard-panel-primary">
-          <div className="admin-dashboard-panel-head">
-            <div>
-              <span className="eyebrow">📊 Control operativo</span>
-              <h3 className="section-title section-title-small">Volumen y estado de expediciones</h3>
-            </div>
-            <div className="admin-dashboard-panel-actions">
-              <Link className="admin-dashboard-inline-link" href={chartLinkHref}>
-                {chartLinkLabel}
-              </Link>
-            </div>
-          </div>
+      {/* ── 3-col grid: donut · chart hero · incidents ─────── */}
+      <section className="dash-analytics-grid">
 
-          <div className="admin-dashboard-analytics-grid">
-            <div className="admin-dashboard-chart-shell">
-              <div className="admin-dashboard-subpanel-head">
-                <div>
-                  <h4 className="section-title section-title-small">Pedidos en el periodo</h4>
-                </div>
-              </div>
-              <div className="chart-card admin-dashboard-chart-card">
-                {chart.map((point) => (
-                  <div className="chart-bar-group" key={point.dayKey}>
-                    <div className="admin-dashboard-chart-plot">
-                      <div
-                        className="chart-bar admin-dashboard-chart-bar"
-                        style={{ height: `${Math.max(12, (point.value / maxValue) * 100)}%` }}
-                      />
+        {/* Col 1: Status donut */}
+        {donutSegments && donutSegments.length > 0 && (
+          <Card className="exp-donut-card">
+            <div className="exp-section-head">
+              <span className="eyebrow">Estado envíos</span>
+              <h3 className="exp-card-title">Distribución activa</h3>
+            </div>
+            <div className="exp-donut-wrap">
+              <ShipmentDonut
+                centerLabel="pedidos"
+                centerValue={String(donutSegments.reduce((s, seg) => s + seg.value, 0))}
+                radius={90}
+                segments={donutSegments}
+                showLegend={false}
+                showTotal={false}
+                size={228}
+                strokeWidth={22}
+                variant="hero"
+              />
+            </div>
+            <div className="exp-status-list">
+              {donutSegments.map((seg) => {
+                const total = donutSegments.reduce((s, x) => s + x.value, 0);
+                const pct = total > 0 ? Math.round((seg.value / total) * 100) : 0;
+                return (
+                  <div className={`exp-status-row is-${seg.tone}`} key={seg.key}>
+                    <span className="exp-status-dot" />
+                    <span className="exp-status-name">{seg.label.replace(/^\S+\s/, "")}</span>
+                    <div className="exp-status-bar-track">
+                      <div className="exp-status-bar-fill" style={{ width: `${pct}%` }} />
                     </div>
-                    <div className="chart-value">{point.value}</div>
-                    <div className="chart-label">{point.day}</div>
+                    <strong>{seg.value}</strong>
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
+          </Card>
+        )}
 
-            {donutSegments && donutSegments.length > 0 ? (
-              <div className="dashboard-donut-block dashboard-donut-side-panel">
-                <div className="dashboard-donut-content">
-                  <ShipmentDonut
-                    segments={donutSegments}
-                    size={256}
-                    strokeWidth={20}
-                    radius={98}
-                    showTotal={false}
-                    variant="hero"
+        {/* Col 2: Daily chart with hero number */}
+        <Card className="dash-chart-card">
+          <div className="exp-section-head">
+            <span className="eyebrow">Volumen</span>
+            <h3 className="exp-card-title">Pedidos por día</h3>
+          </div>
+          <div className="dash-chart-hero">
+            <strong>{chart.reduce((s, p) => s + p.value, 0)}</strong>
+            <span>pedidos en el periodo</span>
+          </div>
+          <div className="dash-chart-bars">
+            {chart.map((point) => (
+              <div className="dash-chart-col" key={point.dayKey}>
+                <div className="dash-chart-bar-wrap">
+                  <div
+                    className="dash-chart-bar"
+                    style={{ height: `${Math.max(8, (point.value / maxValue) * 100)}%` }}
                   />
                 </div>
+                <span className="dash-chart-value">{point.value}</span>
+                <span className="dash-chart-label">{point.day}</span>
               </div>
-            ) : null}
+            ))}
           </div>
+          <div className="dash-chart-footer">
+            <Link className="exp-period-pill" href={chartLinkHref}>
+              {chartLinkLabel} →
+            </Link>
+          </div>
+        </Card>
+
+        {/* Col 3: Incidents */}
+        <Card className="exp-alert-card">
+          <div className="exp-section-head">
+            <span className="eyebrow">Atención</span>
+            <h3 className="exp-card-title">Incidencias recientes</h3>
+          </div>
+          <div className="exp-alert-total">
+            <strong>{incidents.length}</strong>
+            <span>
+              {incidents.filter((i) => i.priority === "urgent" || i.priority === "high").length > 0
+                ? `${incidents.filter((i) => i.priority === "urgent" || i.priority === "high").length} urgentes`
+                : "abiertas"}
+            </span>
+          </div>
+          <div className="exp-alert-list">
+            {incidents.slice(0, 5).map((incident) => {
+              const isHot = incident.priority === "urgent" || incident.priority === "high";
+              return (
+                <div className={`exp-alert-row${isHot ? " is-hot" : ""}`} key={incident.id}>
+                  <span className="exp-alert-icon">{isHot ? "🔴" : "🟡"}</span>
+                  <div className="exp-alert-body">
+                    <strong>{incident.title}</strong>
+                    <span>{incident.secondary}</span>
+                  </div>
+                  <span className={`exp-alert-count is-${isHot ? "red" : "orange"}`}>
+                    {incident.priority}
+                  </span>
+                </div>
+              );
+            })}
+            {incidents.length === 0 && (
+              <div className="exp-table-empty" style={{ padding: "20px 0" }}>
+                <span>✅</span>
+                <p>{incidentsEmptyMessage}</p>
+              </div>
+            )}
+          </div>
+          {incidents.length > 0 && (
+            <Link className="exp-period-pill" href={incidentsLinkHref} style={{ marginTop: 4, justifySelf: "start" }}>
+              {incidentsLinkLabel} →
+            </Link>
+          )}
         </Card>
       </section>
 

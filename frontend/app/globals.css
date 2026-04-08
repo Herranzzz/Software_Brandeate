@@ -11383,6 +11383,26 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   }
 }
 
+/* ── Dashboard analytics 3-col grid ─────────────────────────── */
+.dash-analytics-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr 300px;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1280px) {
+  .dash-analytics-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .dash-analytics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── Dashboard v2 page ───────────────────────────────────────── */
 .dash-v2-page {
   display: grid;

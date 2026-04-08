@@ -151,13 +151,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const donutSegments = buildDonutSegments(orders);
   const timeFilters = buildTimeFilters(range, params.shop_id, employeePeriod);
 
-  const pendingOrders = orders.filter((order) => order.status === "pending").length;
-  const inProductionOrders = orders.filter((order) => order.production_status === "in_production").length;
-  const shippedOrders = orders.filter((order) => order.status === "shipped").length;
-  const deliveredOrders = orders.filter((order) => order.status === "delivered").length;
-  const withShipment = orders.filter((order) => order.shipment).length;
-  const openIncidents = incidentsInRange.filter((incident) => incident.status !== "resolved").length;
-  const urgentIncidents = incidentsInRange.filter((incident) => incident.priority === "urgent" || incident.priority === "high").length;
+  const pendingOrders     = orders.filter((o) => o.status === "pending").length;
+  const inProgressOrders  = orders.filter((o) => o.status === "in_progress").length;
+  const readyToShipOrders = orders.filter((o) => o.status === "ready_to_ship").length;
+  const shippedOrders     = orders.filter((o) => o.status === "shipped").length;
+  const deliveredOrders   = orders.filter((o) => o.status === "delivered").length;
+  const withShipment      = orders.filter((o) => o.shipment).length;
+  const openIncidents     = incidentsInRange.filter((i) => i.status !== "resolved").length;
+  const urgentIncidents   = incidentsInRange.filter((i) => i.priority === "urgent" || i.priority === "high").length;
 
   return (
     <SharedDashboardView
@@ -189,7 +190,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       eyebrow="Brandeate operations"
       healthItems={[
         { label: "⏳ Pendientes", value: pendingOrders, hint: "esperando revisión" },
-        { label: "🔧 En producción", value: inProductionOrders, hint: "flujo activo" },
+        { label: "🔧 En producción", value: inProgressOrders, hint: "flujo activo" },
         { label: "📦 Con envío", value: withShipment, hint: "ya etiquetados" },
         { label: "✅ Entregados", value: deliveredOrders, hint: "cerrados correctamente" },
       ]}
@@ -218,10 +219,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       incidentsLinkLabel="Ver incidencias"
       incidentsTitle="Incidencias recientes"
       kpis={[
-        { label: "📦 Pedidos entrantes", value: String(orders.length), delta: `${pendingOrders} pendientes`, tone: "accent" },
-        { label: "⚠️ Incidencias abiertas", value: String(openIncidents), delta: `${urgentIncidents} prioritarias`, tone: "danger" },
-        { label: "🚚 Enviados", value: String(shippedOrders), delta: `${withShipment} con tracking`, tone: "default" },
-        { label: "🏪 Tiendas activas", value: String(activeShop ? 1 : shops.length), delta: activeShop ? "vista filtrada" : "operando ahora", tone: "success" },
+        { label: "Pendientes",           value: String(pendingOrders),     delta: "esperando revisión",              tone: "accent"  },
+        { label: "En producción",        value: String(inProgressOrders),  delta: "flujo activo",                    tone: "default" },
+        { label: "Listos para enviar",   value: String(readyToShipOrders), delta: "esperando recogida",              tone: "warning" },
+        { label: "Enviados",             value: String(shippedOrders),     delta: `${withShipment} con tracking`,    tone: "default" },
+        { label: "Entregados",           value: String(deliveredOrders),   delta: "ciclo cerrado",                   tone: "success" },
+        { label: "Incidencias abiertas", value: String(openIncidents),     delta: `${urgentIncidents} prioritarias`, tone: "danger"  },
       ]}
       noteActions={
         <>
