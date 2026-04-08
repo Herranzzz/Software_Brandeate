@@ -54,18 +54,10 @@ type OrdersWorkbenchProps = {
 };
 
 type QuickFilterKey =
-  | "personalized"
-  | "standard"
-  | "design_available"
-  | "pending_asset"
   | "has_incident"
   | "not_prepared";
 
 const quickFilterMeta: Array<{ key: QuickFilterKey; label: string }> = [
-  { key: "personalized", label: "🎨 Personalizados" },
-  { key: "standard", label: "📦 Estándar" },
-  { key: "design_available", label: "✅ Diseño disponible" },
-  { key: "pending_asset", label: "⏳ Pendiente de asset" },
   { key: "has_incident", label: "⚠️ Con incidencia" },
   { key: "not_prepared", label: "🔧 No preparados" },
 ];
@@ -162,6 +154,14 @@ function isPrepared(order: Order) {
 function getOperationalStatusMeta(order: Order) {
   const shipmentState = getShipmentState(order);
 
+  // Incidencia — siempre tiene prioridad visual sobre el estado logístico
+  if (order.has_open_incident) {
+    return {
+      label: "Incidencia",
+      className: "badge badge-status badge-status-incident",
+    };
+  }
+
   if (order.status === "delivered" || shipmentState === "delivered") {
     return {
       label: "Entregado",
@@ -173,6 +173,13 @@ function getOperationalStatusMeta(order: Order) {
     return {
       label: "En reparto",
       className: "badge badge-status badge-status-out-for-delivery",
+    };
+  }
+
+  if (shipmentState === "pickup_available") {
+    return {
+      label: "Listo para recoger",
+      className: "badge badge-status badge-status-pickup",
     };
   }
 
@@ -189,29 +196,19 @@ function getOperationalStatusMeta(order: Order) {
 
   if (order.shipment || order.status === "shipped" || order.status === "ready_to_ship") {
     return {
-      label: "Etiqueta creada",
+      label: "Recogido",
       className: "badge badge-status badge-status-ready-to-ship",
     };
   }
 
   return {
-    label: "No preparado",
+    label: "Sin preparar",
     className: "badge badge-status badge-status-pending",
   };
 }
 
 function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
-  const primaryItem = getPrimaryItem(order);
-
   switch (filter) {
-    case "personalized":
-      return order.is_personalized;
-    case "standard":
-      return !order.is_personalized;
-    case "design_available":
-      return primaryItem?.design_status === "design_available";
-    case "pending_asset":
-      return primaryItem?.design_status === "pending_asset" || primaryItem?.design_status === "missing_asset";
     case "has_incident":
       return order.has_open_incident;
     case "not_prepared":
