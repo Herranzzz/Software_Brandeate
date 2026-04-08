@@ -6,7 +6,7 @@ import ssl
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from urllib import error, request
 
@@ -1411,7 +1411,18 @@ def run_shopify_sync_cycle(
 
     try:
         access_token = resolve_shopify_access_token(db, integration)
-        updated_since = None if full_sync else integration.last_synced_at
+        # full_sync=True (manual import from settings) → no date filter, fetch all history.
+        # full_sync=False (scheduler / incremental) → cap at 3 months so we never pull
+        # older orders unless explicitly requested.
+        if full_sync:
+            updated_since = None
+        else:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+            if integration.last_synced_at:
+                last_sync = integration.last_synced_at.astimezone(timezone.utc)
+                updated_since = last_sync if last_sync > cutoff else cutoff
+            else:
+                updated_since = cutoff
         result = import_shopify_orders(
             db=db,
             integration=integration,

@@ -77,8 +77,8 @@ export function ShopifySyncPanel({
         kind: "success",
         text:
           action === "import"
-            ? "Importación histórica completada."
-            : "Sincronización incremental completada.",
+            ? "Importación histórica completa finalizada."
+            : "Sincronización completada (últimos 3 meses).",
       });
       startTransition(() => {
         router.refresh();
@@ -98,7 +98,7 @@ export function ShopifySyncPanel({
         <span className="eyebrow">Shopify</span>
         <h3 className="section-title section-title-small">Tienda conectada</h3>
         <p className="subtitle">
-          Lanza una sincronización incremental para cambios recientes o una importación histórica para recuperar los últimos pedidos.
+          La sincronización automática solo importa pedidos de los <strong>últimos 3 meses</strong>. Desde aquí puedes forzar un historico completo si lo necesitas.
         </p>
       </div>
 
@@ -140,7 +140,7 @@ export function ShopifySyncPanel({
             onClick={() => void runAction("import")}
             type="button"
           >
-            {pendingAction === "import" ? "Importando..." : "Importar últimos pedidos"}
+            {pendingAction === "import" ? "Importando..." : "Importar histórico completo"}
           </button>
         </div>
       </div>
