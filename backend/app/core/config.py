@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     ctt_client_id: str | None = None
     ctt_client_secret: str | None = None
     ctt_client_center_code: str | None = None
+    ctt_user_name: str | None = None
+    ctt_password: str | None = None
     ctt_api_base_url: str = "https://api-test.cttexpress.com"
     ctt_default_shipping_type_code: str = "C24"
     ctt_department_code: str = "1"

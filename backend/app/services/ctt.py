@@ -33,6 +33,23 @@ def _base_url() -> str:
     return get_settings().ctt_api_base_url.rstrip("/")
 
 
+def _api_headers(*, token: str | None = None, include_content_type: bool = False) -> dict[str, str]:
+    settings = get_settings()
+    headers: dict[str, str] = {}
+
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if include_content_type:
+        headers["Content-Type"] = "application/json"
+
+    if settings.ctt_user_name:
+        headers["user_name"] = settings.ctt_user_name
+    if settings.ctt_password:
+        headers["password"] = settings.ctt_password
+
+    return headers
+
+
 def get_token() -> str:
     global _cached_token, _token_expires_at
 
@@ -127,10 +144,7 @@ def _request_json(
     req = request.Request(
         f"{_base_url()}{path}",
         data=raw_body,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        headers=_api_headers(token=token, include_content_type=True),
         method=method,
     )
     try:
@@ -169,7 +183,7 @@ def get_label(
     )
     req = request.Request(
         url,
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_api_headers(token=token),
         method="GET",
     )
     try:

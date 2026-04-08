@@ -89,7 +89,8 @@ Start Command: ./start.sh
    - `AUTH_SECRET`
    - `CORS_ORIGINS`
    - `SHOPIFY_WEBHOOK_SECRET` si lo usas
-   - credenciales de CTT (`CTT_CLIENT_ID`, `CTT_CLIENT_SECRET`, etc.)
+   - credenciales de CTT (`CTT_CLIENT_ID`, `CTT_CLIENT_SECRET`, `CTT_CLIENT_CENTER_CODE`)
+   - si CTT también te las facilita, añade `CTT_USER_NAME` y `CTT_PASSWORD`
 
 5. Despliega.
 

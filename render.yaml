@@ -36,8 +36,12 @@ services:
         sync: false
       - key: CTT_CLIENT_CENTER_CODE
         sync: false
+      - key: CTT_USER_NAME
+        sync: false
+      - key: CTT_PASSWORD
+        sync: false
       - key: CTT_API_BASE_URL
-        value: "https://api.cttexpress.com"
+        value: "https://api-test.cttexpress.com"
       - key: CTT_DEFAULT_SHIPPING_TYPE_CODE
         value: "19H"
       - key: CTT_DEPARTMENT_CODE
@@ -94,8 +98,12 @@ services:
         sync: false
       - key: CTT_CLIENT_CENTER_CODE
         sync: false
+      - key: CTT_USER_NAME
+        sync: false
+      - key: CTT_PASSWORD
+        sync: false
       - key: CTT_API_BASE_URL
-        value: "https://api.cttexpress.com"
+        value: "https://api-test.cttexpress.com"
       - key: CTT_DEFAULT_SHIPPING_TYPE_CODE
         value: "19H"
       - key: CTT_DEPARTMENT_CODE

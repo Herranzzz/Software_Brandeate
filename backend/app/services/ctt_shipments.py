@@ -97,27 +97,29 @@ def create_ctt_shipment_for_order(
             )
         raise CTTShipmentDuplicateError("El pedido ya tiene una expedición creada")
 
-    recipient_name = (payload.recipient_name or order.shipping_name or order.customer_name or "").strip()
-    recipient_country_code = (payload.recipient_country_code or order.shipping_country_code or "ES").strip().upper()
-    recipient_postal_code = (payload.recipient_postal_code or order.shipping_postal_code or "").strip()
-    recipient_town = (payload.recipient_town or order.shipping_town or "").strip()
-    recipient_address = (
-        payload.recipient_address
-        or " ".join(
-            part.strip()
-            for part in [order.shipping_address_line1 or "", order.shipping_address_line2 or ""]
-            if part and part.strip()
-        )
-    ).strip()
-    recipient_phone = _first_non_empty(payload.recipient_phones) or (order.shipping_phone or "").strip()
-    recipient_email = (payload.recipient_email or order.customer_email or "").strip() or None
+    recipient_name = _resolve_recipient_name(order, payload, shop_shipping_settings)
+    recipient_country_code = _resolve_recipient_country_code(order, payload, shop_shipping_settings)
+    recipient_postal_code = _resolve_recipient_postal_code(order, payload, shop_shipping_settings)
+    recipient_town = _resolve_recipient_town(order, payload, shop_shipping_settings)
+    recipient_address = _resolve_recipient_address(order, payload, shop_shipping_settings)
+    recipient_phone = _resolve_recipient_phone(order, payload, shop_shipping_settings)
+    recipient_email = _resolve_recipient_email(order, payload, shop_shipping_settings)
 
+    missing_fields: list[str] = []
     if not recipient_name:
-        raise CTTShipmentOrchestrationError("Falta el destinatario del envío")
-    if not recipient_postal_code or not recipient_address or not recipient_town:
-        raise CTTShipmentOrchestrationError("Faltan datos de dirección para crear la etiqueta")
+        missing_fields.append("destinatario")
+    if not recipient_postal_code:
+        missing_fields.append("código postal")
+    if not recipient_address:
+        missing_fields.append("dirección")
+    if not recipient_town:
+        missing_fields.append("ciudad")
     if not recipient_phone:
-        raise CTTShipmentOrchestrationError("Falta el teléfono del destinatario")
+        missing_fields.append("teléfono")
+
+    if missing_fields:
+        missing_text = ", ".join(missing_fields)
+        raise CTTShipmentOrchestrationError(f"Faltan datos para crear la etiqueta: {missing_text}")
 
     weight_band = resolve_weight_band(
         weight_tier_code=payload.weight_tier_code or _shipping_setting(shop_shipping_settings, "default_weight_tier_code"),
@@ -375,6 +377,121 @@ def _first_non_empty(values: list[str]) -> str:
         if normalized:
             return normalized
     return ""
+
+
+def _resolve_recipient_name(order: Order, payload: CTTCreateShippingRequest, settings_payload: dict[str, object]) -> str:
+    snapshot = _shipping_snapshot(order)
+    return (
+        payload.recipient_name
+        or order.shipping_name
+        or _snapshot_text(snapshot, "name")
+        or _snapshot_name(snapshot)
+        or order.customer_name
+        or ""
+    ).strip()
+
+
+def _resolve_recipient_country_code(order: Order, payload: CTTCreateShippingRequest, settings_payload: dict[str, object]) -> str:
+    snapshot = _shipping_snapshot(order)
+    return (
+        payload.recipient_country_code
+        or order.shipping_country_code
+        or _snapshot_text(snapshot, "country_code")
+        or "ES"
+    ).strip().upper()
+
+
+def _resolve_recipient_postal_code(order: Order, payload: CTTCreateShippingRequest, settings_payload: dict[str, object]) -> str:
+    snapshot = _shipping_snapshot(order)
+    return (
+        payload.recipient_postal_code
+        or order.shipping_postal_code
+        or _snapshot_text(snapshot, "zip")
+        or ""
+    ).strip()
+
+
+def _resolve_recipient_town(order: Order, payload: CTTCreateShippingRequest, settings_payload: dict[str, object]) -> str:
+    snapshot = _shipping_snapshot(order)
+    return (
+        payload.recipient_town
+        or order.shipping_town
+        or _snapshot_text(snapshot, "city")
+        or ""
+    ).strip()
+
+
+def _resolve_recipient_address(order: Order, payload: CTTCreateShippingRequest, settings_payload: dict[str, object]) -> str:
+    snapshot = _shipping_snapshot(order)
+    order_address = _combine_address(
+        order.shipping_address_line1 or "",
+        order.shipping_address_line2 or "",
+    )
+    snapshot_address = _combine_address(
+        _snapshot_text(snapshot, "address1") or "",
+        _snapshot_text(snapshot, "address2") or "",
+    )
+    return (
+        payload.recipient_address
+        or order_address
+        or snapshot_address
+        or ""
+    ).strip()
+
+
+def _resolve_recipient_phone(order: Order, payload: CTTCreateShippingRequest, settings_payload: dict[str, object]) -> str:
+    snapshot = _shipping_snapshot(order)
+    return (
+        _first_non_empty(payload.recipient_phones)
+        or (order.shipping_phone or "").strip()
+        or _snapshot_text(snapshot, "phone")
+        or ""
+    ).strip()
+
+
+def _resolve_recipient_email(order: Order, payload: CTTCreateShippingRequest, settings_payload: dict[str, object]) -> str | None:
+    return (
+        (payload.recipient_email or "").strip()
+        or _snapshot_text(_shipping_snapshot(order), "email")
+        or order.customer_email
+        or None
+    )
+
+
+def _snapshot_text(snapshot: dict[str, object], key: str) -> str | None:
+    value = snapshot.get(key)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _snapshot_name(snapshot: dict[str, object]) -> str | None:
+    name = snapshot.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+
+    first_name = snapshot.get("first_name")
+    last_name = snapshot.get("last_name")
+    parts = [
+        part.strip()
+        for part in [first_name, last_name]
+        if isinstance(part, str) and part.strip()
+    ]
+    if parts:
+        return " ".join(parts)
+    return None
+
+
+def _combine_address(*parts: str) -> str:
+    return " ".join(part.strip() for part in parts if part and part.strip()).strip()
+
+
+def _shipping_snapshot(order: Order) -> dict[str, object]:
+    snapshot = order.shopify_shipping_snapshot_json
+    if isinstance(snapshot, dict):
+        return snapshot
+    return {}
 
 
 def _extract_shipping_code(payload: dict) -> str:
