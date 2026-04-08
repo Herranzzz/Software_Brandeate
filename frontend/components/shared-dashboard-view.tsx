@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Card } from "@/components/card";
+import { KpiCard } from "@/components/kpi-card";
 import { ShipmentDonut, type ShipmentSegment } from "@/components/shipment-donut";
 
 type DashboardTone = "accent" | "warning" | "danger" | "default" | "success";
@@ -111,44 +112,39 @@ export function SharedDashboardView({
     <div className="stack admin-dashboard">
       {topContent}
 
-      {/* ── Minimal header — same style as expediciones ── */}
-      <div className="card dash-header">
-        <div className="dash-header-top">
-          <div className="dash-header-copy">
-            <span className="eyebrow">{eyebrow}</span>
-            <h1 className="exp-page-title">{title}</h1>
-          </div>
-          <div className="dash-header-right">
-            {timeFilters.length > 0 && (
-              <div className="exp-period-pills">
-                {timeFilters.map((filter) => (
-                  <Link
-                    className={`exp-period-pill${filter.active ? " is-active" : ""}`}
-                    href={filter.href}
-                    key={filter.label}
-                  >
-                    {filter.label}
-                  </Link>
-                ))}
-              </div>
-            )}
-            {heroAction}
-          </div>
+      <section className="admin-dashboard-hero">
+        <div className="admin-dashboard-hero-copy">
+          <span className="eyebrow">{eyebrow}</span>
+          <h1 className="admin-dashboard-title">{title}</h1>
+          <p className="admin-dashboard-subtitle">{subtitle}</p>
         </div>
-        {controls && (
-          <div className="dash-header-toolbar">
-            {controls}
-          </div>
-        )}
-      </div>
 
-      <section className="dash-kpi-strip">
-        {kpis.map((item) => (
-          <article className={`exp-kpi-card is-${item.tone === "accent" ? "accent" : item.tone === "danger" ? "red" : item.tone === "success" ? "green" : item.tone === "warning" ? "orange" : "slate"}`} key={item.label}>
-            <span className="exp-kpi-label">{item.label}</span>
-            <strong className="exp-kpi-value">{item.value}</strong>
-            <small className="exp-kpi-hint">{item.delta}</small>
-          </article>
+        <div className="admin-dashboard-hero-actions">
+          {controls}
+          {heroAction}
+        </div>
+      </section>
+
+      {timeFilters.length > 0 ? (
+        <section className="admin-dashboard-timebar">
+          <span className="admin-dashboard-timebar-label">Periodo</span>
+          <div className="dashboard-donut-range-pills">
+            {timeFilters.map((filter) => (
+              <Link
+                className={`shipments-range-pill${filter.active ? " is-active" : ""}`}
+                href={filter.href}
+                key={filter.label}
+              >
+                {filter.label}
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="admin-dashboard-kpis">
+        {kpis.map((item, i) => (
+          <KpiCard key={item.label} label={item.label} value={item.value} delta={item.delta} tone={item.tone} index={i} />
         ))}
       </section>
 
