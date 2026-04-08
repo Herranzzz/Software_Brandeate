@@ -36,6 +36,8 @@ type BulkDownloadUrlResponse = {
 
 const POLL_INTERVAL_MS = 1200;
 const POLL_TIMEOUT_MS = 12 * 60 * 1000;
+const RETRYABLE_POLL_STATUS = new Set([502, 503, 504]);
+const MAX_TRANSIENT_POLL_ERRORS = 30;
 
 
 function extractRequestId(text: string) {
@@ -154,6 +156,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
       syncStateFromJob(currentJob);
 
       const deadlineAt = Date.now() + POLL_TIMEOUT_MS;
+      let transientPollErrors = 0;
       while (currentJob.status !== "done") {
         if (currentJob.status === "failed") {
           throw new Error(currentJob.error || "La descarga de diseños falló durante el procesamiento.");
@@ -163,12 +166,35 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
         }
 
         await sleep(POLL_INTERVAL_MS);
-        const statusResponse = await fetch(`/api/orders/bulk/download-designs/jobs/${currentJob.job_id}`, {
-          cache: "no-store",
-        });
+        let statusResponse: Response;
+        try {
+          statusResponse = await fetch(`/api/orders/bulk/download-designs/jobs/${currentJob.job_id}`, {
+            cache: "no-store",
+          });
+        } catch {
+          transientPollErrors += 1;
+          if (transientPollErrors <= MAX_TRANSIENT_POLL_ERRORS) {
+            continue;
+          }
+          throw new Error(
+            "No se pudo consultar el progreso de la descarga tras varios reintentos. Inténtalo de nuevo en unos minutos.",
+          );
+        }
         if (!statusResponse.ok) {
+          if (RETRYABLE_POLL_STATUS.has(statusResponse.status)) {
+            transientPollErrors += 1;
+            if (transientPollErrors <= MAX_TRANSIENT_POLL_ERRORS) {
+              continue;
+            }
+          }
+          if (statusResponse.status === 404) {
+            throw new Error(
+              "La descarga se interrumpió porque el servidor se reinició y perdió el estado temporal. Vuelve a lanzarla.",
+            );
+          }
           throw new Error(await readErrorDetail(statusResponse, "No se pudo consultar el progreso de la descarga."));
         }
+        transientPollErrors = 0;
         currentJob = (await statusResponse.json()) as BulkDownloadJobState;
         syncStateFromJob(currentJob);
       }
