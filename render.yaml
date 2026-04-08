@@ -23,7 +23,7 @@ services:
       - key: SHOPIFY_SYNC_MAX_ORDERS
         value: "5000"
       - key: SHOPIFY_INCREMENTAL_SYNC_MAX_ORDERS
-        value: "500"
+        value: "20"
       - key: SHOPIFY_WEBHOOK_IMMEDIATE_SYNC_ENABLED
         value: "false"
       - key: SHOPIFY_WEBHOOK_SECRET
@@ -85,7 +85,7 @@ services:
       - key: SHOPIFY_SYNC_MAX_ORDERS
         value: "5000"
       - key: SHOPIFY_INCREMENTAL_SYNC_MAX_ORDERS
-        value: "500"
+        value: "20"
       - key: SHOPIFY_WEBHOOK_SECRET
         sync: false
       - key: SHOPIFY_SSL_VERIFY
