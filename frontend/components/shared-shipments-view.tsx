@@ -399,7 +399,6 @@ export function SharedShipmentsView({
             <div className="exp-header-copy">
               <span className="eyebrow">{heroEyebrow}</span>
               <h1 className="exp-page-title">{title}</h1>
-              <p className="exp-page-subtitle">{subtitle}</p>
             </div>
           </div>
           <form action={basePath} className="exp-toolbar" method="get">
