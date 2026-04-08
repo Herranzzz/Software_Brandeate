@@ -1,10 +1,11 @@
 import Link from "next/link";
 
+import { EmployeePortalWorkspace } from "@/components/employee-portal-workspace";
 import { PortalSyncButton } from "@/components/portal-sync-button";
 import { PortalTenantControl } from "@/components/portal-tenant-control";
 import { SharedDashboardView } from "@/components/shared-dashboard-view";
 import type { ShipmentSegment } from "@/components/shipment-donut";
-import { fetchIncidents, fetchOrders, fetchShopifyIntegrations } from "@/lib/api";
+import { fetchEmployeeWorkspace, fetchIncidents, fetchOrders, fetchShopifyIntegrations } from "@/lib/api";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { getTenantBranding } from "@/lib/tenant-branding";
@@ -118,6 +119,7 @@ function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], d
 export default async function PortalPage({ searchParams }: PortalPageProps) {
   const [userResult, shopsResult] = await Promise.allSettled([requirePortalUser(), fetchMyShops()]);
   if (userResult.status === "rejected") throw userResult.reason;
+  const currentUser = userResult.value;
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const params = await searchParams;
   const range = resolveRangePreset(params.range);
@@ -125,10 +127,11 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
   const tenantScope = resolveTenantScope(shops, params.shop_id);
   const branding = getTenantBranding(tenantScope.selectedShop ?? shops[0]);
 
-  const [ordersResultSettled, incidentsResult, integrationsResult] = await Promise.allSettled([
+  const [ordersResultSettled, incidentsResult, integrationsResult, workspaceResult] = await Promise.allSettled([
     fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
     fetchIncidents(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
     fetchShopifyIntegrations(),
+    fetchEmployeeWorkspace(),
   ]);
 
   const ordersResult =
@@ -137,6 +140,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       : { orders: [], totalCount: 0 };
   const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
+  const workspace = workspaceResult.status === "fulfilled" ? workspaceResult.value : null;
 
   const orders = ordersResult.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
   const incidentsInRange = incidents.filter((incident) => isWithinLastDays(incident.updated_at, rangeDays));
@@ -162,7 +166,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       chartLinkLabel="Ir a pedidos"
       donutSegments={donutSegments}
       timeFilters={timeFilters}
-      eyebrow="Servicio activo"
+      eyebrow="Operativa viva"
       healthItems={[
         { label: "⏳ Pendientes", value: pendingOrders, hint: "esperando revisión" },
         { label: "🔧 En producción", value: inProductionOrders, hint: "flujo activo" },
@@ -190,7 +194,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
         updatedAt: formatDateTime(incident.updated_at),
       }))}
       incidentsEmptyMessage="No hay incidencias abiertas en tu cuenta ahora mismo."
-      incidentsLinkHref={`/portal/returns${shopQuery}`}
+      incidentsLinkHref={`/portal/incidencias${shopQuery}`}
       incidentsLinkLabel="Ver incidencias"
       incidentsTitle="Incidencias recientes"
       kpis={[
@@ -221,23 +225,32 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       recentOrdersLinkHref={`/portal/orders${shopQuery}`}
       recentOrdersLinkLabel="Ver todos"
       recentOrdersTitle="Últimos pedidos"
-      subtitle="La misma lectura operativa del admin, limitada automáticamente a las tiendas que tienes asignadas."
-      title={branding.displayName}
+      subtitle="Misma base visual que admin, pero afinada para que tu jornada arranque con foco, contexto y atajos útiles."
+      title={`Centro de control · ${branding.displayName}`}
       topContent={
-        <PortalTenantControl
-          action="/portal"
-          hiddenFields={{ range }}
-          selectedShopId={tenantScope.selectedShopId}
-          shops={tenantScope.shops}
-          submitLabel="Ver"
-          title="Vista de tienda"
-          description="El portal cliente reutiliza el dashboard operativo del admin, filtrado automáticamente a tu cuenta."
-          trailingActions={
-            activeIntegration?.last_synced_at ? (
-              <span className="portal-soft-pill">Sync {formatDateTime(activeIntegration.last_synced_at)}</span>
-            ) : null
-          }
-        />
+        <>
+          <PortalTenantControl
+            action="/portal"
+            hiddenFields={{ range }}
+            selectedShopId={tenantScope.selectedShopId}
+            shops={tenantScope.shops}
+            submitLabel="Cambiar"
+            title="Espacio activo"
+            description="Trabaja siempre sobre la tienda visible y entra directo a lo que toca mover hoy."
+            trailingActions={
+              activeIntegration?.last_synced_at ? (
+                <span className="portal-soft-pill">Sync {formatDateTime(activeIntegration.last_synced_at)}</span>
+              ) : null
+            }
+          />
+          {workspace ? (
+            <EmployeePortalWorkspace
+              selectedShopId={tenantScope.selectedShopId}
+              user={currentUser}
+              workspace={workspace}
+            />
+          ) : null}
+        </>
       }
     />
   );

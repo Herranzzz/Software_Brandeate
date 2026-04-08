@@ -75,6 +75,12 @@ class Incident(Base):
         server_default="false",
     )
     automation_rule_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    last_touched_by_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    last_touched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -88,3 +94,8 @@ class Incident(Base):
     )
 
     order = relationship("Order", back_populates="incidents")
+    last_touched_by_employee = relationship(
+        "User",
+        back_populates="touched_incidents",
+        foreign_keys=[last_touched_by_employee_id],
+    )

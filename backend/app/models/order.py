@@ -131,6 +131,18 @@ class Order(Base):
         ForeignKey("shipping_rate_quotes.id", ondelete="SET NULL"),
         nullable=True,
     )
+    prepared_by_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    prepared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_touched_by_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    last_touched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     pickup_point_json: Mapped[dict | list | None] = mapped_column(json_type, nullable=True)
     shipping_option_selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -167,6 +179,16 @@ class Order(Base):
     selected_shipping_rate_quote = relationship(
         "ShippingRateQuote",
         foreign_keys=[shipping_rate_quote_id],
+    )
+    prepared_by_employee = relationship(
+        "User",
+        foreign_keys=[prepared_by_employee_id],
+        back_populates="prepared_orders",
+    )
+    last_touched_by_employee = relationship(
+        "User",
+        foreign_keys=[last_touched_by_employee_id],
+        back_populates="touched_orders",
     )
     incidents = relationship(
         "Incident",

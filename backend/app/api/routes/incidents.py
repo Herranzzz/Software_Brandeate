@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import get_accessible_shop_ids, get_db, resolve_shop_scope
-from app.models import Incident, IncidentPriority, IncidentStatus, IncidentType, Order
+from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, resolve_shop_scope
+from app.models import Incident, IncidentPriority, IncidentStatus, IncidentType, Order, User
 from app.schemas.incident import IncidentCreate, IncidentRead, IncidentUpdate
 
 
@@ -21,6 +21,7 @@ def create_incident(
     payload: IncidentCreate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> Incident:
     order = db.get(Order, payload.order_id)
     if order is None:
@@ -28,7 +29,11 @@ def create_incident(
     if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
-    incident = Incident(**payload.model_dump())
+    incident = Incident(
+        **payload.model_dump(),
+        last_touched_by_employee_id=current_user.id,
+        last_touched_at=datetime.now(timezone.utc),
+    )
     db.add(incident)
     db.commit()
     return db.scalar(_incident_query().where(Incident.id == incident.id))
@@ -79,6 +84,7 @@ def update_incident(
     payload: IncidentUpdate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> Incident:
     incident = db.get(Incident, incident_id)
     if incident is None:
@@ -89,6 +95,8 @@ def update_incident(
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(incident, field, value)
 
+    incident.last_touched_by_employee_id = current_user.id
+    incident.last_touched_at = datetime.now(timezone.utc)
     incident.updated_at = datetime.now(timezone.utc)
     db.commit()
     return db.scalar(_incident_query().where(Incident.id == incident_id))

@@ -568,6 +568,41 @@ export type EmployeeActivityResponse = {
   items: EmployeeActivityItem[];
 };
 
+export type EmployeeWorkspaceMetrics = {
+  labels_today: number;
+  labels_this_week: number;
+  total_labels: number;
+  orders_prepared_today: number;
+  orders_prepared_total: number;
+  pending_orders_visible: number;
+  incidents_visible: number;
+  incidents_assigned: number;
+  stalled_shipments_visible: number;
+  designs_ready_visible: number;
+  recent_orders_handled: number;
+  last_activity_at: string | null;
+};
+
+export type EmployeeWorkspaceRecentItem = {
+  type: "label" | "order_prepared" | "incident";
+  title: string;
+  subtitle: string;
+  href: string;
+  timestamp: string;
+  badge: string;
+};
+
+export type EmployeeWorkspace = {
+  employee_id: number;
+  employee_name: string;
+  employee_email: string;
+  role: UserRole;
+  shop_ids: number[];
+  metrics: EmployeeWorkspaceMetrics;
+  recent_activity: EmployeeWorkspaceRecentItem[];
+  generated_at: string;
+};
+
 export type LoginResponse = {
   access_token: string;
   refresh_token: string;

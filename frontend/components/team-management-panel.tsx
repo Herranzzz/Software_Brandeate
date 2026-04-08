@@ -11,7 +11,7 @@ type TeamManagementPanelProps = {
 };
 
 const roleOptions: Array<{ value: UserRole; label: string; hint: string }> = [
-  { value: "ops_admin", label: "Ops admin", hint: "Acceso global a la operativa del 3PL." },
+  { value: "ops_admin", label: "Ops admin", hint: "Acceso global a la operativa de Brandeate app." },
   { value: "shop_admin", label: "Shop admin", hint: "Gestiona una o varias tiendas cliente." },
   { value: "shop_viewer", label: "Shop viewer", hint: "Solo visibilidad sobre tiendas asignadas." },
 ];

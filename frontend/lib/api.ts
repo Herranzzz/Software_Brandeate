@@ -4,6 +4,7 @@ import type {
   AdminUser,
   AnalyticsOverview,
   EmployeeAnalyticsResponse,
+  EmployeeWorkspace,
   Incident,
   Order,
   PickBatch,
@@ -250,6 +251,17 @@ export async function fetchEmployeeAnalytics(params?: {
   });
 
   return parseResponse<EmployeeAnalyticsResponse>(response);
+}
+
+
+export async function fetchEmployeeWorkspace() {
+  const headers = await buildAuthHeaders();
+  const response = await fetch(apiUrl("/users/me/workspace"), {
+    cache: "no-store",
+    headers,
+  });
+
+  return parseResponse<EmployeeWorkspace>(response);
 }
 
 

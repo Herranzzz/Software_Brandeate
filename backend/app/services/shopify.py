@@ -1077,7 +1077,7 @@ def push_tracking_to_shopify(
                     for fulfillment_order_id in fulfillment_order_ids
                 ],
             },
-            "message": "Shipment created from 3PL operations hub",
+            "message": "Shipment created from Brandeate app",
         },
     )
     container = payload.get("data", {}).get("fulfillmentCreate", {}) or {}

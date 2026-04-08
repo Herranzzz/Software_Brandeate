@@ -19,6 +19,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [downloadedCount, setDownloadedCount] = useState(0);
   const [totalWithDesign, setTotalWithDesign] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
 
   // Quick client-side pre-check: how many orders have a detectable design
   const ordersWithDesign = orders.filter((o) =>
@@ -50,8 +51,10 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
       }
 
       const okCount = Number(response.headers.get("X-Design-Results") ?? "0");
+      const failures = Number(response.headers.get("X-Design-Failures") ?? "0");
       setDownloadedCount(okCount);
       setTotalWithDesign(ordersWithDesign.length);
+      setFailedCount(failures);
 
       // Trigger browser download
       const blob = await response.blob();
@@ -163,8 +166,10 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
           <div className="stack">
             <div className="feedback feedback-success">
               ✅ ZIP descargado con <strong>{downloadedCount}</strong> diseño{downloadedCount !== 1 ? "s" : ""}.
-              {totalWithDesign > downloadedCount ? (
-                <> {totalWithDesign - downloadedCount} no pudieron descargarse (URLs inaccesibles o timeout).</>
+              {failedCount > 0 ? (
+                <> {failedCount} no pudieron descargarse (URL inaccesible, timeout o archivo remoto caído).</>
+              ) : totalWithDesign > downloadedCount ? (
+                <> {totalWithDesign - downloadedCount} no pudieron descargarse.</>
               ) : null}
             </div>
             <div className="table-secondary">

@@ -8,7 +8,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 DATABASE_URL="$1"
-DUMP_PATH="${2:-/Users/jorge/Documents/3pl-piloto/backups/3pl-local-2026-04-05.dump}"
+DUMP_PATH="${2:-/Users/jorge/Documents/Brandeate app/backups/3pl-local-2026-04-05.dump}"
 
 if [[ ! -f "$DUMP_PATH" ]]; then
   echo "No existe el dump: $DUMP_PATH"

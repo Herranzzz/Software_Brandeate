@@ -22,7 +22,7 @@ async def lifespan(_app: FastAPI):
             scheduler.stop()
 
 
-app = FastAPI(title="3PL Piloto Backend", lifespan=lifespan)
+app = FastAPI(title="Brandeate app Backend", lifespan=lifespan)
 
 settings = get_settings()
 app.add_middleware(

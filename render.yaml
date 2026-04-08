@@ -1,7 +1,7 @@
 services:
   # ── Servidor web ─────────────────────────────────────────────
   - type: web
-    name: 3pl-piloto-backend
+    name: brandeate-app-backend
     env: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
@@ -64,7 +64,7 @@ services:
   # ── Worker de sincronización Shopify ─────────────────────────
   # Proceso separado para Shopify + tracking CTT.
   - type: worker
-    name: 3pl-piloto-background-worker
+    name: brandeate-app-background-worker
     env: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt

@@ -49,6 +49,24 @@ class User(Base):
         foreign_keys="Shipment.created_by_employee_id",
         order_by="desc(Shipment.label_created_at), desc(Shipment.created_at), desc(Shipment.id)",
     )
+    prepared_orders = relationship(
+        "Order",
+        back_populates="prepared_by_employee",
+        foreign_keys="Order.prepared_by_employee_id",
+        order_by="desc(Order.prepared_at), desc(Order.id)",
+    )
+    touched_orders = relationship(
+        "Order",
+        back_populates="last_touched_by_employee",
+        foreign_keys="Order.last_touched_by_employee_id",
+        order_by="desc(Order.last_touched_at), desc(Order.id)",
+    )
+    touched_incidents = relationship(
+        "Incident",
+        back_populates="last_touched_by_employee",
+        foreign_keys="Incident.last_touched_by_employee_id",
+        order_by="desc(Incident.last_touched_at), desc(Incident.id)",
+    )
 
 
 class UserShop(Base):

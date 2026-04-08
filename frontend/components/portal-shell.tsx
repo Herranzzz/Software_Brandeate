@@ -118,7 +118,7 @@ function LogoutIcon(props: IconProps) {
 const portalNavItems = [
   { href: "/portal", label: "Resumen", shortLabel: "Inicio", icon: HomeIcon },
   { href: "/portal/orders", label: "Pedidos", shortLabel: "Pedidos", icon: OrdersIcon },
-  { href: "/portal/returns", label: "Devoluciones", shortLabel: "Devol.", icon: ReturnsIcon },
+  { href: "/portal/incidencias", label: "Incidencias", shortLabel: "Incid.", icon: ReturnsIcon },
   { href: "/portal/shipments", label: "Expediciones", shortLabel: "Exp.", icon: AnalyticsIcon },
   { href: "/portal/settings", label: "Ajustes", shortLabel: "Ajustes", icon: SettingsIcon },
 ];

@@ -30,7 +30,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 Referencia:
 
-- [frontend/.env.example](/Users/jorge/Documents/3pl-piloto/frontend/.env.example)
+- [frontend/.env.example](/Users/jorge/Documents/Brandeate app/frontend/.env.example)
 
 ### Backend (`backend`)
 
@@ -54,7 +54,7 @@ SHOPIFY_SSL_CAFILE=
 
 Referencia:
 
-- [backend/.env.example](/Users/jorge/Documents/3pl-piloto/backend/.env.example)
+- [backend/.env.example](/Users/jorge/Documents/Brandeate app/backend/.env.example)
 
 ## 2. Desplegar el backend en Render
 
@@ -62,9 +62,9 @@ Referencia:
 
 El repo ya incluye:
 
-- [render.yaml](/Users/jorge/Documents/3pl-piloto/render.yaml)
-- [backend/start.sh](/Users/jorge/Documents/3pl-piloto/backend/start.sh)
-- [backend/worker.py](/Users/jorge/Documents/3pl-piloto/backend/worker.py)
+- [render.yaml](/Users/jorge/Documents/Brandeate app/render.yaml)
+- [backend/start.sh](/Users/jorge/Documents/Brandeate app/backend/start.sh)
+- [backend/worker.py](/Users/jorge/Documents/Brandeate app/backend/worker.py)
 
 `start.sh` usa el `PORT` dinámico que Render inyecta:
 
@@ -98,11 +98,11 @@ Start Command: ./start.sh
 
 El `render.yaml` queda preparado para dos procesos:
 
-- `3pl-piloto-backend`:
+- `brandeate-app-backend`:
   - sirve la API FastAPI
   - expone `/health`
   - **no** ejecuta schedulers en el proceso web
-- `3pl-piloto-background-worker`:
+- `brandeate-app-background-worker`:
   - ejecuta el scheduler de Shopify
   - ejecuta la sincronización automática de tracking CTT
 
@@ -169,7 +169,7 @@ Install Command: npm install
 
 Nota:
 
-- El [frontend/vercel.json](/Users/jorge/Documents/3pl-piloto/frontend/vercel.json) está preparado para ese `Root Directory`.
+- El [frontend/vercel.json](/Users/jorge/Documents/Brandeate app/frontend/vercel.json) está preparado para ese `Root Directory`.
 - Si en Vercel dejas la raíz en `frontend`, **no** hace falta `cd frontend` en los comandos.
 
 3. Añade la variable:
@@ -191,7 +191,7 @@ Una vez tengas ambas URLs:
 Ejemplo:
 
 ```env
-NEXT_PUBLIC_API_URL=https://3pl-piloto-backend.onrender.com
+NEXT_PUBLIC_API_URL=https://brandeate-app-backend.onrender.com
 ```
 
 ## 6. Checklist de producción
@@ -209,10 +209,10 @@ Antes de darlo por cerrado:
 
 ## 7. Notas importantes
 
-- El frontend ya usa `NEXT_PUBLIC_API_URL` correctamente en [frontend/lib/api.ts](/Users/jorge/Documents/3pl-piloto/frontend/lib/api.ts).
+- El frontend ya usa `NEXT_PUBLIC_API_URL` correctamente en [frontend/lib/api.ts](/Users/jorge/Documents/Brandeate app/frontend/lib/api.ts).
 - En producción, si falta `NEXT_PUBLIC_API_URL`, ahora falla con un error explícito en lugar de intentar usar `localhost`.
-- El backend ya está preparado para `PORT` dinámico con [backend/start.sh](/Users/jorge/Documents/3pl-piloto/backend/start.sh).
-- El endpoint de health está en [backend/app/api/routes/health.py](/Users/jorge/Documents/3pl-piloto/backend/app/api/routes/health.py).
+- El backend ya está preparado para `PORT` dinámico con [backend/start.sh](/Users/jorge/Documents/Brandeate app/backend/start.sh).
+- El endpoint de health está en [backend/app/api/routes/health.py](/Users/jorge/Documents/Brandeate app/backend/app/api/routes/health.py).
 
 ## 8. Siguiente mejora opcional
 

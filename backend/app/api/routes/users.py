@@ -2,12 +2,12 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_user, get_db, require_admin_user
+from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, require_admin_user
 from app.core.config import get_settings
-from app.models import Order, Shipment, Shop, User, UserRole, UserShop
+from app.models import DesignStatus, Incident, IncidentStatus, IncidentType, Order, OrderItem, OrderStatus, ProductionStatus, Shipment, Shop, User, UserRole, UserShop
 from app.schemas.auth import (
     UserAdminRead,
     UserCreate,
@@ -22,6 +22,9 @@ from app.schemas.employee import (
     EmployeeAnalyticsResponse,
     EmployeeAnalyticsRow,
     EmployeeMetricsPeriod,
+    EmployeeWorkspaceMetrics,
+    EmployeeWorkspaceRecentItem,
+    EmployeeWorkspaceResponse,
 )
 from app.services.auth import decode_access_token, hash_password
 
@@ -44,6 +47,22 @@ def _resolve_activity_windows() -> tuple[datetime, datetime]:
     start_of_today_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
     start_of_week_local = start_of_today_local - timedelta(days=start_of_today_local.weekday())
     return start_of_today_local.astimezone(timezone.utc), start_of_week_local.astimezone(timezone.utc)
+
+
+def _prepared_clause():
+    return or_(
+        Order.production_status.in_([ProductionStatus.packed, ProductionStatus.completed]),
+        Order.status == OrderStatus.ready_to_ship,
+    )
+
+
+def _workspace_order_href(user: User, order_id: int) -> str:
+    base = "/orders" if user.role in {UserRole.super_admin, UserRole.ops_admin} else "/portal/orders"
+    return f"{base}/{order_id}"
+
+
+def _workspace_incidents_href(user: User) -> str:
+    return "/incidencias" if user.role in {UserRole.super_admin, UserRole.ops_admin} else "/portal/incidencias"
 
 
 def _load_users(
@@ -114,6 +133,227 @@ def _build_employee_analytics(
         for user in users
     ]
     return sorted(payload, key=sort_key, reverse=True)
+
+
+def _build_employee_workspace(
+    db: Session,
+    *,
+    user: User,
+    accessible_shop_ids: set[int] | None,
+) -> EmployeeWorkspaceResponse:
+    start_of_today, start_of_week = _resolve_activity_windows()
+    shipment_activity_at = func.coalesce(Shipment.label_created_at, Shipment.created_at)
+    visible_shop_filter = Order.shop_id.in_(accessible_shop_ids) if accessible_shop_ids is not None else None
+
+    shipments_metrics_query = (
+        select(
+            func.count(Shipment.id).label("total_labels"),
+            func.sum(case((shipment_activity_at >= start_of_today, 1), else_=0)).label("labels_today"),
+            func.sum(case((shipment_activity_at >= start_of_week, 1), else_=0)).label("labels_this_week"),
+            func.max(shipment_activity_at).label("last_activity_at"),
+        )
+        .join(Shipment.order)
+        .where(Shipment.created_by_employee_id == user.id)
+    )
+    if visible_shop_filter is not None:
+        shipments_metrics_query = shipments_metrics_query.where(visible_shop_filter)
+    shipment_metrics = db.execute(shipments_metrics_query).one()
+
+    prepared_metrics_query = (
+        select(
+            func.count(Order.id).label("orders_prepared_total"),
+            func.sum(case((Order.prepared_at >= start_of_today, 1), else_=0)).label("orders_prepared_today"),
+            func.max(Order.prepared_at).label("last_prepared_at"),
+        )
+        .where(Order.prepared_by_employee_id == user.id)
+    )
+    if visible_shop_filter is not None:
+        prepared_metrics_query = prepared_metrics_query.where(visible_shop_filter)
+    prepared_metrics = db.execute(prepared_metrics_query).one()
+
+    pending_orders_query = select(func.count(Order.id)).where(~_prepared_clause())
+    if visible_shop_filter is not None:
+        pending_orders_query = pending_orders_query.where(visible_shop_filter)
+    pending_orders_visible = int(db.scalar(pending_orders_query) or 0)
+
+    incidents_open_query = (
+        select(func.count(Incident.id))
+        .join(Incident.order)
+        .where(Incident.status != IncidentStatus.resolved)
+    )
+    if visible_shop_filter is not None:
+        incidents_open_query = incidents_open_query.where(visible_shop_filter)
+    incidents_visible = int(db.scalar(incidents_open_query) or 0)
+
+    assignee_tokens = {user.email.strip().lower(), user.name.strip().lower()}
+    incidents_assigned_query = (
+        select(func.count(Incident.id))
+        .join(Incident.order)
+        .where(
+            Incident.status != IncidentStatus.resolved,
+            func.lower(func.coalesce(Incident.assignee, "")).in_(assignee_tokens),
+        )
+    )
+    if visible_shop_filter is not None:
+        incidents_assigned_query = incidents_assigned_query.where(visible_shop_filter)
+    incidents_assigned = int(db.scalar(incidents_assigned_query) or 0)
+
+    stalled_shipments_query = (
+        select(func.count(func.distinct(Incident.order_id)))
+        .join(Incident.order)
+        .where(
+            Incident.status != IncidentStatus.resolved,
+            Incident.type == IncidentType.shipping_exception,
+        )
+    )
+    if visible_shop_filter is not None:
+        stalled_shipments_query = stalled_shipments_query.where(visible_shop_filter)
+    stalled_shipments_visible = int(db.scalar(stalled_shipments_query) or 0)
+
+    designs_ready_query = (
+        select(func.count(func.distinct(Order.id)))
+        .join(Order.items)
+        .where(
+            OrderItem.design_status == DesignStatus.design_available,
+            ~_prepared_clause(),
+        )
+    )
+    if visible_shop_filter is not None:
+        designs_ready_query = designs_ready_query.where(visible_shop_filter)
+    designs_ready_visible = int(db.scalar(designs_ready_query) or 0)
+
+    recent_orders_handled_query = select(func.count(func.distinct(Order.id))).where(
+        or_(
+            Order.prepared_by_employee_id == user.id,
+            Order.last_touched_by_employee_id == user.id,
+        ),
+        or_(
+            Order.prepared_at >= start_of_week,
+            Order.last_touched_at >= start_of_week,
+        ),
+    )
+    if visible_shop_filter is not None:
+        recent_orders_handled_query = recent_orders_handled_query.where(visible_shop_filter)
+    recent_orders_handled = int(db.scalar(recent_orders_handled_query) or 0)
+
+    recent_shipments_query = (
+        select(
+            Shipment.order_id.label("order_id"),
+            Order.external_id.label("order_external_id"),
+            Shipment.tracking_number.label("tracking_number"),
+            shipment_activity_at.label("activity_at"),
+        )
+        .join(Shipment.order)
+        .where(Shipment.created_by_employee_id == user.id)
+        .order_by(shipment_activity_at.desc(), Shipment.id.desc())
+        .limit(6)
+    )
+    if visible_shop_filter is not None:
+        recent_shipments_query = recent_shipments_query.where(visible_shop_filter)
+
+    recent_orders_query = (
+        select(
+            Order.id.label("order_id"),
+            Order.external_id.label("order_external_id"),
+            Order.customer_name.label("customer_name"),
+            Order.prepared_at.label("activity_at"),
+        )
+        .where(
+            Order.prepared_by_employee_id == user.id,
+            Order.prepared_at.is_not(None),
+        )
+        .order_by(Order.prepared_at.desc(), Order.id.desc())
+        .limit(6)
+    )
+    if visible_shop_filter is not None:
+        recent_orders_query = recent_orders_query.where(visible_shop_filter)
+
+    recent_incidents_query = (
+        select(
+            Incident.id.label("incident_id"),
+            Incident.title.label("title"),
+            Order.id.label("order_id"),
+            Order.external_id.label("order_external_id"),
+            func.coalesce(Incident.last_touched_at, Incident.updated_at).label("activity_at"),
+        )
+        .join(Incident.order)
+        .where(Incident.last_touched_by_employee_id == user.id)
+        .order_by(func.coalesce(Incident.last_touched_at, Incident.updated_at).desc(), Incident.id.desc())
+        .limit(6)
+    )
+    if visible_shop_filter is not None:
+        recent_incidents_query = recent_incidents_query.where(visible_shop_filter)
+
+    activity_items: list[EmployeeWorkspaceRecentItem] = []
+    for row in db.execute(recent_shipments_query).all():
+        activity_items.append(
+            EmployeeWorkspaceRecentItem(
+                type="label",
+                title=f"Etiqueta creada · {row.order_external_id}",
+                subtitle=row.tracking_number or "Tracking pendiente",
+                href=_workspace_order_href(user, row.order_id),
+                timestamp=row.activity_at,
+                badge="Etiqueta",
+            )
+        )
+    for row in db.execute(recent_orders_query).all():
+        activity_items.append(
+            EmployeeWorkspaceRecentItem(
+                type="order_prepared",
+                title=f"Pedido preparado · {row.order_external_id}",
+                subtitle=row.customer_name or "Pedido listo para expedición",
+                href=_workspace_order_href(user, row.order_id),
+                timestamp=row.activity_at,
+                badge="Preparado",
+            )
+        )
+    for row in db.execute(recent_incidents_query).all():
+        activity_items.append(
+            EmployeeWorkspaceRecentItem(
+                type="incident",
+                title=row.title or f"Incidencia · {row.order_external_id}",
+                subtitle=f"Pedido {row.order_external_id}",
+                href=_workspace_incidents_href(user),
+                timestamp=row.activity_at,
+                badge="Incidencia",
+            )
+        )
+
+    recent_activity = sorted(activity_items, key=lambda item: item.timestamp, reverse=True)[:8]
+    last_activity_candidates = [
+        value
+        for value in [
+            shipment_metrics.last_activity_at,
+            prepared_metrics.last_prepared_at,
+            recent_activity[0].timestamp if recent_activity else None,
+        ]
+        if value is not None
+    ]
+    last_activity_at = max(last_activity_candidates) if last_activity_candidates else None
+
+    return EmployeeWorkspaceResponse(
+        employee_id=user.id,
+        employee_name=user.name,
+        employee_email=user.email,
+        role=user.role,
+        shop_ids=[assignment.shop_id for assignment in user.user_shops],
+        metrics=EmployeeWorkspaceMetrics(
+            labels_today=int(shipment_metrics.labels_today or 0),
+            labels_this_week=int(shipment_metrics.labels_this_week or 0),
+            total_labels=int(shipment_metrics.total_labels or 0),
+            orders_prepared_today=int(prepared_metrics.orders_prepared_today or 0),
+            orders_prepared_total=int(prepared_metrics.orders_prepared_total or 0),
+            pending_orders_visible=pending_orders_visible,
+            incidents_visible=incidents_visible,
+            incidents_assigned=incidents_assigned,
+            stalled_shipments_visible=stalled_shipments_visible,
+            designs_ready_visible=designs_ready_visible,
+            recent_orders_handled=recent_orders_handled,
+            last_activity_at=last_activity_at,
+        ),
+        recent_activity=recent_activity,
+        generated_at=datetime.now(timezone.utc),
+    )
 
 
 @router.get("", response_model=UserListResponse)
@@ -189,6 +429,15 @@ def get_employee_analytics(
         employees=_build_employee_analytics(db, period=period, role=role, shop_id=shop_id),
         generated_at=datetime.now(timezone.utc),
     )
+
+
+@router.get("/me/workspace", response_model=EmployeeWorkspaceResponse)
+def get_my_workspace(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> EmployeeWorkspaceResponse:
+    return _build_employee_workspace(db, user=current_user, accessible_shop_ids=accessible_shop_ids)
 
 
 @router.get("/me/shops", response_model=UserShopsResponse)
@@ -309,10 +558,23 @@ def delete_user(
     shipment_count = db.scalar(
         select(func.count(Shipment.id)).where(Shipment.created_by_employee_id == user.id)
     )
-    if shipment_count and shipment_count > 0:
+    order_activity_count = db.scalar(
+        select(func.count(Order.id)).where(
+            or_(
+                Order.prepared_by_employee_id == user.id,
+                Order.last_touched_by_employee_id == user.id,
+            )
+        )
+    )
+    incident_activity_count = db.scalar(
+        select(func.count(Incident.id)).where(Incident.last_touched_by_employee_id == user.id)
+    )
+    if (shipment_count and shipment_count > 0) or (order_activity_count and order_activity_count > 0) or (
+        incident_activity_count and incident_activity_count > 0
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Este empleado ya tiene etiquetas o envíos creados. Desactiva la cuenta para conservar la trazabilidad.",
+            detail="Este empleado ya tiene actividad registrada. Desactiva la cuenta para conservar la trazabilidad.",
         )
 
     db.delete(user)

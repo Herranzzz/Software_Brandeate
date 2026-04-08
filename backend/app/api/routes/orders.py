@@ -4,7 +4,8 @@ import re
 import ssl
 import urllib.request
 import zipfile
-from datetime import timezone
+from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -12,7 +13,7 @@ import sqlalchemy as sa
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_accessible_shop_ids, get_db, resolve_shop_scope
+from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, resolve_shop_scope
 from app.models import (
     DesignStatus,
     Incident,
@@ -27,6 +28,7 @@ from app.models import (
     Shipment,
     Shop,
     ShopCatalogVariant,
+    User,
 )
 from app.schemas.incident import IncidentRead
 from app.schemas.order import (
@@ -50,6 +52,19 @@ from app.services.orders import infer_order_is_personalized, sync_order_item_des
 
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+def _prepared_order_state(order: Order) -> bool:
+    return order.production_status in {ProductionStatus.packed, ProductionStatus.completed} or order.status == OrderStatus.ready_to_ship
+
+
+def _touch_order_activity(order: Order, user: User, *, mark_prepared: bool = False) -> None:
+    now = datetime.now(timezone.utc)
+    order.last_touched_by_employee_id = user.id
+    order.last_touched_at = now
+    if mark_prepared or _prepared_order_state(order):
+        order.prepared_by_employee_id = user.id
+        order.prepared_at = now
 
 
 def _order_query():
@@ -169,6 +184,7 @@ def create_order(
     payload: OrderCreate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> Order:
     if accessible_shop_ids is not None and payload.shop_id not in accessible_shop_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
@@ -234,6 +250,7 @@ def create_order(
         for item in payload.items
     ]
     sync_order_item_design_statuses(order)
+    _touch_order_activity(order, current_user)
 
     db.add(order)
     db.flush()
@@ -389,10 +406,16 @@ def bulk_update_order_production_status(
     payload: OrderBulkProductionStatusUpdate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> list[Order]:
     orders = _load_target_orders(db, payload.order_ids, accessible_shop_ids)
     for order in orders:
         order.production_status = payload.production_status
+        _touch_order_activity(
+            order,
+            current_user,
+            mark_prepared=payload.production_status in {ProductionStatus.packed, ProductionStatus.completed},
+        )
         evaluate_order_automation_rules(db=db, order=order, source="bulk_production_status")
     db.commit()
     return list(
@@ -405,10 +428,12 @@ def bulk_update_order_priority(
     payload: OrderBulkPriorityUpdate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> list[Order]:
     orders = _load_target_orders(db, payload.order_ids, accessible_shop_ids)
     for order in orders:
         order.priority = payload.priority
+        _touch_order_activity(order, current_user)
     db.commit()
     return list(
         db.scalars(_order_query().where(Order.id.in_(payload.order_ids)).order_by(Order.created_at.desc(), Order.id.desc()))
@@ -420,6 +445,7 @@ def bulk_create_order_incidents(
     payload: OrderBulkIncidentCreate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> list[Incident]:
     orders = _load_target_orders(db, payload.order_ids, accessible_shop_ids)
     incidents: list[Incident] = []
@@ -431,9 +457,12 @@ def bulk_create_order_incidents(
             status=IncidentStatus.open,
             title=payload.title,
             description=payload.description,
+            last_touched_by_employee_id=current_user.id,
+            last_touched_at=datetime.now(timezone.utc),
         )
         db.add(incident)
         incidents.append(incident)
+        _touch_order_activity(order, current_user)
     db.commit()
     return list(
         db.scalars(
@@ -451,6 +480,7 @@ def create_pick_batch(
     payload: PickBatchCreate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> PickBatch:
     orders = _load_target_orders(db, payload.order_ids, accessible_shop_ids)
     distinct_shop_ids = {order.shop_id for order in orders}
@@ -463,6 +493,8 @@ def create_pick_batch(
         orders_count=len(orders),
     )
     batch.orders = [PickBatchOrder(order_id=order.id) for order in orders]
+    for order in orders:
+        _touch_order_activity(order, current_user)
     db.add(batch)
     db.commit()
     return db.scalar(_pick_batch_query().where(PickBatch.id == batch.id))
@@ -618,6 +650,7 @@ def update_order_status(
     payload: OrderStatusUpdate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> Order:
     order = db.get(Order, order_id)
     if order is None:
@@ -626,6 +659,7 @@ def update_order_status(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
     order.status = payload.status
+    _touch_order_activity(order, current_user, mark_prepared=payload.status == OrderStatus.ready_to_ship)
     evaluate_order_automation_rules(db=db, order=order, source="order_status_update")
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))
@@ -637,6 +671,7 @@ def update_order_production_status(
     payload: OrderProductionStatusUpdate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> Order:
     order = db.get(Order, order_id)
     if order is None:
@@ -645,6 +680,11 @@ def update_order_production_status(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
     order.production_status = payload.production_status
+    _touch_order_activity(
+        order,
+        current_user,
+        mark_prepared=payload.production_status in {ProductionStatus.packed, ProductionStatus.completed},
+    )
     evaluate_order_automation_rules(db=db, order=order, source="order_production_update")
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))
@@ -656,6 +696,7 @@ def update_order_priority(
     payload: OrderPriorityUpdate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> Order:
     order = db.get(Order, order_id)
     if order is None:
@@ -664,6 +705,7 @@ def update_order_priority(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
     order.priority = payload.priority
+    _touch_order_activity(order, current_user)
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))
 
@@ -674,6 +716,7 @@ def update_order(
     payload: OrderUpdate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> Order:
     order = db.get(Order, order_id)
     if order is None:
@@ -685,6 +728,7 @@ def update_order(
     for key, value in updates.items():
         setattr(order, key, value)
 
+    _touch_order_activity(order, current_user)
     evaluate_order_automation_rules(db=db, order=order, source="order_update")
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))
@@ -696,6 +740,7 @@ def report_broken_asset(
     item_id: int,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     """Mark an item's design asset as broken, setting design_status to pending_asset."""
     order = db.get(Order, order_id)
@@ -710,6 +755,7 @@ def report_broken_asset(
 
     if item.design_status != DesignStatus.pending_asset:
         item.design_status = DesignStatus.pending_asset
+        _touch_order_activity(order, current_user)
         evaluate_order_automation_rules(db=db, order=order, source="broken_asset_report")
         db.commit()
 
@@ -736,6 +782,7 @@ _CONTENT_TYPE_EXT: dict[str, str] = {
 }
 
 _DESIGN_FETCH_TIMEOUT = 12  # seconds per asset
+_DESIGN_FETCH_PARALLELISM = 6
 
 
 def _score_asset_type(type_str: str) -> int:
@@ -845,67 +892,94 @@ def bulk_download_designs(
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> Response:
     """Generate and return a ZIP file with design assets for selected orders."""
-    orders = list(db.scalars(
-        select(Order)
-        .options(selectinload(Order.items))
-        .where(Order.id.in_(payload.order_ids))
-    ))
+    orders = list(
+        db.scalars(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.id.in_(payload.order_ids))
+        )
+    )
 
     if accessible_shop_ids is not None:
-        orders = [o for o in accessible_shop_ids and orders if o.shop_id in accessible_shop_ids]
+        orders = [order for order in orders if order.shop_id in accessible_shop_ids]
 
     zip_buffer = io.BytesIO()
     used_names: set[str] = set()
     results: list[dict] = []
+    download_jobs: list[dict] = []
 
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for order in orders:
-            items_with_design = [
-                (item, _get_primary_design_url(item))
-                for item in order.items
-                if _get_primary_design_url(item)
-            ]
+    for order in orders:
+        items_with_design: list[tuple[OrderItem, str]] = []
+        for item in order.items:
+            design_url = _get_primary_design_url(item)
+            if design_url:
+                items_with_design.append((item, design_url))
 
-            if not items_with_design:
-                results.append({
+        if not items_with_design:
+            results.append({
+                "order_id": order.id,
+                "external_id": order.external_id,
+                "status": "no_design",
+            })
+            continue
+
+        for item, design_url in items_with_design:
+            item_name = (item.name or item.title or "Producto").strip()
+            url_ext = _guess_ext_from_url(design_url)
+            base = _sanitize_filename(f"{order.external_id} - {item_name}")
+            download_jobs.append(
+                {
                     "order_id": order.id,
                     "external_id": order.external_id,
-                    "status": "no_design",
-                })
-                continue
+                    "design_url": design_url,
+                    "base": base,
+                    "url_ext": url_ext,
+                }
+            )
 
-            for item, design_url in items_with_design:
-                item_name = (item.name or item.title or "Producto").strip()
-                url_ext = _guess_ext_from_url(design_url or "")
-                base = _sanitize_filename(f"{order.external_id} - {item_name}")
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        if download_jobs:
+            worker_count = max(1, min(_DESIGN_FETCH_PARALLELISM, len(download_jobs)))
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                for job in download_jobs:
+                    job["future"] = executor.submit(_fetch_asset, job["design_url"])
 
-                try:
-                    data, fetched_ext = _fetch_asset(design_url)  # type: ignore[arg-type]
-                    ext = url_ext or fetched_ext or ".bin"
-                    filename = _unique_name(base, ext, used_names)
-                    used_names.add(filename)
-                    zf.writestr(filename, data)
-                    results.append({
-                        "order_id": order.id,
-                        "external_id": order.external_id,
-                        "status": "ok",
-                        "filename": filename,
-                    })
-                except Exception as exc:
-                    results.append({
-                        "order_id": order.id,
-                        "external_id": order.external_id,
-                        "status": "failed",
-                        "reason": str(exc)[:200],
-                    })
+                for job in download_jobs:
+                    future = job["future"]
+                    assert isinstance(future, Future)
+                    try:
+                        data, fetched_ext = future.result()
+                        ext = job["url_ext"] or fetched_ext or ".bin"
+                        filename = _unique_name(job["base"], ext, used_names)
+                        used_names.add(filename)
+                        zf.writestr(filename, data)
+                        results.append({
+                            "order_id": job["order_id"],
+                            "external_id": job["external_id"],
+                            "status": "ok",
+                            "filename": filename,
+                        })
+                    except Exception as exc:
+                        results.append({
+                            "order_id": job["order_id"],
+                            "external_id": job["external_id"],
+                            "status": "failed",
+                            "reason": str(exc)[:200],
+                        })
 
     ok_count = sum(1 for r in results if r["status"] == "ok")
+    failed_count = sum(1 for r in results if r["status"] == "failed")
+    no_design_count = sum(1 for r in results if r["status"] == "no_design")
     if ok_count == 0:
-        # Return JSON summary instead of empty ZIP
-        return Response(
-            content=io.BytesIO(b"{}").read(),
-            media_type="application/json",
+        failed_example = next((r.get("reason") for r in results if r["status"] == "failed" and r.get("reason")), None)
+        detail = "No se pudo descargar ningún diseño."
+        if failed_example:
+            detail = f"{detail} Ejemplo: {failed_example}"
+        elif no_design_count > 0:
+            detail = "Los pedidos seleccionados no tienen diseños visibles para descargar."
+        raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
         )
 
     zip_buffer.seek(0)
@@ -915,6 +989,8 @@ def bulk_download_designs(
         headers={
             "Content-Disposition": 'attachment; filename="diseños-bulk.zip"',
             "X-Design-Results": str(ok_count),
+            "X-Design-Failures": str(failed_count),
+            "X-Design-No-Design": str(no_design_count),
         },
     )
 
