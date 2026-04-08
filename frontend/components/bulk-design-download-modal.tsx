@@ -38,9 +38,47 @@ const POLL_INTERVAL_MS = 1200;
 const POLL_TIMEOUT_MS = 12 * 60 * 1000;
 
 
+function extractRequestId(text: string) {
+  return text.match(/Request ID:\s*([A-Za-z0-9-]+)/i)?.[1] ?? null;
+}
+
+
+function parseContentDispositionFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) {
+    return null;
+  }
+
+  const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1]).replace(/[/\\]/g, "_");
+    } catch {
+      // ignore malformed encoded filename
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+  if (plainMatch?.[1]) {
+    return plainMatch[1].trim().replace(/[/\\]/g, "_");
+  }
+
+  return null;
+}
+
+
 async function readErrorDetail(response: Response, fallback: string) {
+  const contentType = (response.headers.get("Content-Type") ?? "").toLowerCase();
   const text = (await response.text()).trim();
   if (!text) return fallback;
+
+  if (contentType.includes("text/html") || /^<!doctype html/i.test(text) || /<html/i.test(text)) {
+    const requestId = extractRequestId(text);
+    if (requestId) {
+      return `${fallback} (Request ID: ${requestId})`;
+    }
+    return fallback;
+  }
+
   try {
     const payload = JSON.parse(text) as { detail?: unknown };
     if (typeof payload.detail === "string" && payload.detail.trim()) {
@@ -146,12 +184,34 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
 
       const token = encodeURIComponent(downloadMeta.token);
       const downloadHref = `/api/orders/bulk/download-designs/jobs/${currentJob.job_id}/download?token=${token}`;
+      const downloadResponse = await fetch(downloadHref, { cache: "no-store" });
+      if (!downloadResponse.ok) {
+        throw new Error(await readErrorDetail(downloadResponse, "No se pudo descargar el archivo ZIP."));
+      }
+
+      const contentType = (downloadResponse.headers.get("Content-Type") ?? "").toLowerCase();
+      if (contentType.includes("text/html")) {
+        const html = await downloadResponse.text();
+        const requestId = extractRequestId(html);
+        throw new Error(
+          requestId
+            ? `El servicio de descargas está temporalmente no disponible (Request ID: ${requestId}).`
+            : "El servicio de descargas está temporalmente no disponible.",
+        );
+      }
+
+      const blob = await downloadResponse.blob();
+      const fileName =
+        parseContentDispositionFilename(downloadResponse.headers.get("Content-Disposition")) ??
+        "diseños-bulk.zip";
+      const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
-      anchor.href = downloadHref;
-      anchor.download = "diseños-bulk.zip";
+      anchor.href = objectUrl;
+      anchor.download = fileName;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
+      URL.revokeObjectURL(objectUrl);
 
       setPhase("done");
     } catch (err) {

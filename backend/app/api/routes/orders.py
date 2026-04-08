@@ -13,7 +13,7 @@ import time
 import urllib.request
 import uuid
 import zipfile
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 import sqlalchemy as sa
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
+from starlette.background import BackgroundTask
 
 from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, resolve_shop_scope
 from app.core.config import get_settings
@@ -794,7 +795,9 @@ _CONTENT_TYPE_EXT: dict[str, str] = {
 }
 
 _DESIGN_FETCH_TIMEOUT = 12  # seconds per asset
-_DESIGN_FETCH_PARALLELISM = 6
+_DESIGN_FETCH_PARALLELISM = 3
+_DESIGN_FETCH_CHUNK_SIZE = 512 * 1024
+_DESIGN_MAX_ASSET_BYTES = 25 * 1024 * 1024
 _DESIGN_JOB_TTL_SECONDS = 2 * 60 * 60
 _DESIGN_JOB_CLEANUP_INTERVAL_SECONDS = 60
 _DESIGN_DOWNLOAD_TOKEN_TTL_SECONDS = 10 * 60
@@ -972,15 +975,48 @@ def _unique_name(base: str, ext: str, used: set[str]) -> str:
         counter += 1
 
 
-def _fetch_asset(url: str) -> tuple[bytes, str]:
-    """Fetch asset bytes from URL; returns (data, detected_ext)."""
+def _download_asset_to_temp(url: str) -> tuple[str, str]:
+    """Fetch asset to a temporary file; returns (temp_path, detected_ext)."""
     ctx = ssl.create_default_context()
     req = urllib.request.Request(url, headers={"User-Agent": "BrandeateOps/1.0"})
-    with urllib.request.urlopen(req, timeout=_DESIGN_FETCH_TIMEOUT, context=ctx) as resp:
-        content_type = (resp.headers.get("Content-Type") or "").lower().split(";")[0].strip()
-        ext = _CONTENT_TYPE_EXT.get(content_type, "")
-        data = resp.read()
-    return data, ext
+    fd, temp_path = tempfile.mkstemp(prefix="bulk-design-asset-", suffix=".tmp")
+    os.close(fd)
+    bytes_read = 0
+    try:
+        with urllib.request.urlopen(req, timeout=_DESIGN_FETCH_TIMEOUT, context=ctx) as resp:
+            content_type = (resp.headers.get("Content-Type") or "").lower().split(";")[0].strip()
+            ext = _CONTENT_TYPE_EXT.get(content_type, "")
+
+            content_length_raw = (resp.headers.get("Content-Length") or "").strip()
+            if content_length_raw:
+                try:
+                    content_length = int(content_length_raw)
+                except ValueError:
+                    content_length = 0
+                if content_length > _DESIGN_MAX_ASSET_BYTES:
+                    raise ValueError(
+                        f"El archivo remoto excede el límite de {_DESIGN_MAX_ASSET_BYTES // (1024 * 1024)}MB."
+                    )
+
+            with open(temp_path, "wb") as tmp:
+                while True:
+                    chunk = resp.read(_DESIGN_FETCH_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    bytes_read += len(chunk)
+                    if bytes_read > _DESIGN_MAX_ASSET_BYTES:
+                        raise ValueError(
+                            f"El archivo remoto excede el límite de {_DESIGN_MAX_ASSET_BYTES // (1024 * 1024)}MB."
+                        )
+                    tmp.write(chunk)
+
+        if bytes_read == 0:
+            raise ValueError("El archivo remoto está vacío.")
+
+        return temp_path, ext
+    except Exception:
+        _safe_remove(temp_path)
+        raise
 
 
 def _build_design_download_jobs(orders: list[Order]) -> tuple[list[dict], list[dict]]:
@@ -1040,6 +1076,7 @@ def _job_public_payload(job: dict) -> dict:
 
 def _run_bulk_design_job(job_id: str) -> None:
     db = SessionLocal()
+    zip_path: str | None = None
     try:
         _cleanup_bulk_design_jobs()
         with _design_jobs_lock:
@@ -1088,18 +1125,20 @@ def _run_bulk_design_job(job_id: str) -> None:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             worker_count = max(1, min(_DESIGN_FETCH_PARALLELISM, len(download_jobs)))
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                future_map: dict[Future, dict] = {}
                 for current_job in download_jobs:
-                    current_job["future"] = executor.submit(_fetch_asset, current_job["design_url"])
+                    future = executor.submit(_download_asset_to_temp, current_job["design_url"])
+                    future_map[future] = current_job
 
-                for current_job in download_jobs:
-                    future = current_job["future"]
-                    assert isinstance(future, Future)
+                for future in as_completed(future_map):
+                    current_job = future_map[future]
+                    temp_path: str | None = None
                     try:
-                        data, fetched_ext = future.result()
+                        temp_path, fetched_ext = future.result()
                         ext = current_job["url_ext"] or fetched_ext or ".bin"
                         filename = _unique_name(current_job["base"], ext, used_names)
                         used_names.add(filename)
-                        zf.writestr(filename, data)
+                        zf.write(temp_path, arcname=filename)
                         results.append(
                             {
                                 "order_id": current_job["order_id"],
@@ -1118,6 +1157,7 @@ def _run_bulk_design_job(job_id: str) -> None:
                             }
                         )
                     finally:
+                        _safe_remove(temp_path)
                         ok_count, failed_count, no_design_count = _summarize_design_results(results)
                         with _design_jobs_lock:
                             job = _design_jobs.get(job_id)
@@ -1163,6 +1203,7 @@ def _run_bulk_design_job(job_id: str) -> None:
             job["zip_path"] = zip_path
             job["updated_at"] = _now_ts()
     except Exception as exc:
+        _safe_remove(zip_path)
         with _design_jobs_lock:
             job = _design_jobs.get(job_id)
             if job is None:
@@ -1316,66 +1357,75 @@ def bulk_download_designs(
     if accessible_shop_ids is not None:
         orders = [order for order in orders if order.shop_id in accessible_shop_ids]
 
-    zip_buffer = io.BytesIO()
+    fd, zip_path = tempfile.mkstemp(prefix="bulk-design-sync-", suffix=".zip")
+    os.close(fd)
     used_names: set[str] = set()
     download_jobs, results = _build_design_download_jobs(orders)
 
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        if download_jobs:
-            worker_count = max(1, min(_DESIGN_FETCH_PARALLELISM, len(download_jobs)))
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                for job in download_jobs:
-                    job["future"] = executor.submit(_fetch_asset, job["design_url"])
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            if download_jobs:
+                worker_count = max(1, min(_DESIGN_FETCH_PARALLELISM, len(download_jobs)))
+                with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                    future_map: dict[Future, dict] = {}
+                    for job in download_jobs:
+                        future = executor.submit(_download_asset_to_temp, job["design_url"])
+                        future_map[future] = job
 
-                for job in download_jobs:
-                    future = job["future"]
-                    assert isinstance(future, Future)
-                    try:
-                        data, fetched_ext = future.result()
-                        ext = job["url_ext"] or fetched_ext or ".bin"
-                        filename = _unique_name(job["base"], ext, used_names)
-                        used_names.add(filename)
-                        zf.writestr(filename, data)
-                        results.append({
-                            "order_id": job["order_id"],
-                            "external_id": job["external_id"],
-                            "status": "ok",
-                            "filename": filename,
-                        })
-                    except Exception as exc:
-                        results.append({
-                            "order_id": job["order_id"],
-                            "external_id": job["external_id"],
-                            "status": "failed",
-                            "reason": str(exc)[:200],
-                        })
+                    for future in as_completed(future_map):
+                        job = future_map[future]
+                        temp_path: str | None = None
+                        try:
+                            temp_path, fetched_ext = future.result()
+                            ext = job["url_ext"] or fetched_ext or ".bin"
+                            filename = _unique_name(job["base"], ext, used_names)
+                            used_names.add(filename)
+                            zf.write(temp_path, arcname=filename)
+                            results.append({
+                                "order_id": job["order_id"],
+                                "external_id": job["external_id"],
+                                "status": "ok",
+                                "filename": filename,
+                            })
+                        except Exception as exc:
+                            results.append({
+                                "order_id": job["order_id"],
+                                "external_id": job["external_id"],
+                                "status": "failed",
+                                "reason": str(exc)[:200],
+                            })
+                        finally:
+                            _safe_remove(temp_path)
 
-    ok_count = sum(1 for r in results if r["status"] == "ok")
-    failed_count = sum(1 for r in results if r["status"] == "failed")
-    no_design_count = sum(1 for r in results if r["status"] == "no_design")
-    if ok_count == 0:
-        failed_example = next((r.get("reason") for r in results if r["status"] == "failed" and r.get("reason")), None)
-        detail = "No se pudo descargar ningún diseño."
-        if failed_example:
-            detail = f"{detail} Ejemplo: {failed_example}"
-        elif no_design_count > 0:
-            detail = "Los pedidos seleccionados no tienen diseños visibles para descargar."
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=detail,
+        ok_count = sum(1 for r in results if r["status"] == "ok")
+        failed_count = sum(1 for r in results if r["status"] == "failed")
+        no_design_count = sum(1 for r in results if r["status"] == "no_design")
+        if ok_count == 0:
+            failed_example = next((r.get("reason") for r in results if r["status"] == "failed" and r.get("reason")), None)
+            detail = "No se pudo descargar ningún diseño."
+            if failed_example:
+                detail = f"{detail} Ejemplo: {failed_example}"
+            elif no_design_count > 0:
+                detail = "Los pedidos seleccionados no tienen diseños visibles para descargar."
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=detail,
+            )
+
+        return FileResponse(
+            path=zip_path,
+            media_type="application/zip",
+            filename="diseños-bulk.zip",
+            headers={
+                "X-Design-Results": str(ok_count),
+                "X-Design-Failures": str(failed_count),
+                "X-Design-No-Design": str(no_design_count),
+            },
+            background=BackgroundTask(_safe_remove, zip_path),
         )
-
-    zip_buffer.seek(0)
-    return Response(
-        content=zip_buffer.read(),
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": 'attachment; filename="diseños-bulk.zip"',
-            "X-Design-Results": str(ok_count),
-            "X-Design-Failures": str(failed_count),
-            "X-Design-No-Design": str(no_design_count),
-        },
-    )
+    except Exception:
+        _safe_remove(zip_path)
+        raise
 
 
 from pydantic import BaseModel as _BaseModel  # noqa: E402
