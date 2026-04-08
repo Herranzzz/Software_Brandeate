@@ -6,6 +6,8 @@ import sys
 
 from sqlalchemy import create_engine, inspect, text
 
+from app.core.config import get_settings
+
 
 TARGET_REVISION = "0027_employee_traceability"
 
@@ -18,8 +20,12 @@ def schema_matches_employee_traceability() -> bool:
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         return False
+    try:
+        normalized_database_url = get_settings().database_url
+    except Exception:
+        return False
 
-    engine = create_engine(database_url)
+    engine = create_engine(normalized_database_url)
     with engine.connect() as connection:
         inspector = inspect(connection)
         columns = {column["name"] for column in inspector.get_columns("shipments")}

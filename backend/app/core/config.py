@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,6 +42,24 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("database_url")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized.startswith("postgresql+psycopg://"):
+            return normalized
+        if normalized.startswith("postgresql://"):
+            return f"postgresql+psycopg://{normalized.removeprefix('postgresql://')}"
+        if normalized.startswith("postgres://"):
+            return f"postgresql+psycopg://{normalized.removeprefix('postgres://')}"
+        if normalized.startswith("http://") or normalized.startswith("https://"):
+            raise ValueError(
+                "DATABASE_URL is invalid. Expected a PostgreSQL connection string like "
+                "'postgresql://USER:PASSWORD@HOST:5432/DB' or 'postgres://...'; "
+                "received an HTTP(S) URL instead."
+            )
+        return normalized
 
 
 @lru_cache
