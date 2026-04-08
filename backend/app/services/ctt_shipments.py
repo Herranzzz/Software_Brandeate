@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import Order, ProductionStatus, Shipment, TrackingEvent
+from app.models import Order, ProductionStatus, Shipment, TrackingEvent, User
 from app.schemas.ctt import CTTCreateShippingRequest
 from app.services.automation_rules import evaluate_order_automation_rules
 from app.services.ctt import CTTError, create_shipping
@@ -61,6 +61,7 @@ def create_ctt_shipment_for_order(
     db: Session,
     order: Order,
     payload: CTTCreateShippingRequest,
+    current_user: User | None = None,
 ) -> CTTShipmentCreationResult:
     settings = get_settings()
     shop_shipping_settings = (
@@ -247,6 +248,8 @@ def create_ctt_shipment_for_order(
 
     tracking_url = _extract_tracking_url(ctt_response) or None
     shipment = order.shipment or Shipment(order_id=order.id, carrier="CTT Express", tracking_number="")
+    if current_user is not None and shipment.created_by_employee_id is None:
+        shipment.created_by_employee_id = current_user.id
     shipment.carrier = "CTT Express"
     shipment.tracking_number = shipping_code
     shipment.tracking_url = tracking_url

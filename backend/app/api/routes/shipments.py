@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_accessible_shop_ids, get_db, require_admin_user
-from app.models import Order, Shipment, TrackingEvent
+from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, require_admin_user
+from app.models import Order, Shipment, TrackingEvent, User
 from app.schemas.shipment import (
     ShipmentTrackingBatchSyncRead,
     ShipmentCreate,
@@ -25,6 +25,7 @@ def create_shipment(
     payload: ShipmentCreate,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
 ) -> Shipment:
     order = db.scalar(
         select(Order)
@@ -43,6 +44,7 @@ def create_shipment(
 
     shipment = Shipment(
         order=order,
+        created_by_employee_id=current_user.id,
         carrier=payload.carrier,
         tracking_number=payload.tracking_number,
         tracking_url=payload.tracking_url,

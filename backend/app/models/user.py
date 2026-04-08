@@ -43,6 +43,12 @@ class User(Base):
         cascade="all, delete-orphan",
         order_by="UserShop.id",
     )
+    created_shipments = relationship(
+        "Shipment",
+        back_populates="created_by_employee",
+        foreign_keys="Shipment.created_by_employee_id",
+        order_by="desc(Shipment.label_created_at), desc(Shipment.created_at), desc(Shipment.id)",
+    )
 
 
 class UserShop(Base):

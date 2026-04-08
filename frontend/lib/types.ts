@@ -34,6 +34,7 @@ export type TrackingEvent = {
 export type Shipment = {
   id: number;
   order_id: number;
+  created_by_employee_id: number | null;
   fulfillment_id: string | null;
   carrier: string;
   tracking_number: string;
@@ -533,6 +534,38 @@ export type User = {
 
 export type AdminUser = User & {
   shops: Shop[];
+};
+
+export type EmployeeMetricsPeriod = "day" | "week";
+
+export type EmployeeAnalyticsRow = AdminUser & {
+  labels_today: number;
+  labels_this_week: number;
+  total_labels: number;
+  last_activity_at: string | null;
+};
+
+export type EmployeeAnalyticsResponse = {
+  period: EmployeeMetricsPeriod;
+  employees: EmployeeAnalyticsRow[];
+  generated_at: string;
+};
+
+export type EmployeeActivityItem = {
+  shipment_id: number;
+  order_id: number;
+  order_external_id: string;
+  carrier: string;
+  tracking_number: string;
+  label_created_at: string | null;
+  created_at: string;
+  last_activity_at: string;
+};
+
+export type EmployeeActivityResponse = {
+  employee_id: number;
+  employee_name: string;
+  items: EmployeeActivityItem[];
 };
 
 export type LoginResponse = {

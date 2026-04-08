@@ -50,6 +50,7 @@ class ShipmentRead(BaseModel):
 
     id: int
     order_id: int
+    created_by_employee_id: int | None
     fulfillment_id: str | None
     carrier: str
     tracking_number: str

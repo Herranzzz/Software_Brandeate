@@ -5,11 +5,11 @@ import { PageHeader } from "@/components/page-header";
 import { ShopShippingSettingsForm } from "@/components/shop-shipping-settings-form";
 import { ShippingRulesManager } from "@/components/shipping-rules-manager";
 import { ShopifySyncPanel } from "@/components/shopify-sync-panel";
-import { TeamManagementPanel } from "@/components/team-management-panel";
-import { fetchAdminUsers, fetchShops, fetchShopifyIntegrations } from "@/lib/api";
+import { fetchShops, fetchShopifyIntegrations } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { getTenantBranding } from "@/lib/tenant-branding";
+import Link from "next/link";
 
 
 function renderSyncSummary(summary: Record<string, unknown> | null) {
@@ -30,16 +30,14 @@ function renderSyncSummary(summary: Record<string, unknown> | null) {
 
 
 export default async function SettingsPage() {
-  const [userResult, shopsResult, integrationsResult, usersResult] = await Promise.allSettled([
+  const [userResult, shopsResult, integrationsResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchShops(),
     fetchShopifyIntegrations(),
-    fetchAdminUsers(),
   ]);
   if (userResult.status === "rejected") throw userResult.reason;
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
-  const users = usersResult.status === "fulfilled" ? usersResult.value : [];
 
   return (
     <div className="stack">
@@ -151,7 +149,18 @@ export default async function SettingsPage() {
       ) : null}
 
       <Card className="stack settings-section-card">
-        <TeamManagementPanel shops={shops} users={users} />
+        <div className="settings-section-head">
+          <div>
+            <span className="eyebrow">Equipo</span>
+            <h3 className="section-title section-title-small">Gestión de empleados</h3>
+            <p className="subtitle">
+              La operativa de cuentas internas ahora vive en su propio espacio para trabajar accesos, actividad y rendimiento sin mezclarlo con integraciones.
+            </p>
+          </div>
+          <Link className="button" href="/employees">
+            Ir a empleados
+          </Link>
+        </div>
       </Card>
 
       <Card className="stack settings-section-card">

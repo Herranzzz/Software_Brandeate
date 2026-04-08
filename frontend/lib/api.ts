@@ -1,7 +1,9 @@
 import { cookies } from "next/headers";
 
 import type {
+  AdminUser,
   AnalyticsOverview,
+  EmployeeAnalyticsResponse,
   Incident,
   Order,
   PickBatch,
@@ -12,7 +14,6 @@ import type {
   ShopCatalogProduct,
   ShopIntegration,
   ShopifyCatalogSyncResult,
-  AdminUser,
 } from "@/lib/types";
 
 
@@ -222,6 +223,33 @@ export async function fetchAdminUsers(params?: {
 
   const payload = await parseResponse<{ users: AdminUser[] }>(response);
   return payload.users;
+}
+
+
+export async function fetchEmployeeAnalytics(params?: {
+  period?: "day" | "week";
+  role?: string;
+  shop_id?: string | number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.period) {
+    searchParams.set("period", params.period);
+  }
+  if (params?.role) {
+    searchParams.set("role", params.role);
+  }
+  if (params?.shop_id !== undefined && params.shop_id !== "") {
+    searchParams.set("shop_id", String(params.shop_id));
+  }
+
+  const query = searchParams.toString();
+  const headers = await buildAuthHeaders();
+  const response = await fetch(apiUrl(`/users/employee-analytics${query ? `?${query}` : ""}`), {
+    cache: "no-store",
+    headers,
+  });
+
+  return parseResponse<EmployeeAnalyticsResponse>(response);
 }
 
 

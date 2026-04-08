@@ -1,14 +1,16 @@
+import { DashboardEmployeeMetrics } from "@/components/dashboard-employee-metrics";
 import Link from "next/link";
 
 import { SharedDashboardView } from "@/components/shared-dashboard-view";
 import type { ShipmentSegment } from "@/components/shipment-donut";
-import { fetchIncidents, fetchOrders, fetchShops } from "@/lib/api";
+import { fetchEmployeeAnalytics, fetchIncidents, fetchOrders, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
-import type { Order } from "@/lib/types";
+import type { EmployeeMetricsPeriod, Order } from "@/lib/types";
 
 type DashboardPageProps = {
   searchParams: Promise<{
+    employee_period?: string;
     shop_id?: string;
     range?: string;
   }>;
@@ -44,7 +46,7 @@ function isWithinLastDays(value: string, days: number) {
   return time >= start.getTime() && time <= end.getTime();
 }
 
-function buildTimeFilters(range: RangePreset, shopId?: string) {
+function buildTimeFilters(range: RangePreset, shopId?: string, employeePeriod?: EmployeeMetricsPeriod) {
   const base = "/dashboard";
   const filters: Array<{ label: string; value: RangePreset }> = [
     { label: "Hoy", value: "today" },
@@ -57,6 +59,7 @@ function buildTimeFilters(range: RangePreset, shopId?: string) {
     const searchParams = new URLSearchParams();
     searchParams.set("range", filter.value);
     if (shopId) searchParams.set("shop_id", shopId);
+    if (employeePeriod) searchParams.set("employee_period", employeePeriod);
     return {
       label: filter.label,
       href: `${base}?${searchParams.toString()}`,
@@ -95,6 +98,10 @@ function buildDonutSegments(orders: Order[]): ShipmentSegment[] {
   return segments.filter((s) => s.value > 0);
 }
 
+function resolveEmployeePeriod(value?: string): EmployeeMetricsPeriod {
+  return value === "day" ? "day" : "week";
+}
+
 function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], days: number) {
   const today = new Date();
   const visibleDays = Math.min(days, 7);
@@ -116,12 +123,14 @@ function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], d
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const params = await searchParams;
   const range = resolveRangePreset(params.range);
+  const employeePeriod = resolveEmployeePeriod(params.employee_period);
   const rangeDays = getRangeDays(range);
-  const [userResult, shopsResult, ordersResultSettled, incidentsResult] = await Promise.allSettled([
+  const [userResult, shopsResult, ordersResultSettled, incidentsResult, employeeAnalyticsResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchShops(),
     fetchOrders({ shop_id: params.shop_id }),
     fetchIncidents({ shop_id: params.shop_id }),
+    fetchEmployeeAnalytics({ period: employeePeriod, shop_id: params.shop_id }),
   ]);
   // requireAdminUser redirects on failure — re-throw to trigger it
   if (userResult.status === "rejected") throw userResult.reason;
@@ -132,13 +141,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       ? ordersResultSettled.value
       : { orders: [], totalCount: 0 };
   const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
+  const employeeAnalytics =
+    employeeAnalyticsResult.status === "fulfilled" ? employeeAnalyticsResult.value.employees : [];
 
   const orders = ordersResult.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
   const incidentsInRange = incidents.filter((incident) => isWithinLastDays(incident.updated_at, rangeDays));
   const activeShop = shops.find((shop) => String(shop.id) === params.shop_id);
   const chart = buildChart(orders, rangeDays);
   const donutSegments = buildDonutSegments(orders);
-  const timeFilters = buildTimeFilters(range, params.shop_id);
+  const timeFilters = buildTimeFilters(range, params.shop_id, employeePeriod);
 
   const pendingOrders = orders.filter((order) => order.status === "pending").length;
   const inProductionOrders = orders.filter((order) => order.production_status === "in_production").length;
@@ -170,6 +181,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             ))}
           </select>
           <input name="range" type="hidden" value={range} />
+          <input name="employee_period" type="hidden" value={employeePeriod} />
           <button className="button button-secondary" type="submit">
             Aplicar
           </button>
@@ -225,6 +237,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
       noteBody="Usa este panel como centro de control de Brandeate: revisa pedidos nuevos, detecta bloqueos antes de packing y salta rápido al portal del cliente cuando necesites validar cómo lo está viendo la tienda."
       noteTitle="Empuja la operativa"
+      supplementaryContent={
+        <DashboardEmployeeMetrics
+          employees={employeeAnalytics}
+          period={employeePeriod}
+          range={range}
+          shopId={params.shop_id}
+        />
+      }
       recentOrders={orders.slice(0, 6).map((order) => ({
         id: order.id,
         label: order.external_id,

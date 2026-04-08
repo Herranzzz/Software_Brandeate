@@ -51,6 +51,15 @@ function AccountsIcon(props: IconProps) {
   );
 }
 
+function EmployeesIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M7.5 10.5a2.8 2.8 0 1 1 0-5.6 2.8 2.8 0 0 1 0 5.6Zm9 0a2.8 2.8 0 1 1 0-5.6 2.8 2.8 0 0 1 0 5.6Z" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M3.8 18.5c.7-2.7 2.7-4.2 5.4-4.2s4.7 1.5 5.4 4.2M12.6 18.5c.5-1.8 1.9-3 4.2-3.3 1.8-.2 3.3.7 3.9 3.3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function IncidenciasIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -120,6 +129,7 @@ const navGroups = [
     label: "Gestión",
     items: [
       { href: "/customers", label: "Clientes", icon: AccountsIcon },
+      { href: "/employees", label: "Empleados", icon: EmployeesIcon },
       { href: "/returns", label: "Devoluciones", icon: ReturnsAdminIcon },
       { href: "/incidencias", label: "Incidencias", icon: IncidenciasIcon },
     ],

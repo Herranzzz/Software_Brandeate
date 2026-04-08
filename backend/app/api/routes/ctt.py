@@ -41,7 +41,7 @@ def create_ctt_shipping(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
     try:
-        result = create_ctt_shipment_for_order(db=db, order=order, payload=payload)
+        result = create_ctt_shipment_for_order(db=db, order=order, payload=payload, current_user=current_user)
         db.commit()
         db.refresh(result.shipment)
     except CTTShipmentDuplicateError as exc:
@@ -116,7 +116,12 @@ def create_ctt_shippings_bulk(
         )
 
         try:
-            result = create_ctt_shipment_for_order(db=db, order=order, payload=shipping_request)
+            result = create_ctt_shipment_for_order(
+                db=db,
+                order=order,
+                payload=shipping_request,
+                current_user=current_user,
+            )
             db.commit()
             db.refresh(result.shipment)
             results.append(

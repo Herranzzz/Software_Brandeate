@@ -25,6 +25,11 @@ class Shipment(Base):
         unique=True,
         index=True,
     )
+    created_by_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     fulfillment_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     carrier: Mapped[str] = mapped_column(String(120))
     tracking_number: Mapped[str] = mapped_column(String(255))
@@ -60,6 +65,7 @@ class Shipment(Base):
     )
 
     order = relationship("Order", back_populates="shipment")
+    created_by_employee = relationship("User", back_populates="created_shipments", foreign_keys=[created_by_employee_id])
     shipping_rule = relationship("ShippingRule", back_populates="shipments")
     events = relationship(
         "TrackingEvent",

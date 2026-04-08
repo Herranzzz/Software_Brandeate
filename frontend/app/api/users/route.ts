@@ -3,14 +3,15 @@ import { cookies } from "next/headers";
 
 import { apiUrl } from "@/lib/api";
 
-export async function POST(request: NextRequest) {
+async function proxyUsersRequest(method: "GET" | "POST", request?: NextRequest) {
   const token = (await cookies()).get("auth_token")?.value;
-  const body = await request.text();
+  const body = request ? await request.text() : undefined;
+  const search = request?.nextUrl.search ?? "";
 
-  const response = await fetch(apiUrl("/users"), {
-    method: "POST",
+  const response = await fetch(apiUrl(`/users${search}`), {
+    method,
     headers: {
-      "Content-Type": "application/json",
+      ...(body ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body,
@@ -24,4 +25,12 @@ export async function POST(request: NextRequest) {
       "Content-Type": response.headers.get("Content-Type") ?? "application/json",
     },
   });
+}
+
+export async function GET(request: NextRequest) {
+  return proxyUsersRequest("GET", request);
+}
+
+export async function POST(request: NextRequest) {
+  return proxyUsersRequest("POST", request);
 }

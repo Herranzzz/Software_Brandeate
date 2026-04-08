@@ -45,6 +45,7 @@ type DashboardIncidentItem = {
 
 type SharedDashboardViewProps = {
   topContent?: ReactNode;
+  supplementaryContent?: ReactNode;
   eyebrow: string;
   title: string;
   subtitle: string;
@@ -78,6 +79,7 @@ type SharedDashboardViewProps = {
 
 export function SharedDashboardView({
   topContent,
+  supplementaryContent,
   eyebrow,
   title,
   subtitle,
@@ -200,6 +202,8 @@ export function SharedDashboardView({
           </div>
         </Card>
       </section>
+
+      {supplementaryContent}
 
       <section className="admin-dashboard-columns">
         <div className="stack admin-dashboard-column">
