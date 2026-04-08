@@ -19,6 +19,10 @@ import type {
 
 
 type EmployeesManagementPanelProps = {
+  currentUser: {
+    id: number;
+    role: UserRole;
+  };
   employees: EmployeeAnalyticsRow[];
   shops: Shop[];
   period: EmployeeMetricsPeriod;
@@ -76,6 +80,7 @@ async function readErrorMessage(response: Response) {
 }
 
 export function EmployeesManagementPanel({
+  currentUser,
   employees,
   shops,
   period,
@@ -92,6 +97,7 @@ export function EmployeesManagementPanel({
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeAnalyticsRow | null>(null);
   const [activityData, setActivityData] = useState<EmployeeActivityResponse | null>(null);
   const [isActivityLoading, setIsActivityLoading] = useState(false);
+  const [deletingEmployeeId, setDeletingEmployeeId] = useState<number | null>(null);
 
   const totals = useMemo(() => {
     const labelsToday = employees.reduce((sum, employee) => sum + employee.labels_today, 0);
@@ -262,6 +268,44 @@ export function EmployeesManagementPanel({
     return employee.shops.map((shop) => shop.name).join(", ");
   }
 
+  function canDeleteEmployee(employee: EmployeeAnalyticsRow) {
+    if (employee.id === currentUser.id) {
+      return false;
+    }
+    if (employee.role === "super_admin" && currentUser.role !== "super_admin") {
+      return false;
+    }
+    return true;
+  }
+
+  async function handleDeleteEmployee(employee: EmployeeAnalyticsRow) {
+    const confirmed = window.confirm(
+      `Vas a borrar la cuenta de ${employee.name}. Esta acción es permanente para cuentas sin actividad. ¿Quieres continuar?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setMessage(null);
+    setDeletingEmployeeId(employee.id);
+
+    const response = await fetch(`/api/users/${employee.id}`, {
+      method: "DELETE",
+    });
+
+    setDeletingEmployeeId(null);
+
+    if (!response.ok) {
+      setMessage({ kind: "error", text: await readErrorMessage(response) });
+      return;
+    }
+
+    setMessage({ kind: "success", text: "Cuenta eliminada correctamente." });
+    startTransition(() => {
+      router.refresh();
+    });
+  }
+
   function renderEmployeeForm(
     mode: "create" | "edit",
     form: EmployeeFormState,
@@ -269,6 +313,7 @@ export function EmployeesManagementPanel({
   ) {
     const needsShops = form.role === "shop_admin" || form.role === "shop_viewer";
     const selectedRole = roleOptions.find((option) => option.value === form.role);
+    const editingEmployee = mode === "edit" ? selectedEmployee : null;
 
     return (
       <form className="stack" onSubmit={mode === "create" ? handleCreateEmployee : handleEditEmployee}>
@@ -381,7 +426,18 @@ export function EmployeesManagementPanel({
           </div>
         </div>
 
-        <div className="modal-footer">
+        <div className={`modal-footer${mode === "edit" ? " employees-modal-footer" : ""}`}>
+          {editingEmployee && canDeleteEmployee(editingEmployee) ? (
+            <button
+              className="button button-secondary employees-delete-button"
+              disabled={deletingEmployeeId === editingEmployee.id}
+              onClick={() => void handleDeleteEmployee(editingEmployee)}
+              type="button"
+            >
+              {deletingEmployeeId === editingEmployee.id ? "Borrando..." : "Borrar empleado"}
+            </button>
+          ) : null}
+
           <button
             className="button"
             disabled={

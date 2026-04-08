@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -284,6 +284,40 @@ def update_user(
     )
     assert reloaded is not None
     return _serialize_user(reloaded)
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: int,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    user = db.scalar(
+        select(User)
+        .options(selectinload(User.user_shops).selectinload(UserShop.shop))
+        .where(User.id == user_id)
+    )
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if current_user.role != UserRole.super_admin and user.role == UserRole.super_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only super admin can manage super admins")
+
+    if current_user.id == user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No puedes borrar tu propia cuenta")
+
+    shipment_count = db.scalar(
+        select(func.count(Shipment.id)).where(Shipment.created_by_employee_id == user.id)
+    )
+    if shipment_count and shipment_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este empleado ya tiene etiquetas o envíos creados. Desactiva la cuenta para conservar la trazabilidad.",
+        )
+
+    db.delete(user)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{user_id}/activity", response_model=EmployeeActivityResponse)

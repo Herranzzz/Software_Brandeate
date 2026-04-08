@@ -156,7 +156,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const shippedOrders = orders.filter((order) => order.status === "shipped").length;
   const deliveredOrders = orders.filter((order) => order.status === "delivered").length;
   const withShipment = orders.filter((order) => order.shipment).length;
-  const personalizedOrders = orders.filter((order) => order.is_personalized).length;
   const openIncidents = incidentsInRange.filter((incident) => incident.status !== "resolved").length;
   const urgentIncidents = incidentsInRange.filter((incident) => incident.priority === "urgent" || incident.priority === "high").length;
 
@@ -220,7 +219,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       incidentsTitle="Incidencias recientes"
       kpis={[
         { label: "📦 Pedidos entrantes", value: String(orders.length), delta: `${pendingOrders} pendientes`, tone: "accent" },
-        { label: "🎨 Personalizados", value: String(personalizedOrders), delta: `${orders.length - personalizedOrders} estándar`, tone: "warning" },
         { label: "⚠️ Incidencias abiertas", value: String(openIncidents), delta: `${urgentIncidents} prioritarias`, tone: "danger" },
         { label: "🚚 Enviados", value: String(shippedOrders), delta: `${withShipment} con tracking`, tone: "default" },
         { label: "🏪 Tiendas activas", value: String(activeShop ? 1 : shops.length), delta: activeShop ? "vista filtrada" : "operando ahora", tone: "success" },

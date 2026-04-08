@@ -26,12 +26,17 @@ export default async function EmployeesPage({ searchParams }: EmployeesPageProps
     fetchEmployeeAnalytics({ period }),
   ]);
   if (userResult.status === "rejected") throw userResult.reason;
+  const currentUser = userResult.value;
 
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value.employees : [];
 
   return (
     <EmployeesManagementPanel
+      currentUser={{
+        id: currentUser.id,
+        role: currentUser.role,
+      }}
       employees={analytics}
       period={period}
       periodLinks={[

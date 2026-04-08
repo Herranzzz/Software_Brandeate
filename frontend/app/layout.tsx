@@ -19,6 +19,11 @@ export const metadata: Metadata = {
     template: "%s | Brandeate",
   },
   description: "Plataforma operativa de Brandeate para pedidos, seguimiento, clientes e integraciones.",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 

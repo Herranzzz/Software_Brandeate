@@ -5799,6 +5799,21 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   flex-wrap: wrap;
 }
 
+.employees-delete-button {
+  border-color: rgba(220, 38, 38, 0.18);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.employees-delete-button:hover:not(:disabled) {
+  border-color: rgba(220, 38, 38, 0.28);
+  background: rgba(220, 38, 38, 0.12);
+}
+
+.employees-modal-footer {
+  justify-content: space-between;
+}
+
 .employees-form-switch {
   padding: 14px 16px;
   border: 1px solid var(--border);
