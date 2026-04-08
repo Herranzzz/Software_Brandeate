@@ -25,6 +25,8 @@ type ShipmentDonutProps = {
   variant?: "default" | "hero";
   showTotal?: boolean;
   showLegend?: boolean;
+  centerValue?: string;
+  centerLabel?: string;
 };
 
 const DEFAULT_RADIUS = 68;
@@ -40,6 +42,8 @@ export function ShipmentDonut({
   variant = "default",
   showTotal = true,
   showLegend = true,
+  centerValue,
+  centerLabel,
 }: ShipmentDonutProps) {
   const CX = size / 2;
   const C = 2 * Math.PI * radius;
@@ -49,6 +53,8 @@ export function ShipmentDonut({
     total > 0 ? Math.round(((deliveredSeg?.value ?? 0) / total) * 100) : 0;
 
   const active = segments.filter((s) => s.value > 0);
+  const resolvedCenterValue = centerValue ?? `${deliveredPct}%`;
+  const resolvedCenterLabel = centerLabel ?? "entregado";
   let cum = 0;
   const arcs = active.map((seg) => {
     const len = (seg.value / total) * C;
@@ -138,8 +144,8 @@ export function ShipmentDonut({
 
         {/* Center label */}
         <div className="shipment-donut-center">
-          <strong className="shipment-donut-pct">{deliveredPct}%</strong>
-          <span className="shipment-donut-sublabel">entregado</span>
+          <strong className="shipment-donut-pct">{resolvedCenterValue}</strong>
+          <span className="shipment-donut-sublabel">{resolvedCenterLabel}</span>
         </div>
       </div>
 

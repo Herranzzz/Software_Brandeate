@@ -1,13 +1,17 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { AutomationFlagBadge } from "@/components/automation-flag-badge";
-import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
-import { ShipmentDonut } from "@/components/shipment-donut";
-import { getOrderShipmentLabelUrl } from "@/lib/ctt";
-import { formatDateTime, sortTrackingEvents } from "@/lib/format";
-import type { AgingBuckets, AnalyticsOverview, Order, Shop, ShopIntegration } from "@/lib/types";
+import { ShipmentDonut, type ShipmentSegment } from "@/components/shipment-donut";
+import { formatDateTime } from "@/lib/format";
+import type {
+  AnalyticsAttentionShipment,
+  AnalyticsBreakdownItem,
+  AnalyticsOverview,
+  AnalyticsShippingPerformancePoint,
+  Shop,
+  ShopIntegration,
+} from "@/lib/types";
 
 export type ShipmentQuickFilter =
   | "all"
@@ -21,38 +25,76 @@ export type ShipmentQuickFilter =
 
 export type ShipmentPeriod = "7d" | "30d" | "ytd" | "custom";
 
-type ShipmentStatusTone =
-  | "slate"
-  | "blue"
-  | "indigo"
-  | "sky"
-  | "green"
-  | "orange"
-  | "red";
-
 type SharedShipmentsViewProps = {
   basePath: string;
-  detailBasePath: string;
   title: string;
   subtitle: string;
   heroEyebrow?: string;
-  orders: Order[];
   shops: Shop[];
   integrations: ShopIntegration[];
   analytics: AnalyticsOverview | null;
   selectedShopId?: string;
-  q: string;
-  quick: ShipmentQuickFilter;
   period: ShipmentPeriod;
   dateFrom: string;
   dateTo: string;
-  perPage: number;
-  selected?: string;
   allowAllShops?: boolean;
   syncSlot?: ReactNode;
   syncHint?: string;
   shopFieldHelp?: string;
 };
+
+type TrendChartProps = {
+  points: AnalyticsShippingPerformancePoint[];
+  valueKey: "on_time_delivery_rate" | "avg_transit_hours" | "avg_total_hours";
+  tone: "blue" | "green" | "red";
+  label: string;
+  eyebrow: string;
+  valueFormatter?: (value: number | null) => string;
+};
+
+type DualBarChartProps = {
+  points: AnalyticsShippingPerformancePoint[];
+};
+
+type CompatibleAttention = {
+  tracking_stalled: number;
+  without_shipment: number;
+  without_tracking: number;
+  carrier_exception: number;
+  outside_sla: number;
+  prepared_not_collected: number;
+};
+
+const STATUS_META: Record<
+  string,
+  { label: string; icon: string; tone: ShipmentSegment["tone"]; note: string }
+> = {
+  pending:           { label: "Pendiente",    icon: "📦", tone: "slate",  note: "Sin etiqueta" },
+  prepared:          { label: "Preparado",    icon: "✅", tone: "indigo", note: "Pendiente recogida" },
+  picked_up:         { label: "Recogido",     icon: "🚚", tone: "blue",   note: "Primer escaneo" },
+  in_transit:        { label: "En tránsito",  icon: "🛣️", tone: "sky",    note: "Red activa" },
+  out_for_delivery:  { label: "En reparto",   icon: "📬", tone: "orange", note: "Última milla" },
+  delivered:         { label: "Entregado",    icon: "🎯", tone: "green",  note: "Ciclo cerrado" },
+  exception:         { label: "Incidencia",   icon: "⚠️", tone: "red",    note: "Requiere acción" },
+  stalled:           { label: "Atascado",     icon: "💤", tone: "slate",  note: "Sin movimiento" },
+};
+
+const ATTENTION_META: Array<{
+  key: keyof CompatibleAttention;
+  icon: string;
+  label: string;
+  note: string;
+  tone: "red" | "orange" | "slate" | "yellow";
+}> = [
+  { key: "tracking_stalled",       icon: "💤", label: "Tracking parado",      note: "Sin actualización reciente",  tone: "orange" },
+  { key: "without_shipment",       icon: "📦", label: "Sin envío",             note: "Pedido sin etiqueta",         tone: "slate"  },
+  { key: "without_tracking",       icon: "📡", label: "Sin tracking",          note: "Sin señal del carrier",       tone: "slate"  },
+  { key: "carrier_exception",      icon: "⚠️", label: "Excepción carrier",     note: "Desvíos o eventos anómalos",  tone: "red"    },
+  { key: "outside_sla",            icon: "⏱️", label: "Fuera de SLA",          note: "Por encima del objetivo",     tone: "orange" },
+  { key: "prepared_not_collected", icon: "🧾", label: "Preparado sin recoger", note: "Etiqueta sin escaneo",        tone: "yellow" },
+];
+
+/* ── Helpers ──────────────────────────────────────────────────────── */
 
 function toDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -65,17 +107,10 @@ export function getDefaultShipmentDateRange() {
 export function getShipmentDateRange(period: ShipmentPeriod, today = new Date()) {
   const end = new Date(today);
   const start = new Date(today);
-  if (period === "30d") {
-    start.setDate(end.getDate() - 29);
-  } else if (period === "ytd") {
-    start.setMonth(0, 1);
-  } else {
-    start.setDate(end.getDate() - 6);
-  }
-  return {
-    dateFrom: toDateInputValue(start),
-    dateTo: toDateInputValue(end),
-  };
+  if (period === "30d") start.setDate(end.getDate() - 29);
+  else if (period === "ytd") start.setMonth(0, 1);
+  else start.setDate(end.getDate() - 6);
+  return { dateFrom: toDateInputValue(start), dateTo: toDateInputValue(end) };
 }
 
 function getRangeShortcuts(dateTo: string) {
@@ -83,139 +118,20 @@ function getRangeShortcuts(dateTo: string) {
   const yearStart = new Date(end);
   yearStart.setMonth(0, 1);
   return [
-    { label: "7 días", value: "7d" as ShipmentPeriod, ...getShipmentDateRange("7d", end) },
-    { label: "30 días", value: "30d" as ShipmentPeriod, ...getShipmentDateRange("30d", end) },
-    { label: "Este año", value: "ytd" as ShipmentPeriod, dateFrom: toDateInputValue(yearStart), dateTo: toDateInputValue(end) },
-    { label: "Personalizado", value: "custom" as ShipmentPeriod, dateFrom: "", dateTo: "" },
+    { label: "7 días",      value: "7d"     as ShipmentPeriod, ...getShipmentDateRange("7d", end) },
+    { label: "30 días",     value: "30d"    as ShipmentPeriod, ...getShipmentDateRange("30d", end) },
+    { label: "Este año",    value: "ytd"    as ShipmentPeriod, dateFrom: toDateInputValue(yearStart), dateTo: toDateInputValue(end) },
+    { label: "Custom",      value: "custom" as ShipmentPeriod, dateFrom: "", dateTo: "" },
   ];
 }
 
-function getPrimaryItem(order: Order) {
-  return order.items[0] ?? null;
-}
-
-function getShipmentEvents(order: Order) {
-  return sortTrackingEvents(order.shipment?.events ?? []);
-}
-
-function getLatestTrackingEvent(order: Order) {
-  return getShipmentEvents(order)[0] ?? null;
-}
-
-function normalizeCarrierName(carrier?: string | null) {
-  if (!carrier) return "CTT Express";
-  if (carrier.trim().toLowerCase().includes("ctt")) return "CTT Express";
-  return carrier.trim();
-}
-
-function getShipmentStatus(order: Order) {
-  const latest = getLatestTrackingEvent(order);
-  const rawStatus = latest?.status_norm ?? order.shipment?.shipping_status ?? null;
-
-  if (!order.shipment) {
-    return {
-      key: "without_shipment",
-      label: "Sin shipment",
-      tone: "slate" as ShipmentStatusTone,
-      description: "Aún no se ha creado la expedición en CTT.",
-    };
-  }
-
-  if (order.has_open_incident || rawStatus === "exception") {
-    return {
-      key: "exception",
-      label: "Incidencia",
-      tone: "red" as ShipmentStatusTone,
-      description: "Hay una incidencia abierta o una excepción logística.",
-    };
-  }
-
-  if (rawStatus === "delivered" || order.status === "delivered") {
-    return {
-      key: "delivered",
-      label: "Entregado",
-      tone: "green" as ShipmentStatusTone,
-      description: "El carrier ya marcó la entrega como completada.",
-    };
-  }
-
-  if (rawStatus === "pickup_available") {
-    return {
-      key: "pickup_available",
-      label: "Disponible para recoger",
-      tone: "orange" as ShipmentStatusTone,
-      description: "El pedido está listo para recogida en punto CTT.",
-    };
-  }
-
-  if (rawStatus === "out_for_delivery") {
-    return {
-      key: "out_for_delivery",
-      label: "En reparto",
-      tone: "sky" as ShipmentStatusTone,
-      description: "Última milla activa.",
-    };
-  }
-
-  if (rawStatus === "in_transit") {
-    return {
-      key: "in_transit",
-      label: "En tr��nsito",
-      tone: "blue" as ShipmentStatusTone,
-      description: "La expedición ya está en movimiento dentro de CTT.",
-    };
-  }
-
-  if (rawStatus === "label_created" || order.status === "shipped") {
-    return {
-      key: "label_created",
-      label: "Etiqueta creada",
-      tone: "indigo" as ShipmentStatusTone,
-      description: "Shipment creado, pendiente de avance logístico.",
-    };
-  }
-
-  return {
-    key: "pending",
-    label: "Pendiente",
-    tone: "slate" as ShipmentStatusTone,
-    description: "La expedición sigue esperando movimiento.",
-  };
-}
-
-function getStatusBadgeClass(tone: ShipmentStatusTone) {
-  return `shipments-status-pill shipments-status-pill-${tone}`;
-}
-
-function getOrderStateLabel(order: Order) {
-  switch (order.status) {
-    case "pending":
-      return "Pedido recibido";
-    case "in_progress":
-      return "En preparación";
-    case "ready_to_ship":
-      return "Preparado";
-    case "shipped":
-      return "Enviado";
-    case "delivered":
-      return "Entregado";
-    case "exception":
-      return "Incidencia";
-    default:
-      return "Pedido";
-  }
-}
-
-function hoursSince(value?: string | null) {
-  if (!value) return null;
-  return Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 36e5));
-}
-
-function daysBetween(start?: string | null, end?: string | null) {
-  if (!start || !end) return null;
-  const difference = new Date(end).getTime() - new Date(start).getTime();
-  if (difference < 0) return null;
-  return difference / 36e5 / 24;
+function buildQuery(params: Record<string, string | number | null | undefined>) {
+  const sp = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") sp.set(k, String(v));
+  });
+  const q = sp.toString();
+  return q ? `?${q}` : "";
 }
 
 function formatHoursAsShort(value: number | null) {
@@ -224,367 +140,360 @@ function formatHoursAsShort(value: number | null) {
   return `${Math.round(value)}h`;
 }
 
-function formatDaysAsReadable(value: number | null) {
+function formatDaysAsReadableFromHours(value: number | null) {
   if (value === null || Number.isNaN(value)) return "—";
-  if (value < 1) return `${Math.round(value * 24)}h`;
-  return `${value.toFixed(1).replace(".", ",")} días`;
+  if (value < 24) return `${Math.round(value)}h`;
+  return `${(value / 24).toFixed(1).replace(".", ",")}d`;
 }
 
-function isWithinRange(value: string, dateFrom: string, dateTo: string) {
-  const time = new Date(value).getTime();
-  const from = new Date(`${dateFrom}T00:00:00`).getTime();
-  const to = new Date(`${dateTo}T23:59:59`).getTime();
-  return time >= from && time <= to;
+function formatPercent(value: number | null) {
+  if (value === null || Number.isNaN(value)) return "—";
+  return `${Math.round(value)}%`;
 }
 
-function matchesSearch(order: Order, search: string) {
-  if (!search) return true;
-  const normalized = search.trim().toLowerCase();
-  const latest = getLatestTrackingEvent(order);
-  const primaryItem = getPrimaryItem(order);
-  const haystack = [
-    order.external_id,
-    order.customer_name,
-    order.customer_email,
-    primaryItem?.title,
-    primaryItem?.name,
-    primaryItem?.variant_title,
-    primaryItem?.sku,
-    order.shipment?.tracking_number,
-    latest?.status_raw,
-    latest?.status_norm,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return haystack.includes(normalized);
+function formatShortDate(value: string) {
+  return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short" }).format(
+    new Date(`${value}T12:00:00`),
+  );
 }
 
-function getDeliveredAt(order: Order) {
-  const deliveredEvent = getShipmentEvents(order).find((event) => event.status_norm === "delivered");
-  return deliveredEvent?.occurred_at ?? null;
+function formatCompactDateTime(value: string | null) {
+  if (!value) return "Sin evento";
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  }).format(new Date(value));
 }
 
-function isStalled(order: Order) {
-  if (!order.shipment || order.has_open_incident) return false;
-  const status = getShipmentStatus(order).key;
-  if (status !== "in_transit" && status !== "label_created" && status !== "pending") return false;
-  const latestEvent = getLatestTrackingEvent(order);
-  const latestDate = latestEvent?.occurred_at ?? order.shipment.created_at;
-  const age = hoursSince(latestDate);
-  return age !== null && age >= 48;
+function formatCount(value: number) {
+  return new Intl.NumberFormat("es-ES").format(value);
 }
 
-function filterByQuick(order: Order, filter: ShipmentQuickFilter) {
-  const shipmentStatus = getShipmentStatus(order).key;
-  switch (filter) {
-    case "without_shipment":
-      return !order.shipment;
-    case "without_tracking":
-      return !order.shipment?.tracking_number;
-    case "pending":
-      return shipmentStatus === "pending" || shipmentStatus === "label_created";
-    case "in_transit":
-      return shipmentStatus === "in_transit" || shipmentStatus === "out_for_delivery";
-    case "delivered":
-      return shipmentStatus === "delivered";
-    case "incident":
-      return order.has_open_incident || shipmentStatus === "exception";
-    case "stalled":
-      return isStalled(order);
-    default:
-      return true;
-  }
+function mapShippingStatusItem(item: AnalyticsBreakdownItem): ShipmentSegment | null {
+  const meta = STATUS_META[item.label.toLowerCase()];
+  if (!meta) return null;
+  return { key: item.label.toLowerCase(), label: meta.label, value: item.value, tone: meta.tone };
 }
 
-function getAttentionReason(order: Order) {
-  if (!order.shipment) return "Pedido sin expedición creada";
-  if (!order.shipment.tracking_number) return "Shipment sin tracking CTT";
-  if (order.has_open_incident) return "Incidencia abierta";
-  if (getShipmentStatus(order).key === "pickup_available") return "Disponible para recoger";
-  if (isStalled(order)) return "Tracking sin movimiento reciente";
-  if (getShipmentStatus(order).key === "pending" || getShipmentStatus(order).key === "label_created") {
-    const age = hoursSince(order.shipment.created_at);
-    if (age !== null && age >= 24) return "Pendiente demasiado tiempo";
-  }
-  return null;
+function normalizeAnalyticsOverview(analytics: AnalyticsOverview) {
+  const operational = {
+    ...analytics.operational,
+    orders_without_tracking:
+      analytics.operational.orders_without_tracking ?? analytics.shipping.without_tracking_orders ?? 0,
+    prepared_not_collected_orders: analytics.operational.prepared_not_collected_orders ?? 0,
+    outside_sla_orders: analytics.operational.outside_sla_orders ?? 0,
+  };
+  const shipping = {
+    ...analytics.shipping,
+    pending_orders:           analytics.shipping.pending_orders           ?? analytics.operational.orders_without_shipment,
+    prepared_orders:          analytics.shipping.prepared_orders          ?? analytics.flow.orders_prepared,
+    picked_up_orders:         analytics.shipping.picked_up_orders         ?? 0,
+    out_for_delivery_orders:  analytics.shipping.out_for_delivery_orders  ?? 0,
+    stalled_orders:           analytics.shipping.stalled_orders           ?? analytics.operational.stalled_tracking_orders,
+    without_tracking_orders:  analytics.shipping.without_tracking_orders  ?? operational.orders_without_tracking,
+    avg_transit_hours:        analytics.shipping.avg_transit_hours        ?? analytics.flow.avg_transit_to_delivery_hours ?? null,
+    avg_order_to_delivery_hours: analytics.shipping.avg_order_to_delivery_hours ?? analytics.flow.avg_total_hours ?? null,
+  };
+  const flow = {
+    ...analytics.flow,
+    orders_picked_up:                   analytics.flow.orders_picked_up               ?? 0,
+    orders_out_for_delivery:            analytics.flow.orders_out_for_delivery         ?? 0,
+    avg_order_to_prepared_hours:        analytics.flow.avg_order_to_prepared_hours     ?? analytics.flow.avg_order_to_label_hours       ?? null,
+    avg_prepared_to_picked_up_hours:    analytics.flow.avg_prepared_to_picked_up_hours ?? analytics.flow.avg_label_to_transit_hours     ?? null,
+    avg_picked_up_to_delivered_hours:   analytics.flow.avg_picked_up_to_delivered_hours ?? analytics.flow.avg_transit_to_delivery_hours ?? null,
+    avg_order_to_delivered_hours:       analytics.flow.avg_order_to_delivered_hours    ?? analytics.flow.avg_total_hours                ?? null,
+  };
+  const attention: CompatibleAttention = {
+    tracking_stalled:        analytics.attention?.tracking_stalled        ?? analytics.operational.stalled_tracking_orders ?? 0,
+    without_shipment:        analytics.attention?.without_shipment        ?? analytics.operational.orders_without_shipment  ?? 0,
+    without_tracking:        analytics.attention?.without_tracking        ?? analytics.operational.orders_without_tracking  ?? analytics.shipping.without_tracking_orders ?? 0,
+    carrier_exception:       analytics.attention?.carrier_exception       ?? analytics.shipping.exception_orders            ?? 0,
+    outside_sla:             analytics.attention?.outside_sla             ?? analytics.operational.outside_sla_orders       ?? 0,
+    prepared_not_collected:  analytics.attention?.prepared_not_collected  ?? analytics.operational.prepared_not_collected_orders ?? 0,
+  };
+  const shippingStatusDistribution =
+    analytics.shipping_status_distribution?.length
+      ? analytics.shipping_status_distribution
+      : [
+          { label: "pending",           value: Math.max(shipping.pending_orders ?? 0, analytics.operational.orders_without_shipment ?? 0), percentage: null },
+          { label: "prepared",          value: Math.max((shipping.prepared_orders ?? 0) - (shipping.picked_up_orders ?? 0), 0), percentage: null },
+          { label: "picked_up",         value: shipping.picked_up_orders ?? 0, percentage: null },
+          { label: "in_transit",        value: shipping.in_transit_orders ?? 0, percentage: null },
+          { label: "out_for_delivery",  value: shipping.out_for_delivery_orders ?? 0, percentage: null },
+          { label: "delivered",         value: shipping.delivered_orders ?? 0, percentage: null },
+          { label: "exception",         value: shipping.exception_orders ?? 0, percentage: null },
+        ].filter((item) => item.value > 0);
+  const shippingPerformanceByDay =
+    analytics.shipping_performance_by_day?.length
+      ? analytics.shipping_performance_by_day
+      : (analytics.charts.orders_by_day ?? []).map((point) => ({
+          date: point.date,
+          created_shipments: point.total,
+          delivered_orders: point.delivered ?? 0,
+          exception_orders: point.exception ?? 0,
+          on_time_delivery_rate: null,
+          avg_transit_hours: null,
+          avg_total_hours: null,
+        }));
+  return {
+    operational,
+    shipping,
+    flow,
+    attention,
+    shippingStatusDistribution,
+    shippingPerformanceByDay,
+    attentionShipments: analytics.rankings.attention_shipments ?? [],
+  };
 }
 
-function formatTimelineLabel(statusNorm?: string | null) {
-  switch (statusNorm) {
-    case "label_created":
-      return "Etiqueta creada";
-    case "in_transit":
-      return "En tránsito";
-    case "out_for_delivery":
-      return "En reparto";
-    case "delivered":
-      return "Entregado";
-    case "exception":
-      return "Incidencia";
-    case "pickup_available":
-      return "Disponible para recoger";
-    default:
-      return "Actualización";
-  }
+/* ── Charts ───────────────────────────────────────────────────────── */
+
+function buildLinePath(values: Array<number | null>, width = 280, height = 72) {
+  const filtered = values.filter((v): v is number => v !== null && !Number.isNaN(v));
+  if (filtered.length === 0) return "";
+  const max = Math.max(...filtered, 1);
+  const step = values.length > 1 ? width / (values.length - 1) : width;
+  return values
+    .map((v, i) => {
+      const sv = v ?? 0;
+      const x = i * step;
+      const y = height - (sv / max) * height * 0.9;
+      return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
 }
 
-function buildQuery(params: Record<string, string | number | null | undefined>) {
-  const searchParams = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      searchParams.set(key, String(value));
-    }
-  });
-  const query = searchParams.toString();
-  return query ? `?${query}` : "";
+function MiniTrendChart({ points, valueKey, tone, label, eyebrow, valueFormatter = formatPercent }: TrendChartProps) {
+  const values = points.map((p) => p[valueKey]);
+  const latest = values.at(-1) ?? null;
+  const path = buildLinePath(values);
+  const colorMap = { blue: "#3b82f6", green: "#10b981", red: "#ef4444" };
+  const softMap  = { blue: "#eff6ff", green: "#f0fdf4", red: "#fef2f2" };
+  const color = colorMap[tone];
+  const soft  = softMap[tone];
+  return (
+    <div className="exp-mini-chart">
+      <div className="exp-mini-chart-head">
+        <span className="exp-mini-eyebrow">{eyebrow}</span>
+        <strong className="exp-mini-value" style={{ color }}>{valueFormatter(latest)}</strong>
+      </div>
+      <p className="exp-mini-label">{label}</p>
+      <div className="exp-mini-svg-wrap" style={{ background: soft }}>
+        <svg aria-hidden="true" viewBox="0 0 280 72" preserveAspectRatio="none" width="100%" height="72">
+          {path ? (
+            <>
+              <path d={`${path} L 280 72 L 0 72 Z`} fill={color} fillOpacity="0.12" stroke="none" />
+              <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            </>
+          ) : (
+            <text x="140" y="40" textAnchor="middle" fill="#9ca3af" fontSize="12">Sin datos</text>
+          )}
+        </svg>
+      </div>
+      <div className="exp-mini-axis">
+        {points.slice(-4).map((p) => (
+          <span key={`${valueKey}-${p.date}`}>{formatShortDate(p.date)}</span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function buildShipmentRowAnchor(orderId: string | number) {
-  return `shipment-row-${orderId}`;
+function DailyBarsChart({ points }: DualBarChartProps) {
+  const max = Math.max(...points.map((p) => p.created_shipments), 1);
+  return (
+    <div className="exp-mini-chart">
+      <div className="exp-mini-chart-head">
+        <span className="exp-mini-eyebrow">Volumen</span>
+        <strong className="exp-mini-value" style={{ color: "#ef4444" }}>
+          {formatCount(points.reduce((s, p) => s + p.created_shipments, 0))}
+        </strong>
+      </div>
+      <p className="exp-mini-label">Expediciones por día</p>
+      <div className="exp-mini-bars-wrap">
+        {points.slice(-14).map((p) => (
+          <div className="exp-mini-bar-col" key={`day-${p.date}`}>
+            <div
+              className="exp-mini-bar"
+              style={{ height: `${Math.max(p.created_shipments > 0 ? 8 : 2, (p.created_shipments / max) * 100)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="exp-mini-axis">
+        {points.slice(-4).map((p) => <span key={`ax-${p.date}`}>{formatShortDate(p.date)}</span>)}
+      </div>
+    </div>
+  );
 }
 
-const TONE_COLORS: Record<ShipmentStatusTone, string> = {
-  slate: "#94a3b8",
-  blue: "#2563eb",
-  indigo: "#4f46e5",
-  sky: "#0ea5e9",
-  green: "#059669",
-  orange: "#d97706",
-  red: "#e53935",
-};
+function DualBarsChart({ points }: DualBarChartProps) {
+  const max = Math.max(...points.flatMap((p) => [p.delivered_orders, p.exception_orders]), 1);
+  return (
+    <div className="exp-mini-chart">
+      <div className="exp-mini-chart-head">
+        <span className="exp-mini-eyebrow">Calidad</span>
+        <strong className="exp-mini-value" style={{ color: "#10b981" }}>
+          {formatCount(points.reduce((s, p) => s + p.delivered_orders, 0))}
+        </strong>
+      </div>
+      <p className="exp-mini-label">Entregadas vs incidencias</p>
+      <div className="exp-mini-bars-wrap is-dual">
+        {points.slice(-14).map((p) => (
+          <div className="exp-mini-bar-col" key={`dual-${p.date}`}>
+            <div className="exp-mini-bar is-green"
+              style={{ height: `${Math.max(p.delivered_orders > 0 ? 6 : 2, (p.delivered_orders / max) * 100)}%` }} />
+            <div className="exp-mini-bar is-red"
+              style={{ height: `${Math.max(p.exception_orders > 0 ? 6 : 1, (p.exception_orders / max) * 60)}%` }} />
+          </div>
+        ))}
+      </div>
+      <div className="exp-mini-axis">
+        {points.slice(-4).map((p) => <span key={`dax-${p.date}`}>{formatShortDate(p.date)}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function getStageBadgeModifier(stage: string) {
+  const tone = STATUS_META[stage]?.tone ?? "slate";
+  return `is-${tone}`;
+}
+
+/* ── Main component ───────────────────────────────────────────────── */
 
 export function SharedShipmentsView({
   basePath,
-  detailBasePath,
   title,
   subtitle,
   heroEyebrow = "Expediciones",
-  orders,
   shops,
   integrations,
   analytics,
   selectedShopId = "",
-  q,
-  quick,
   period,
   dateFrom,
   dateTo,
-  perPage,
-  selected,
   allowAllShops = false,
   syncSlot,
-  syncHint = "Selecciona una tienda para sincronizar.",
+  syncHint = "Selecciona una tienda.",
   shopFieldHelp,
 }: SharedShipmentsViewProps) {
-  const canAccessLabels = !basePath.startsWith("/portal");
-  const shopMap = new Map(shops.map((shop) => [shop.id, shop.name]));
-  const integrationMap = new Map(integrations.map((integration) => [integration.shop_id, integration]));
-  const filteredOrders = orders
-    .filter((order) => isWithinRange(order.created_at, dateFrom, dateTo))
-    .filter((order) => matchesSearch(order, q))
-    .filter((order) => filterByQuick(order, quick));
-
-  const selectedOrder =
-    filteredOrders.find((order) => String(order.id) === selected) ??
-    filteredOrders[0] ??
-    null;
-
-  // ── Status breakdown ──
-  const statusBreakdown = [
-    {
-      key: "pending",
-      label: "Pendiente",
-      value: filteredOrders.filter((o) => {
-        const k = getShipmentStatus(o).key;
-        return k === "pending" || k === "label_created" || k === "without_shipment";
-      }).length,
-      tone: "slate" as ShipmentStatusTone,
-    },
-    { key: "in_transit", label: "En tránsito", value: filteredOrders.filter((o) => getShipmentStatus(o).key === "in_transit").length, tone: "blue" as ShipmentStatusTone },
-    { key: "out_for_delivery", label: "En reparto", value: filteredOrders.filter((o) => getShipmentStatus(o).key === "out_for_delivery").length, tone: "sky" as ShipmentStatusTone },
-    { key: "delivered", label: "Entregado", value: filteredOrders.filter((o) => getShipmentStatus(o).key === "delivered").length, tone: "green" as ShipmentStatusTone },
-    { key: "exception", label: "Incidencia", value: filteredOrders.filter((o) => getShipmentStatus(o).key === "exception").length, tone: "red" as ShipmentStatusTone },
-    { key: "pickup_available", label: "Recogida", value: filteredOrders.filter((o) => getShipmentStatus(o).key === "pickup_available").length, tone: "orange" as ShipmentStatusTone },
-  ];
-  const visibleStatusBreakdown = statusBreakdown.filter((s) => s.value > 0);
-  const sortedStatusBreakdown = [...visibleStatusBreakdown].sort((a, b) => b.value - a.value);
-  const total = Math.max(filteredOrders.length, 1);
-
-  // ── KPI values ──
-  const ordersToday = filteredOrders.filter((o) => isWithinRange(o.created_at, toDateInputValue(new Date()), toDateInputValue(new Date()))).length;
-  const delivered = statusBreakdown.find((s) => s.key === "delivered")?.value ?? 0;
-  const inTransit = (statusBreakdown.find((s) => s.key === "in_transit")?.value ?? 0) + (statusBreakdown.find((s) => s.key === "out_for_delivery")?.value ?? 0);
-  const incidents = statusBreakdown.find((s) => s.key === "exception")?.value ?? 0;
-  const withoutTracking = filteredOrders.filter((o) => o.shipment && !o.shipment.tracking_number).length;
-  const stalledCount = filteredOrders.filter((o) => isStalled(o)).length;
-  const analyticsOp = analytics?.operational ?? {} as Record<string, unknown>;
-  const analyticsFlow = analytics?.flow ?? {} as Record<string, unknown>;
-  const analyticsCharts = analytics?.charts ?? {} as Record<string, unknown>;
-  const onTimeDeliveryPct = (analyticsOp.delivered_in_sla_rate as number | null) ?? null;
-  const exceptionRatePct = (analyticsOp.incident_rate as number | null) ?? null;
-
-  const deliveredLeadTimes = filteredOrders
-    .map((o) => daysBetween(o.created_at, getDeliveredAt(o)))
-    .filter((v): v is number => v !== null);
-  const avgDeliveryDays =
-    deliveredLeadTimes.length > 0
-      ? deliveredLeadTimes.reduce((sum, v) => sum + v, 0) / deliveredLeadTimes.length
-      : (analyticsOp.avg_shipping_to_delivery_hours as number | null) !== null
-        ? (analyticsOp.avg_shipping_to_delivery_hours as number) / 24
-        : null;
-  const avgTransitHours =
-    (analyticsFlow.avg_label_to_transit_hours as number | null) !== null && (analyticsFlow.avg_transit_to_delivery_hours as number | null) !== null
-      ? (analyticsFlow.avg_label_to_transit_hours as number) + (analyticsFlow.avg_transit_to_delivery_hours as number)
-      : (analyticsOp.avg_shipping_to_delivery_hours as number | null) ?? null;
-
-  const deliveredPct = Math.round((delivered / total) * 100);
-  const inTransitPct = Math.round((inTransit / total) * 100);
-  const exceptionPct = Math.round((incidents / total) * 100);
-
-  // ── Attention ──
-  const attentionOrders = filteredOrders
-    .map((order) => ({ order, reason: getAttentionReason(order), latest: getLatestTrackingEvent(order) }))
-    .filter((e) => e.reason)
-    .sort((a, b) => {
-      const aAge = hoursSince(a.latest?.occurred_at ?? a.order.shipment?.created_at ?? a.order.created_at) ?? 0;
-      const bAge = hoursSince(b.latest?.occurred_at ?? b.order.shipment?.created_at ?? b.order.created_at) ?? 0;
-      return bAge - aAge;
-    });
-
-  const attentionCategories = [
-    { label: "Tracking parado", icon: "⏸️", iconTone: "is-danger", count: filteredOrders.filter((o) => isStalled(o)).length },
-    { label: "Sin tracking", icon: "🔍", iconTone: "is-warning", count: filteredOrders.filter((o) => o.shipment && !o.shipment.tracking_number).length },
-    { label: "Sin shipment", icon: "📦", iconTone: "is-muted", count: filteredOrders.filter((o) => !o.shipment).length },
-    { label: "Pendiente +24h", icon: "⏰", iconTone: "is-warning", count: filteredOrders.filter((o) => {
-      if (!o.shipment) return false;
-      const k = getShipmentStatus(o).key;
-      if (k !== "pending" && k !== "label_created") return false;
-      const age = hoursSince(o.shipment.created_at);
-      return age !== null && age >= 24;
-    }).length },
-    { label: "Incidencias", icon: "⚠️", iconTone: "is-danger", count: incidents },
-    { label: "Excepción carrier", icon: "🚨", iconTone: "is-danger", count: filteredOrders.filter((o) => {
-      const latest = getLatestTrackingEvent(o);
-      return latest?.status_norm === "exception" && !o.has_open_incident;
-    }).length },
-  ];
-  const totalAttention = attentionOrders.length;
-
-  // ── Charts ──
-  const chartDays = (Array.isArray(analyticsCharts.orders_by_day) ? analyticsCharts.orders_by_day : []).slice(-7) as Array<{ date: string; total: number; delivered?: number; exception?: number }>;
-  const maxDay = Math.max(...chartDays.map((d) => d.total), 1);
-  const bars = chartDays.map((d) => ({
-    ...d,
-    height: Math.max(10, Math.round((d.total / maxDay) * 100)),
-    deliveredHeight: Math.max(0, Math.round(((d.delivered ?? 0) / maxDay) * 100)),
-    exceptionHeight: Math.max(0, Math.round(((d.exception ?? 0) / maxDay) * 100)),
-    label: new Intl.DateTimeFormat("es-ES", { weekday: "short" }).format(new Date(d.date)),
-  }));
-
-  // ── Efficiency / flow ──
-  const flow = analytics?.flow ?? null;
-  const aging: AgingBuckets = (analyticsOp.aging_buckets as AgingBuckets | undefined) ?? { bucket_0_24: 0, bucket_24_48: 0, bucket_48_72: 0, bucket_72_plus: 0 };
-  const agingTotal = Math.max(aging.bucket_0_24 + aging.bucket_24_48 + aging.bucket_48_72 + aging.bucket_72_plus, 1);
-
+  const orderBasePath = basePath.startsWith("/portal") ? "/portal/orders" : "/orders";
   const selectedIntegration =
-    (selectedShopId ? integrationMap.get(Number(selectedShopId)) : null) ??
+    (selectedShopId
+      ? integrations.find((i) => String(i.shop_id) === selectedShopId) ?? null
+      : null) ??
     integrations
       .filter((i) => i.last_synced_at)
       .sort((a, b) => new Date(b.last_synced_at ?? 0).getTime() - new Date(a.last_synced_at ?? 0).getTime())[0] ??
     null;
-
   const rangeShortcuts = getRangeShortcuts(dateTo);
   const isCustomPeriod = period === "custom";
 
-  const quickFilters: Array<{ value: ShipmentQuickFilter; label: string }> = [
-    { value: "all", label: "Todos" },
-    { value: "without_shipment", label: "Sin shipment" },
-    { value: "without_tracking", label: "Sin tracking" },
-    { value: "pending", label: "Pendientes" },
-    { value: "in_transit", label: "En tránsito" },
-    { value: "delivered", label: "Entregados" },
-    { value: "incident", label: "Incidencia" },
-    { value: "stalled", label: "Atascados" },
-  ];
+  /* Empty state */
+  if (!analytics || analytics.kpis.total_orders === 0) {
+    return (
+      <div className="exp-page">
+        <div className="exp-header card">
+          <div className="exp-header-top">
+            <div className="exp-header-copy">
+              <span className="eyebrow">{heroEyebrow}</span>
+              <h1 className="exp-page-title">{title}</h1>
+              <p className="exp-page-subtitle">{subtitle}</p>
+            </div>
+          </div>
+          <form action={basePath} className="exp-toolbar" method="get">
+            <input name="period" type="hidden" value={period} />
+            <div className="field">
+              <label htmlFor={`${basePath}-shop_id`}>Tienda</label>
+              <select defaultValue={selectedShopId} id={`${basePath}-shop_id`} name="shop_id">
+                {allowAllShops ? <option value="">Todas</option> : null}
+                {shops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <button className="button" type="submit">Aplicar</button>
+          </form>
+        </div>
+        <EmptyState
+          title="Sin expediciones en este rango"
+          description="Ajusta tienda o periodo para ver la control tower logística."
+        />
+      </div>
+    );
+  }
 
-  const buildScopedOrderHref = (orderId: string | number) =>
-    `${detailBasePath}/${orderId}${selectedShopId ? `?shop_id=${selectedShopId}` : ""}`;
+  /* Data */
+  const normalized       = normalizeAnalyticsOverview(analytics);
+  const operational      = normalized.operational;
+  const shipping         = normalized.shipping;
+  const flow             = normalized.flow;
+  const attention        = normalized.attention;
+  const totalOrders      = analytics.kpis.total_orders;
+  const shipmentsCreated = Math.max(0, totalOrders - operational.orders_without_shipment);
+  const performancePoints = normalized.shippingPerformanceByDay.slice(-14);
+  const attentionRows    = normalized.attentionShipments;
+  const aging            = operational.aging_buckets ?? { bucket_0_24: 0, bucket_24_48: 0, bucket_48_72: 0, bucket_72_plus: 0 };
+  const agingTotal       = Math.max(aging.bucket_0_24 + aging.bucket_24_48 + aging.bucket_48_72 + aging.bucket_72_plus, 1);
 
-  const buildSelectedShipmentHref = (orderId: string | number) =>
-    `${basePath}${buildQuery({
-      shop_id: selectedShopId,
-      q,
-      quick,
-      period,
-      date_from: dateFrom,
-      date_to: dateTo,
-      per_page: perPage,
-      selected: orderId,
-    })}#${buildShipmentRowAnchor(orderId)}`;
+  const shippingStatusSegments = normalized.shippingStatusDistribution
+    .map(mapShippingStatusItem)
+    .filter((s): s is ShipmentSegment => s !== null && s.value > 0);
 
-  const kpis = [
-    { icon: "📦", label: "Creadas", value: String(filteredOrders.length), hint: `${ordersToday} hoy`, tone: "tone-accent" },
-    { icon: "✅", label: "Entregadas", value: String(delivered), hint: `${deliveredPct}% del total`, tone: "tone-green" },
-    { icon: "🚚", label: "En tránsito", value: String(inTransit), hint: `${inTransitPct}% activas`, tone: "tone-blue" },
-    { icon: "⚠️", label: "Incidencias", value: String(incidents), hint: `${exceptionPct}% del total`, tone: "tone-red" },
-    { icon: "🔍", label: "Sin tracking", value: String(withoutTracking), hint: "shipment sin número", tone: "tone-orange" },
-    { icon: "⏸️", label: "Atascados", value: String(stalledCount), hint: "sin novedad 48h+", tone: "tone-slate" },
-    { icon: "🎯", label: "On-time delivery", value: onTimeDeliveryPct !== null ? `${onTimeDeliveryPct}%` : "—", hint: "entregado en SLA", tone: "tone-green" },
-    { icon: "🔴", label: "Exception rate", value: exceptionRatePct !== null ? `${exceptionRatePct}%` : "—", hint: "% con incidencia", tone: "tone-red" },
-    { icon: "⏱️", label: "Transit time", value: formatHoursAsShort(avgTransitHours), hint: "etiqueta a entrega", tone: "tone-blue" },
-    { icon: "🏁", label: "Pedido → entrega", value: formatDaysAsReadable(avgDeliveryDays), hint: "ciclo completo", tone: "tone-accent" },
-  ];
+  const totalAttentionCount = Object.values(attention).reduce((a, b) => a + b, 0);
 
+  /* ── Render ── */
   return (
-    <div className="stack sct-page">
-      {/* ═══ 1. OPERATIVE HEADER ═══ */}
-      <Card className="stack sct-header">
-        <div className="sct-header-top">
-          <div className="sct-header-copy">
+    <div className="exp-page">
+
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="exp-header card">
+        <div className="exp-header-top">
+          <div className="exp-header-copy">
             <span className="eyebrow">{heroEyebrow}</span>
-            <h1 className="sct-title">{title}</h1>
-            <p className="sct-subtitle">{subtitle}</p>
+            <h1 className="exp-page-title">{title}</h1>
+            <p className="exp-page-subtitle">{subtitle}</p>
           </div>
-          <div className="sct-sync">
-            <span className="sct-sync-label">Última sincronización</span>
-            <strong>
-              {selectedIntegration?.last_synced_at
-                ? formatDateTime(selectedIntegration.last_synced_at)
-                : "Sin sincronizar"}
-            </strong>
-            {syncSlot ?? <span className="table-secondary">{syncHint}</span>}
+
+          <div className="exp-header-right">
+            {/* Period pills */}
+            <div className="exp-period-pills">
+              {rangeShortcuts.map((sc) => {
+                const href = buildQuery({ shop_id: selectedShopId, period: sc.value, date_from: sc.dateFrom || undefined, date_to: sc.dateTo || undefined });
+                return (
+                  <Link
+                    className={`exp-period-pill${sc.value === period ? " is-active" : ""}`}
+                    href={`${basePath}${href}`}
+                    key={sc.label}
+                  >
+                    {sc.label}
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* Sync info */}
+            <div className="exp-sync-info">
+              <span className="exp-sync-dot" />
+              <span>
+                {selectedIntegration?.last_synced_at
+                  ? `Sincronizado ${formatDateTime(selectedIntegration.last_synced_at)}`
+                  : "Sin sincronizar"}
+              </span>
+              {syncSlot ?? null}
+            </div>
           </div>
         </div>
 
-        <div className="sct-range-row">
-          <span className="sct-range-label">Periodo</span>
-          {rangeShortcuts.map((s) => {
-            const href = buildQuery({ shop_id: selectedShopId, quick, q, period: s.value, date_from: s.dateFrom || undefined, date_to: s.dateTo || undefined, per_page: perPage });
-            return (
-              <Link className={`sct-range-pill${s.value === period ? " is-active" : ""}`} href={`${basePath}${href}`} key={s.label}>
-                {s.label}
-              </Link>
-            );
-          })}
-        </div>
-
-        <form action={basePath} className="sct-toolbar" method="get">
+        {/* Toolbar */}
+        <form action={basePath} className="exp-toolbar" method="get">
           <input name="period" type="hidden" value={period} />
-          <input name="quick" type="hidden" value={quick} />
-          <div className="field sct-search-field">
-            <label htmlFor={`${basePath}-q`}>Buscar</label>
-            <input defaultValue={q} id={`${basePath}-q`} name="q" placeholder="Pedido, cliente, tracking…" type="search" />
-          </div>
           <div className="field">
-            <label htmlFor={`${basePath}-shop_id`}>Tienda</label>
+            <label htmlFor={`${basePath}-shop_id`}>Cuenta</label>
             <select defaultValue={selectedShopId} id={`${basePath}-shop_id`} name="shop_id">
-              {allowAllShops ? <option value="">Todas</option> : null}
-              {shops.map((shop) => (
-                <option key={shop.id} value={shop.id}>{shop.name}</option>
-              ))}
+              {allowAllShops ? <option value="">Todas las tiendas</option> : null}
+              {shops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
+            {shopFieldHelp ? <small className="field-hint">{shopFieldHelp}</small> : null}
           </div>
           {isCustomPeriod ? (
             <>
@@ -596,562 +505,330 @@ export function SharedShipmentsView({
                 <label htmlFor={`${basePath}-date_to`}>Hasta</label>
                 <input defaultValue={dateTo} id={`${basePath}-date_to`} name="date_to" type="date" />
               </div>
+              <button className="button" type="submit">Aplicar rango</button>
             </>
           ) : (
             <>
               <input name="date_from" type="hidden" value={dateFrom} />
               <input name="date_to" type="hidden" value={dateTo} />
+              <button className="button" type="submit">Actualizar</button>
             </>
           )}
-          <div className="field">
-            <label htmlFor={`${basePath}-per_page`}>Cargar</label>
-            <select defaultValue={String(perPage)} id={`${basePath}-per_page`} name="per_page">
-              <option value="50">50</option>
-              <option value="100">100</option>
-              <option value="250">250</option>
-              <option value="500">500</option>
-            </select>
-          </div>
-          <button className="button" type="submit">{isCustomPeriod ? "Aplicar rango" : "Aplicar"}</button>
         </form>
+      </div>
 
-        <div className="sct-quick-row">
-          <span className="sct-range-label">Estado</span>
-          {quickFilters.map((f) => {
-            const href = buildQuery({ shop_id: selectedShopId, quick: f.value, q, period, date_from: dateFrom, date_to: dateTo, per_page: perPage });
-            return (
-              <Link className={`sct-quick-pill${quick === f.value ? " is-active" : ""}`} href={`${basePath}${href}`} key={f.value}>
-                {f.label}
-              </Link>
-            );
-          })}
-        </div>
-      </Card>
+      {/* ── KPI Strip ──────────────────────────────────────────── */}
+      <div className="exp-kpi-strip">
+        <article className="exp-kpi-card is-accent">
+          <span className="exp-kpi-label">Expediciones creadas</span>
+          <strong className="exp-kpi-value">{formatCount(shipmentsCreated)}</strong>
+          <small className="exp-kpi-hint">etiquetas emitidas</small>
+        </article>
+        <article className="exp-kpi-card is-green">
+          <span className="exp-kpi-label">Entregadas</span>
+          <strong className="exp-kpi-value">{formatCount(shipping.delivered_orders)}</strong>
+          <small className="exp-kpi-hint">ciclo cerrado</small>
+        </article>
+        <article className="exp-kpi-card is-blue">
+          <span className="exp-kpi-label">En tránsito</span>
+          <strong className="exp-kpi-value">{formatCount(shipping.in_transit_orders)}</strong>
+          <small className="exp-kpi-hint">red activa</small>
+        </article>
+        <article className="exp-kpi-card is-red">
+          <span className="exp-kpi-label">Incidencias</span>
+          <strong className="exp-kpi-value">{formatCount(shipping.exception_orders)}</strong>
+          <small className="exp-kpi-hint">carrier o flujo</small>
+        </article>
+        <article className="exp-kpi-card is-orange">
+          <span className="exp-kpi-label">On-time delivery</span>
+          <strong className="exp-kpi-value">{formatPercent(operational.delivered_in_sla_rate)}</strong>
+          <small className="exp-kpi-hint">dentro de SLA</small>
+        </article>
+        <article className="exp-kpi-card is-slate">
+          <span className="exp-kpi-label">Transit time medio</span>
+          <strong className="exp-kpi-value">{formatHoursAsShort(shipping.avg_transit_hours)}</strong>
+          <small className="exp-kpi-hint">recogido → entregado</small>
+        </article>
+        <article className="exp-kpi-card is-slate">
+          <span className="exp-kpi-label">Pedido → entrega</span>
+          <strong className="exp-kpi-value">{formatDaysAsReadableFromHours(flow.avg_order_to_delivered_hours)}</strong>
+          <small className="exp-kpi-hint">ciclo completo</small>
+        </article>
+      </div>
 
-      {/* ═══ 2. DONUT HERO ═══ */}
-      <Card className="sct-donut-hero">
-        <div className="sct-donut-hero-header">
-          <span className="eyebrow">📊 Estado actual</span>
-          <h2 className="section-title">Distribución de expediciones</h2>
-        </div>
-        <div className="sct-donut-hero-grid">
-          <div className="sct-donut-hero-chart">
-            <ShipmentDonut segments={statusBreakdown} size={252} strokeWidth={18} radius={98} showLegend={false} showTotal={false} variant="hero" />
+      {/* ── Main 3-col grid ────────────────────────────────────── */}
+      <div className="exp-main-grid">
+
+        {/* Status donut */}
+        <div className="card exp-donut-card">
+          <div className="exp-section-head">
+            <span className="eyebrow">Distribución</span>
+            <h2 className="exp-card-title">Estado de la red</h2>
           </div>
-          <div className="sct-donut-hero-side">
-            <div className="sct-hero-summary-strip">
-              <div className="sct-hero-total-card">
-                <span>Total visible</span>
-                <strong>{filteredOrders.length}</strong>
-                <small>expediciones en el periodo</small>
-              </div>
-              <div className="sct-exec-summary">
-                <div className="sct-exec-card">
-                  <span>Entregado</span>
-                  <strong>{deliveredPct}%</strong>
-                  <small>{delivered} cierres confirmados</small>
-                </div>
-                <div className="sct-exec-card">
-                  <span>En tránsito</span>
-                  <strong>{inTransitPct}%</strong>
-                  <small>{inTransit} expediciones activas</small>
-                </div>
-                <div className="sct-exec-card">
-                  <span>Excepción</span>
-                  <strong>{exceptionPct}%</strong>
-                  <small>{incidents} con incidencia</small>
-                </div>
-              </div>
-            </div>
-            <div className="sct-legend-panel">
-              <div className="sct-legend-panel-head">
-                <span className="eyebrow">Breakdown por estado</span>
-              </div>
-              <div className="sct-legend-rows">
-                {sortedStatusBreakdown.map((s) => {
-                  const percentage = Math.round((s.value / total) * 100);
-                  return (
-                    <div className="sct-legend-row" key={s.key}>
-                      <div className="sct-legend-row-main">
-                        <div className="sct-legend-row-label">
-                          <span className="sct-legend-dot" style={{ background: TONE_COLORS[s.tone] }} />
-                          <strong>{s.label}</strong>
-                        </div>
-                        <div className="sct-legend-row-stats">
-                          <span>{s.value}</span>
-                          <span>{percentage}%</span>
-                        </div>
-                      </div>
-                      <div className="sct-legend-row-bar">
-                        <div
-                          className="sct-legend-row-fill"
-                          style={{ width: `${Math.max(6, percentage)}%`, background: TONE_COLORS[s.tone] }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+          <div className="exp-donut-wrap">
+            <ShipmentDonut
+              centerLabel="pedidos"
+              centerValue={formatCount(totalOrders)}
+              radius={90}
+              segments={shippingStatusSegments}
+              showLegend={false}
+              showTotal={false}
+              size={228}
+              strokeWidth={22}
+              variant="hero"
+            />
           </div>
-        </div>
-      </Card>
-
-      {/* ═══ 3. SHIPPING PERFORMANCE KPIs ═══ */}
-      <section className="sct-kpis">
-        {kpis.map((k) => (
-          <Card className={`sct-kpi ${k.tone}`} key={k.label}>
-            <span className="sct-kpi-label"><span className="sct-kpi-icon">{k.icon}</span> {k.label}</span>
-            <strong>{k.value}</strong>
-            <span className="sct-kpi-hint">{k.hint}</span>
-          </Card>
-        ))}
-      </section>
-
-      {/* ═══ 4. NEEDS ATTENTION ═══ */}
-      <Card className="sct-attention">
-        <details className="sct-attention-details">
-          <summary className="sct-attention-summary">
-            <div className="sct-attention-header">
-              <div>
-                <span className="eyebrow">🚨 Necesita atención</span>
-                <h2 className="section-title section-title-small">Expediciones en riesgo</h2>
-                <p className="table-secondary">{totalAttention} {totalAttention === 1 ? "caso requiere" : "casos requieren"} revisión.</p>
-              </div>
-              <div className="sct-attention-badge">{totalAttention}</div>
-            </div>
-
-            <div className="sct-attention-cats">
-              {attentionCategories.filter((c) => c.count > 0).map((c) => (
-                <div className="sct-attention-cat" key={c.label}>
-                  <div className={`sct-attention-cat-icon ${c.iconTone}`}>{c.icon}</div>
-                  <div className="sct-attention-cat-copy">
-                    <strong>{c.count}</strong>
-                    <span>{c.label}</span>
+          <div className="exp-status-list">
+            {shippingStatusSegments.map((seg) => {
+              const meta = STATUS_META[seg.key];
+              const pct = totalOrders > 0 ? Math.round((seg.value / totalOrders) * 100) : 0;
+              return (
+                <div className={`exp-status-row is-${seg.tone}`} key={seg.key}>
+                  <span className="exp-status-dot" />
+                  <span className="exp-status-name">{meta?.label ?? seg.key}</span>
+                  <div className="exp-status-bar-track">
+                    <div className="exp-status-bar-fill" style={{ width: `${pct}%` }} />
                   </div>
+                  <strong>{formatCount(seg.value)}</strong>
                 </div>
-              ))}
-              {attentionCategories.every((c) => c.count === 0) && (
-                <p className="table-secondary">Sin expediciones en riesgo en este rango.</p>
-              )}
-            </div>
-          </summary>
-
-          {attentionOrders.length > 0 && (
-            <div className="sct-attention-list">
-              {attentionOrders.slice(0, 8).map(({ order, reason, latest }) => (
-                <Link
-                  className="sct-attention-row"
-                  href={buildSelectedShipmentHref(order.id)}
-                  key={order.id}
-                >
-                  <div>
-                    <div className="table-primary">{order.external_id}</div>
-                    <div className="table-secondary">{shopMap.get(order.shop_id) ?? `Shop #${order.shop_id}`}</div>
-                  </div>
-                  <div>
-                    <div className="table-primary">{reason}</div>
-                    <div className="table-secondary">
-                      {latest?.occurred_at ? `Último evento ${formatDateTime(latest.occurred_at)}` : "Sin evento reciente"}
-                    </div>
-                  </div>
-                  <div className="sct-attention-row-meta">
-                    <strong>{formatHoursAsShort(hoursSince(latest?.occurred_at ?? order.shipment?.created_at ?? order.created_at))}</strong>
-                    <span className="table-secondary">sin novedad</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </details>
-      </Card>
-
-      {/* ═══ 5. TEMPORAL EVOLUTION ═══ */}
-      <section className="sct-evolution">
-        <Card className="stack sct-chart-card">
-          <div className="sct-chart-header">
-            <div>
-              <span className="eyebrow">📈 Evolución</span>
-              <h3 className="section-title section-title-small">Expediciones por día</h3>
-            </div>
+              );
+            })}
           </div>
-          <div className="sct-bar-chart">
-            {bars.map((bar) => (
-              <div className="sct-bar-group" key={bar.date}>
-                <div className="sct-bar-track">
-                  <div className="sct-bar-fill is-primary" style={{ height: `${bar.height}%` }} />
-                </div>
-                <span className="sct-bar-value">{bar.total}</span>
-                <span className="sct-bar-label">{bar.label}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="stack sct-chart-card">
-          <div className="sct-chart-header">
-            <div>
-              <span className="eyebrow">✅ Calidad operativa</span>
-              <h3 className="section-title section-title-small">Entregadas vs incidencias</h3>
-            </div>
-          </div>
-          <div className="sct-compare-rows">
-            <div className="sct-compare-row">
-              <span>Entregadas</span>
-              <div className="sct-compare-track">
-                <div className="sct-compare-fill is-green" style={{ width: `${Math.max(6, (delivered / Math.max(delivered + incidents, 1)) * 100)}%` }} />
-              </div>
-              <strong>{delivered}</strong>
-            </div>
-            <div className="sct-compare-row">
-              <span>Incidencias</span>
-              <div className="sct-compare-track">
-                <div className="sct-compare-fill is-red" style={{ width: `${Math.max(6, (incidents / Math.max(delivered + incidents, 1)) * 100)}%` }} />
-              </div>
-              <strong>{incidents}</strong>
-            </div>
-          </div>
-          {onTimeDeliveryPct !== null && (
-            <div className="sct-compare-rows" style={{ marginTop: 10 }}>
-              <div className="sct-compare-row">
-                <span>On-time</span>
-                <div className="sct-compare-track">
-                  <div className="sct-compare-fill is-green" style={{ width: `${onTimeDeliveryPct}%` }} />
-                </div>
-                <strong>{onTimeDeliveryPct}%</strong>
-              </div>
-            </div>
-          )}
-        </Card>
-
-        <Card className="stack sct-chart-card">
-          <div className="sct-chart-header">
-            <div>
-              <span className="eyebrow">⏱️ Velocidad</span>
-              <h3 className="section-title section-title-small">Tiempo de entrega</h3>
-            </div>
-          </div>
-          <div className="sct-flow-metric">
-            <div className="sct-flow-metric-hero">
-              <strong>{formatDaysAsReadable(avgDeliveryDays)}</strong>
-              <span>promedio pedido a entrega</span>
-            </div>
-            <div className="sct-flow-phases">
-              <div className="sct-flow-phase">
-                <span>Pedido → Etiqueta</span>
-                <strong>{formatHoursAsShort(flow?.avg_order_to_label_hours ?? null)}</strong>
-              </div>
-              <div className="sct-flow-phase">
-                <span>Etiqueta → Tránsito</span>
-                <strong>{formatHoursAsShort(flow?.avg_label_to_transit_hours ?? null)}</strong>
-              </div>
-              <div className="sct-flow-phase">
-                <span>Tránsito → Entrega</span>
-                <strong>{formatHoursAsShort(flow?.avg_transit_to_delivery_hours ?? null)}</strong>
-              </div>
-            </div>
-          </div>
-        </Card>
-      </section>
-
-      {/* ═══ 6. LOGISTICS EFFICIENCY ═══ */}
-      <Card className="sct-efficiency">
-        <div>
-          <span className="eyebrow">⚡ Eficiencia logística</span>
-          <h2 className="section-title section-title-small">Rendimiento de la cadena de envío</h2>
         </div>
-        <div className="sct-efficiency-grid">
+
+        {/* Flow timeline */}
+        <div className="card exp-flow-card">
+          <div className="exp-section-head">
+            <span className="eyebrow">Tiempos de flujo</span>
+            <h2 className="exp-card-title">Ciclo end-to-end</h2>
+          </div>
+          <div className="exp-flow-timeline">
+            <div className="exp-flow-step">
+              <div className="exp-flow-node">📦</div>
+              <span>Pedido</span>
+            </div>
+            <div className="exp-flow-connector">
+              <div className="exp-flow-line" />
+              <strong>{formatHoursAsShort(flow.avg_order_to_prepared_hours)}</strong>
+            </div>
+            <div className="exp-flow-step">
+              <div className="exp-flow-node">🏷️</div>
+              <span>Etiqueta</span>
+            </div>
+            <div className="exp-flow-connector">
+              <div className="exp-flow-line" />
+              <strong>{formatHoursAsShort(flow.avg_prepared_to_picked_up_hours)}</strong>
+            </div>
+            <div className="exp-flow-step">
+              <div className="exp-flow-node">🚚</div>
+              <span>Recogida</span>
+            </div>
+            <div className="exp-flow-connector">
+              <div className="exp-flow-line" />
+              <strong>{formatHoursAsShort(flow.avg_picked_up_to_delivered_hours)}</strong>
+            </div>
+            <div className="exp-flow-step">
+              <div className="exp-flow-node is-accent">🎯</div>
+              <span>Entrega</span>
+            </div>
+          </div>
+          <div className="exp-flow-total">
+            <span>Tiempo total medio</span>
+            <strong>{formatDaysAsReadableFromHours(flow.avg_order_to_delivered_hours)}</strong>
+          </div>
+
+          {/* SLA row */}
+          <div className="exp-sla-row">
+            <div className="exp-sla-item">
+              <span>SLA cumplido</span>
+              <strong className="is-green">{formatPercent(operational.delivered_in_sla_rate)}</strong>
+            </div>
+            <div className="exp-sla-item">
+              <span>Fuera de SLA</span>
+              <strong className="is-red">{formatCount(operational.outside_sla_orders)}</strong>
+            </div>
+            <div className="exp-sla-item">
+              <span>Sin recoger</span>
+              <strong className="is-orange">{formatCount(operational.prepared_not_collected_orders)}</strong>
+            </div>
+          </div>
+
+          {/* Aging bar */}
+          <div className="exp-aging-block">
+            <div className="exp-aging-label-row">
+              <span className="eyebrow">Aging en tránsito</span>
+            </div>
+            <div className="exp-aging-bar">
+              <div className="exp-aging-seg is-green"  style={{ width: `${(aging.bucket_0_24   / agingTotal) * 100}%` }} />
+              <div className="exp-aging-seg is-blue"   style={{ width: `${(aging.bucket_24_48  / agingTotal) * 100}%` }} />
+              <div className="exp-aging-seg is-orange" style={{ width: `${(aging.bucket_48_72  / agingTotal) * 100}%` }} />
+              <div className="exp-aging-seg is-red"    style={{ width: `${(aging.bucket_72_plus / agingTotal) * 100}%` }} />
+            </div>
+            <div className="exp-aging-grid">
+              <div><strong>{formatCount(aging.bucket_0_24)}</strong><span>0–24h</span></div>
+              <div><strong>{formatCount(aging.bucket_24_48)}</strong><span>24–48h</span></div>
+              <div><strong>{formatCount(aging.bucket_48_72)}</strong><span>48–72h</span></div>
+              <div><strong>{formatCount(aging.bucket_72_plus)}</strong><span>+72h</span></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Attention panel */}
+        <div className="card exp-alert-card">
+          <div className="exp-section-head">
+            <span className="eyebrow">Necesita atención</span>
+            <h2 className="exp-card-title">Fricciones activas</h2>
+          </div>
+          <div className="exp-alert-total">
+            <strong>{formatCount(totalAttentionCount)}</strong>
+            <span>casos en cola</span>
+          </div>
+          <div className="exp-alert-list">
+            {ATTENTION_META.map((item) => {
+              const count = attention[item.key];
+              const isHot = count > 0 && (item.tone === "red" || item.tone === "orange");
+              return (
+                <div className={`exp-alert-row${isHot ? " is-hot" : ""}`} key={item.key}>
+                  <span className="exp-alert-icon">{item.icon}</span>
+                  <div className="exp-alert-body">
+                    <strong>{item.label}</strong>
+                    <span>{item.note}</span>
+                  </div>
+                  <strong className={`exp-alert-count${count > 0 ? ` is-${item.tone}` : ""}`}>
+                    {formatCount(count)}
+                  </strong>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Charts strip ───────────────────────────────────────── */}
+      <div className="exp-charts-strip">
+        <DailyBarsChart points={performancePoints} />
+        <DualBarsChart  points={performancePoints} />
+        <MiniTrendChart
+          points={performancePoints}
+          valueKey="on_time_delivery_rate"
+          tone="green"
+          label="On-time delivery"
+          eyebrow="Servicio"
+        />
+        <MiniTrendChart
+          points={performancePoints}
+          valueKey="avg_transit_hours"
+          tone="blue"
+          label="Tránsito medio"
+          eyebrow="Transit time"
+          valueFormatter={formatHoursAsShort}
+        />
+        <MiniTrendChart
+          points={performancePoints.map((p) => ({
+            ...p,
+            on_time_delivery_rate: p.created_shipments > 0
+              ? Math.round((p.exception_orders / p.created_shipments) * 100)
+              : null,
+          }))}
+          valueKey="on_time_delivery_rate"
+          tone="red"
+          label="Exception drift"
+          eyebrow="Excepciones"
+        />
+      </div>
+
+      {/* ── Attention table ────────────────────────────────────── */}
+      <div className="card exp-table-card">
+        <div className="exp-section-head">
           <div>
-            <div className="sct-sla-grid">
-              <div className="sct-sla-card is-green">
-                <strong>{analyticsOp.sent_in_sla_rate as number | null !== null ? `${analyticsOp.sent_in_sla_rate as number | null}%` : "—"}</strong>
-                <span>Enviado en SLA (48h)</span>
-              </div>
-              <div className="sct-sla-card is-green">
-                <strong>{onTimeDeliveryPct !== null ? `${onTimeDeliveryPct}%` : "—"}</strong>
-                <span>Entregado en SLA (72h)</span>
-              </div>
-            </div>
-            <div className="sct-efficiency-phases">
-              <div className="sct-efficiency-phase">
-                <span className="sct-efficiency-phase-label">Pedido → Etiqueta</span>
-                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow?.avg_order_to_label_hours ?? null)}</span>
-              </div>
-              <div className="sct-efficiency-phase">
-                <span className="sct-efficiency-phase-label">Etiqueta → Tránsito</span>
-                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow?.avg_label_to_transit_hours ?? null)}</span>
-              </div>
-              <div className="sct-efficiency-phase">
-                <span className="sct-efficiency-phase-label">Tránsito → Entrega</span>
-                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow?.avg_transit_to_delivery_hours ?? null)}</span>
-              </div>
-              <div className="sct-efficiency-phase">
-                <span className="sct-efficiency-phase-label">Ciclo completo</span>
-                <span className="sct-efficiency-phase-value">{formatHoursAsShort(flow?.avg_total_hours ?? null)}</span>
-              </div>
-            </div>
+            <span className="eyebrow">Cola operativa</span>
+            <h2 className="exp-card-title">Pedidos que requieren acción</h2>
           </div>
-          <div>
-            <div className="sct-aging-section">
-              <h4>Aging de expediciones activas</h4>
-              <div className="sct-aging-bar">
-                {aging.bucket_0_24 > 0 && <div className="sct-aging-segment is-green" style={{ width: `${(aging.bucket_0_24 / agingTotal) * 100}%` }} />}
-                {aging.bucket_24_48 > 0 && <div className="sct-aging-segment is-blue" style={{ width: `${(aging.bucket_24_48 / agingTotal) * 100}%` }} />}
-                {aging.bucket_48_72 > 0 && <div className="sct-aging-segment is-orange" style={{ width: `${(aging.bucket_48_72 / agingTotal) * 100}%` }} />}
-                {aging.bucket_72_plus > 0 && <div className="sct-aging-segment is-red" style={{ width: `${(aging.bucket_72_plus / agingTotal) * 100}%` }} />}
-              </div>
-              <div className="sct-aging-legend">
-                <div className="sct-aging-legend-item">
-                  <span className="sct-aging-legend-dot" style={{ background: "var(--success)" }} />
-                  0–24h <strong>{aging.bucket_0_24}</strong>
-                </div>
-                <div className="sct-aging-legend-item">
-                  <span className="sct-aging-legend-dot" style={{ background: "#2563eb" }} />
-                  24–48h <strong>{aging.bucket_24_48}</strong>
-                </div>
-                <div className="sct-aging-legend-item">
-                  <span className="sct-aging-legend-dot" style={{ background: "#d97706" }} />
-                  48–72h <strong>{aging.bucket_48_72}</strong>
-                </div>
-                <div className="sct-aging-legend-item">
-                  <span className="sct-aging-legend-dot" style={{ background: "var(--danger)" }} />
-                  +72h <strong>{aging.bucket_72_plus}</strong>
-                </div>
-              </div>
-            </div>
+          <span className="exp-table-count">
+            <strong>{formatCount(attentionRows.length)}</strong> filas priorizadas
+          </span>
+        </div>
 
-            <div className="sct-aging-section" style={{ marginTop: 20 }}>
-              <h4>Resumen operativo</h4>
-              <div className="sct-efficiency-phases">
-                <div className="sct-efficiency-phase">
-                  <span className="sct-efficiency-phase-label">Bloqueados</span>
-                  <span className="sct-efficiency-phase-value">{(analyticsOp.blocked_orders as number) ?? 0}</span>
-                </div>
-                <div className="sct-efficiency-phase">
-                  <span className="sct-efficiency-phase-label">Sin shipment</span>
-                  <span className="sct-efficiency-phase-value">{(analyticsOp.orders_without_shipment as number) ?? 0}</span>
-                </div>
-                <div className="sct-efficiency-phase">
-                  <span className="sct-efficiency-phase-label">Tracking parado</span>
-                  <span className="sct-efficiency-phase-value">{(analyticsOp.stalled_tracking_orders as number) ?? 0}</span>
-                </div>
-              </div>
-            </div>
+        {attentionRows.length > 0 ? (
+          <div className="exp-table-wrap">
+            <table className="exp-table">
+              <thead>
+                <tr>
+                  <th>Pedido</th>
+                  <th>Cliente</th>
+                  <th>Tienda</th>
+                  <th>Tracking</th>
+                  <th>Estado</th>
+                  <th>Último evento</th>
+                  <th>Actualización</th>
+                  <th>Riesgo</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {attentionRows.map((row) => (
+                  <AttentionRow
+                    basePath={orderBasePath}
+                    key={row.order_id}
+                    row={row}
+                    selectedShopId={selectedShopId}
+                  />
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      </Card>
-
-      {/* ═══ 7. OPERATIVE TABLE ═══ */}
-      <section className="sct-table-section">
-        <div className="sct-workbench">
-          <Card className="stack table-card sct-table-card">
-            <div className="table-header">
-              <div>
-                <span className="eyebrow">📋 Expediciones</span>
-                <h3 className="section-title section-title-small">Mesa de seguimiento</h3>
-              </div>
-              <div className="muted">Mostrando {filteredOrders.length} pedidos</div>
-            </div>
-
-            {filteredOrders.length === 0 ? (
-              <EmptyState title="Sin expediciones en esta vista" description="Ajusta rango, búsqueda o filtros para revisar otro bloque de pedidos." />
-            ) : (
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Pedido</th>
-                      <th>Tienda</th>
-                      <th>Cliente</th>
-                      <th>Tracking</th>
-                      <th>Estado envío</th>
-                      <th>Último evento</th>
-                      <th>Sin novedad</th>
-                      <th>Riesgo</th>
-                      <th>Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredOrders.map((order) => {
-                      const latest = getLatestTrackingEvent(order);
-                      const shipmentStatus = getShipmentStatus(order);
-                      const latestAt = latest?.occurred_at ?? order.shipment?.created_at ?? order.created_at;
-                      const trackingLink = order.shipment?.tracking_url;
-                      const risk = getAttentionReason(order);
-                      return (
-                        <tr className="table-row" id={buildShipmentRowAnchor(order.id)} key={order.id}>
-                          <td className="table-primary">{order.external_id}</td>
-                          <td>{shopMap.get(order.shop_id) ?? `Shop #${order.shop_id}`}</td>
-                          <td>
-                            <div className="table-primary">{order.customer_name}</div>
-                            <div className="table-secondary">{order.customer_email}</div>
-                          </td>
-                          <td>
-                            {order.shipment?.tracking_number ? (
-                              <div>
-                                {trackingLink ? (
-                                  <a className="table-link" href={trackingLink} rel="noreferrer" target="_blank">{order.shipment.tracking_number}</a>
-                                ) : (
-                                  <span className="table-primary">{order.shipment.tracking_number}</span>
-                                )}
-                                <div className="table-secondary">{normalizeCarrierName(order.shipment?.carrier)}</div>
-                              </div>
-                            ) : (
-                              <div>
-                                <span className="table-primary">Pendiente</span>
-                                <div className="table-secondary">{order.shipment ? "Sin tracking" : "Sin shipment"}</div>
-                              </div>
-                            )}
-                          </td>
-                          <td>
-                            <div className="orders-status-stack">
-                              <span className={getStatusBadgeClass(shipmentStatus.tone)}>{shipmentStatus.label}</span>
-                              {order.automation_flags.length > 0 ? (
-                                <div className="automation-flag-row">
-                                  {order.automation_flags.slice(0, 2).map((flag) => (
-                                    <AutomationFlagBadge flag={flag} key={`${order.id}-${flag.key}`} />
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                          </td>
-                          <td>
-                            <div className="table-primary">{latest ? formatTimelineLabel(latest.status_norm) : shipmentStatus.label}</div>
-                            <div className="table-secondary">{formatDateTime(latestAt)}</div>
-                          </td>
-                          <td>{formatHoursAsShort(hoursSince(latestAt))}</td>
-                          <td>
-                            {risk ? (
-                              <span className={`sct-risk-badge ${risk.includes("Incidencia") || risk.includes("Tracking") ? "is-danger" : "is-warning"}`}>
-                                {risk}
-                              </span>
-                            ) : (
-                              <span className="sct-risk-badge is-ok">OK</span>
-                            )}
-                          </td>
-                          <td>
-                            <Link
-                              className="button-secondary table-action"
-                              href={buildSelectedShipmentHref(order.id)}
-                            >
-                              Ver
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-
-          <Card className="stack sct-drawer">
-            {selectedOrder ? (
-              <>
-                <div className="table-header">
-                  <div>
-                    <span className="eyebrow">Detalle</span>
-                    <h3 className="section-title section-title-small">{selectedOrder.external_id}</h3>
-                  </div>
-                  <Link className="button-secondary table-action" href={buildScopedOrderHref(selectedOrder.id)}>
-                    Ver pedido
-                  </Link>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                  <div>
-                    <span className="sct-sync-label">Tracking CTT</span>
-                    <strong>{selectedOrder.shipment?.tracking_number || "Pendiente"}</strong>
-                  </div>
-                  <span className={getStatusBadgeClass(getShipmentStatus(selectedOrder).tone)}>
-                    {getShipmentStatus(selectedOrder).label}
-                  </span>
-                </div>
-
-                {selectedOrder.automation_flags.length > 0 ? (
-                  <div className="automation-flag-row">
-                    {selectedOrder.automation_flags.map((flag) => (
-                      <AutomationFlagBadge flag={flag} key={`${selectedOrder.id}-${flag.key}`} />
-                    ))}
-                  </div>
-                ) : null}
-
-                {selectedOrder.shipment?.tracking_url ? (
-                  <a className="table-link" href={selectedOrder.shipment.tracking_url} rel="noreferrer" target="_blank">
-                    Abrir seguimiento oficial de CTT
-                  </a>
-                ) : (
-                  <span className="table-secondary">Aún no hay enlace oficial de seguimiento.</span>
-                )}
-                {canAccessLabels && getOrderShipmentLabelUrl(selectedOrder) ? (
-                  <div className="orders-drawer-inline-links">
-                    <a className="table-link" href={getOrderShipmentLabelUrl(selectedOrder) ?? "#"} rel="noreferrer" target="_blank">
-                      Ver etiqueta PDF
-                    </a>
-                    <a className="table-link" download href={getOrderShipmentLabelUrl(selectedOrder, { download: true }) ?? "#"} rel="noreferrer" target="_blank">
-                      Descargar
-                    </a>
-                  </div>
-                ) : null}
-
-                <div className="status-summary-list">
-                  <div className="status-summary-row">
-                    <span>Carrier</span>
-                    <strong>{normalizeCarrierName(selectedOrder.shipment?.carrier)}</strong>
-                  </div>
-                  <div className="status-summary-row">
-                    <span>Última actualización</span>
-                    <strong>{formatDateTime(getLatestTrackingEvent(selectedOrder)?.occurred_at ?? selectedOrder.shipment?.created_at ?? selectedOrder.created_at)}</strong>
-                  </div>
-                  <div className="status-summary-row">
-                    <span>Estado pedido</span>
-                    <strong>{getOrderStateLabel(selectedOrder)}</strong>
-                  </div>
-                  <div className="status-summary-row">
-                    <span>Incidencia</span>
-                    <strong>{selectedOrder.has_open_incident ? "Abierta" : "Sin incidencia"}</strong>
-                  </div>
-                  <div className="status-summary-row">
-                    <span>Sync Shopify</span>
-                    <strong>
-                      {selectedOrder.shipment?.shopify_sync_status === "synced"
-                        ? `Sincronizado${selectedOrder.shipment.shopify_synced_at ? ` · ${formatDateTime(selectedOrder.shipment.shopify_synced_at)}` : ""}`
-                        : selectedOrder.shipment?.shopify_sync_status || "Pendiente"}
-                    </strong>
-                  </div>
-                </div>
-
-                <div className="shipments-control-timeline">
-                  {selectedOrder.shipment ? (
-                    getShipmentEvents(selectedOrder).length > 0 ? (
-                      getShipmentEvents(selectedOrder).map((event) => (
-                        <div className="shipments-control-timeline-row" key={event.id}>
-                          <span className="shipments-control-timeline-dot" />
-                          <div>
-                            <div className="table-primary">{formatTimelineLabel(event.status_norm)}</div>
-                            <div className="table-secondary">
-                              {formatDateTime(event.occurred_at)}
-                              {event.location ? ` · ${event.location}` : ""}
-                              {event.source ? ` · ${String(event.source).toUpperCase()}` : ""}
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="table-secondary">Shipment creado pero sin eventos sincronizados.</div>
-                    )
-                  ) : (
-                    <div className="table-secondary">Este pedido aún no tiene expedición creada.</div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <EmptyState title="Selecciona una expedición" description="Abre una fila de la mesa para ver tracking, timeline y detalle." />
-            )}
-          </Card>
-        </div>
-      </section>
+        ) : (
+          <div className="exp-table-empty">
+            <span>✅</span>
+            <p>No hay expediciones en riesgo en el periodo seleccionado.</p>
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function AttentionRow({
+  row,
+  basePath,
+  selectedShopId,
+}: {
+  row: AnalyticsAttentionShipment;
+  basePath: string;
+  selectedShopId?: string;
+}) {
+  const stageMeta = STATUS_META[row.current_stage] ?? STATUS_META.pending;
+  return (
+    <tr className="exp-table-row">
+      <td className="exp-table-id">{row.external_id}</td>
+      <td>
+        <div className="exp-table-primary">{row.customer_name}</div>
+      </td>
+      <td className="exp-table-muted">{row.shop_name}</td>
+      <td className="exp-table-mono">{row.tracking_number ?? "—"}</td>
+      <td>
+        <span className={`exp-stage-pill ${getStageBadgeModifier(row.current_stage)}`}>
+          {stageMeta.icon} {stageMeta.label}
+        </span>
+      </td>
+      <td className="exp-table-muted">{row.latest_event_label}</td>
+      <td>
+        <div className="exp-table-primary">
+          {row.hours_since_update !== null ? formatHoursAsShort(row.hours_since_update) : "—"}
+        </div>
+        <div className="exp-table-sub">{formatCompactDateTime(row.last_event_at)}</div>
+      </td>
+      <td>
+        <span className="exp-risk-pill">{row.risk_reason}</span>
+      </td>
+      <td>
+        <Link
+          className="button-secondary exp-table-action"
+          href={`${basePath}/${row.order_id}${selectedShopId ? `?shop_id=${selectedShopId}` : ""}`}
+        >
+          Abrir →
+        </Link>
+      </td>
+    </tr>
   );
 }

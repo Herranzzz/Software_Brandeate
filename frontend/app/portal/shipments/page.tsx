@@ -3,11 +3,9 @@ import {
   getDefaultShipmentDateRange,
   getShipmentDateRange,
   type ShipmentPeriod,
-  type ShipmentQuickFilter,
 } from "@/components/shared-shipments-view";
-import { fetchAnalyticsOverview, fetchOrders, fetchShopifyIntegrations } from "@/lib/api";
+import { fetchAnalyticsOverview, fetchShopifyIntegrations } from "@/lib/api";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
-import type { AnalyticsOverview } from "@/lib/types";
 import { resolveTenantScope } from "@/lib/tenant-scope";
 
 type PortalShipmentsPageProps = {
@@ -30,14 +28,9 @@ export default async function PortalShipmentsPage({ searchParams }: PortalShipme
   const defaults = period === "custom" ? getDefaultShipmentDateRange() : getShipmentDateRange(period);
   const dateFrom = readValue(params.date_from) ?? defaults.dateFrom;
   const dateTo = readValue(params.date_to) ?? defaults.dateTo;
-  const q = (readValue(params.q) ?? "").trim();
-  const quick = readValue(params.quick) ?? "all";
-  const perPage = Math.min(Math.max(Number(readValue(params.per_page) ?? "100") || 100, 1), 500);
   const tenantShopIds = tenantScope.shops.map((shop) => shop.id);
 
-  const [ordersResult, integrationsResult, analyticsResult] = await Promise.allSettled([
-    fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId, per_page: perPage } : { per_page: perPage })
-      .then(({ orders }) => orders),
+  const [integrationsResult, analyticsResult] = await Promise.allSettled([
     fetchShopifyIntegrations(),
     fetchAnalyticsOverview({
       date_from: dateFrom,
@@ -45,7 +38,6 @@ export default async function PortalShipmentsPage({ searchParams }: PortalShipme
       shop_id: tenantScope.selectedShopId,
     }),
   ]);
-  const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
   const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : null;
 
@@ -55,18 +47,13 @@ export default async function PortalShipmentsPage({ searchParams }: PortalShipme
       basePath="/portal/shipments"
       dateFrom={dateFrom}
       dateTo={dateTo}
-      detailBasePath="/portal/orders"
       heroEyebrow="Expediciones"
       integrations={integrations.filter((integration) => tenantShopIds.includes(integration.shop_id))}
-      orders={orders}
-      perPage={perPage}
       period={period}
-      q={q}
-      quick={quick as ShipmentQuickFilter}
       selectedShopId={tenantScope.selectedShopId}
       shops={tenantScope.shops}
-      subtitle="La misma vista de expediciones que en admin, limitada automáticamente a tu cuenta."
-      title="Expediciones"
+      subtitle="Visión global de la salud logística de tu cuenta: entrega, aging, incidencias y pedidos retrasados."
+      title="Analytics de expediciones"
     />
   );
 }

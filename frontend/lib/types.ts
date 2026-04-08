@@ -400,6 +400,9 @@ export type AnalyticsOperational = {
   delivered_in_sla_rate: number | null;
   blocked_orders: number;
   orders_without_shipment: number;
+  orders_without_tracking?: number;
+  prepared_not_collected_orders?: number;
+  outside_sla_orders?: number;
   stalled_tracking_orders: number;
   incident_rate: number | null;
   aging_buckets: AgingBuckets | null;
@@ -434,9 +437,17 @@ export type CarrierPerformance = {
 };
 
 export type AnalyticsShipping = {
+  pending_orders?: number;
+  prepared_orders?: number;
+  picked_up_orders?: number;
   in_transit_orders: number;
+  out_for_delivery_orders?: number;
   delivered_orders: number;
   exception_orders: number;
+  stalled_orders?: number;
+  without_tracking_orders?: number;
+  avg_transit_hours?: number | null;
+  avg_order_to_delivery_hours?: number | null;
   carrier_performance: CarrierPerformance[];
 };
 
@@ -453,6 +464,38 @@ export type AnalyticsBreakdownItem = {
   label: string;
   value: number;
   percentage: number | null;
+};
+
+export type AnalyticsShippingPerformancePoint = {
+  date: string;
+  created_shipments: number;
+  delivered_orders: number;
+  exception_orders: number;
+  on_time_delivery_rate: number | null;
+  avg_transit_hours: number | null;
+  avg_total_hours: number | null;
+};
+
+export type AnalyticsAttention = {
+  tracking_stalled: number;
+  without_shipment: number;
+  without_tracking: number;
+  carrier_exception: number;
+  outside_sla: number;
+  prepared_not_collected: number;
+};
+
+export type AnalyticsAttentionShipment = {
+  order_id: number;
+  external_id: string;
+  shop_name: string;
+  customer_name: string;
+  tracking_number: string | null;
+  current_stage: string;
+  latest_event_label: string;
+  last_event_at: string | null;
+  hours_since_update: number | null;
+  risk_reason: string;
 };
 
 export type AnalyticsTopShop = {
@@ -484,13 +527,19 @@ export type AnalyticsDelayedOrder = {
 export type AnalyticsFlow = {
   orders_received: number;
   orders_prepared: number;
+  orders_picked_up?: number;
   orders_in_transit: number;
+  orders_out_for_delivery?: number;
   orders_delivered: number;
   orders_exception: number;
   avg_order_to_label_hours: number | null;
   avg_label_to_transit_hours: number | null;
   avg_transit_to_delivery_hours: number | null;
   avg_total_hours: number | null;
+  avg_order_to_prepared_hours?: number | null;
+  avg_prepared_to_picked_up_hours?: number | null;
+  avg_picked_up_to_delivered_hours?: number | null;
+  avg_order_to_delivered_hours?: number | null;
 };
 
 export type AnalyticsOverview = {
@@ -513,11 +562,15 @@ export type AnalyticsOverview = {
     incidents_by_type: AnalyticsBreakdownItem[];
     carrier_performance: AnalyticsBreakdownItem[];
   };
+  shipping_status_distribution?: AnalyticsBreakdownItem[];
+  shipping_performance_by_day?: AnalyticsShippingPerformancePoint[];
+  attention?: AnalyticsAttention;
   rankings: {
     top_shops: AnalyticsTopShop[];
     top_skus: AnalyticsTopSku[];
     top_incidents: AnalyticsBreakdownItem[];
     delayed_orders: AnalyticsDelayedOrder[];
+    attention_shipments?: AnalyticsAttentionShipment[];
   };
 };
 

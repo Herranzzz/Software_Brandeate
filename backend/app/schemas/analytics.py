@@ -44,6 +44,9 @@ class AnalyticsOperationalMetricsRead(BaseModel):
     delivered_in_sla_rate: float | None
     blocked_orders: int
     orders_without_shipment: int
+    orders_without_tracking: int = 0
+    prepared_not_collected_orders: int = 0
+    outside_sla_orders: int = 0
     stalled_tracking_orders: int
     incident_rate: float | None
     aging_buckets: AgingBucketsRead | None = None
@@ -71,10 +74,18 @@ class CarrierPerformanceRead(BaseModel):
 
 
 class AnalyticsShippingMetricsRead(BaseModel):
+    pending_orders: int = 0
+    prepared_orders: int = 0
+    picked_up_orders: int = 0
     in_transit_orders: int
+    out_for_delivery_orders: int = 0
     delivered_orders: int
     exception_orders: int
-    carrier_performance: list[CarrierPerformanceRead]
+    stalled_orders: int = 0
+    without_tracking_orders: int = 0
+    avg_transit_hours: float | None = None
+    avg_order_to_delivery_hours: float | None = None
+    carrier_performance: list[CarrierPerformanceRead] = []
 
 
 class AnalyticsSeriesPointRead(BaseModel):
@@ -90,6 +101,38 @@ class AnalyticsBreakdownItemRead(BaseModel):
     label: str
     value: int
     percentage: float | None = None
+
+
+class AnalyticsShippingPerformancePointRead(BaseModel):
+    date: str
+    created_shipments: int = 0
+    delivered_orders: int = 0
+    exception_orders: int = 0
+    on_time_delivery_rate: float | None = None
+    avg_transit_hours: float | None = None
+    avg_total_hours: float | None = None
+
+
+class AnalyticsAttentionMetricsRead(BaseModel):
+    tracking_stalled: int = 0
+    without_shipment: int = 0
+    without_tracking: int = 0
+    carrier_exception: int = 0
+    outside_sla: int = 0
+    prepared_not_collected: int = 0
+
+
+class AnalyticsAttentionShipmentRead(BaseModel):
+    order_id: int
+    external_id: str
+    shop_name: str
+    customer_name: str
+    tracking_number: str | None = None
+    current_stage: str
+    latest_event_label: str
+    last_event_at: datetime | None = None
+    hours_since_update: float | None = None
+    risk_reason: str
 
 
 class AnalyticsTopShopRead(BaseModel):
@@ -123,6 +166,7 @@ class AnalyticsRankingsRead(BaseModel):
     top_skus: list[AnalyticsTopSkuRead]
     top_incidents: list[AnalyticsBreakdownItemRead]
     delayed_orders: list[AnalyticsDelayedOrderRead]
+    attention_shipments: list[AnalyticsAttentionShipmentRead] = []
 
 
 class AnalyticsScopeRead(BaseModel):
@@ -134,13 +178,19 @@ class AnalyticsScopeRead(BaseModel):
 class AnalyticsFlowRead(BaseModel):
     orders_received: int
     orders_prepared: int
+    orders_picked_up: int = 0
     orders_in_transit: int
+    orders_out_for_delivery: int = 0
     orders_delivered: int
     orders_exception: int
     avg_order_to_label_hours: float | None
     avg_label_to_transit_hours: float | None
     avg_transit_to_delivery_hours: float | None
     avg_total_hours: float | None
+    avg_order_to_prepared_hours: float | None = None
+    avg_prepared_to_picked_up_hours: float | None = None
+    avg_picked_up_to_delivered_hours: float | None = None
+    avg_order_to_delivered_hours: float | None = None
 
 
 class AnalyticsOverviewRead(BaseModel):
@@ -151,5 +201,8 @@ class AnalyticsOverviewRead(BaseModel):
     personalization: AnalyticsPersonalizationMetricsRead
     shipping: AnalyticsShippingMetricsRead
     charts: dict[str, list[AnalyticsBreakdownItemRead] | list[AnalyticsSeriesPointRead]]
+    shipping_status_distribution: list[AnalyticsBreakdownItemRead] = []
+    shipping_performance_by_day: list[AnalyticsShippingPerformancePointRead] = []
+    attention: AnalyticsAttentionMetricsRead = AnalyticsAttentionMetricsRead()
     rankings: AnalyticsRankingsRead
     flow: AnalyticsFlowRead

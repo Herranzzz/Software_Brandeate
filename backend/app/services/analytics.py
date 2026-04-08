@@ -16,6 +16,7 @@ UTC = timezone.utc
 SENT_SLA_HOURS = 48
 DELIVERED_SLA_HOURS = 72
 TRACKING_STALLED_HOURS = 72
+PREPARED_NOT_COLLECTED_HOURS = 24
 
 
 @dataclass(slots=True)
@@ -88,6 +89,101 @@ def _delivered_event(shipment: Shipment | None) -> TrackingEvent | None:
     if not delivered_events:
         return None
     return max(delivered_events, key=lambda event: (_as_utc(event.occurred_at), event.id))
+
+
+def _first_real_carrier_event(shipment: Shipment | None) -> TrackingEvent | None:
+    if shipment is None:
+        return None
+    carrier_events = [
+        event
+        for event in shipment.events
+        if _safe_text(event.status_norm, "").lower() not in {"", "label_created"}
+    ]
+    if not carrier_events:
+        return None
+    return min(carrier_events, key=lambda event: (_as_utc(event.occurred_at), event.id))
+
+
+def _latest_status_norm(shipment: Shipment | None) -> str:
+    return _safe_text(_latest_event(shipment).status_norm if _latest_event(shipment) else "", "").lower()
+
+
+def _has_shipping_exception(order: Order) -> bool:
+    if _enum_value(order.status) == "exception":
+        return True
+    latest_norm = _latest_status_norm(order.shipment)
+    if latest_norm == "exception":
+        return True
+    return any(
+        _enum_value(incident.status) != IncidentStatus.resolved.value
+        and _safe_text(_enum_value(incident.type), "").lower() == "shipping_exception"
+        for incident in order.incidents
+    )
+
+
+def _shipment_stage(order: Order) -> str:
+    if _has_shipping_exception(order):
+        return "exception"
+    if order.shipment is None:
+        return "pending"
+    latest_norm = _latest_status_norm(order.shipment)
+    if latest_norm == "delivered":
+        return "delivered"
+    if latest_norm == "out_for_delivery":
+        return "out_for_delivery"
+    if latest_norm == "in_transit":
+        return "in_transit"
+    if _first_real_carrier_event(order.shipment) is not None:
+        return "picked_up"
+    return "prepared"
+
+
+def _is_without_tracking(order: Order) -> bool:
+    if order.shipment is None:
+        return False
+    tracking_number = _safe_text(order.shipment.tracking_number, "")
+    return not tracking_number or len(order.shipment.events or []) == 0
+
+
+def _is_prepared_not_collected(order: Order, reference_time: datetime) -> bool:
+    if order.shipment is None:
+        return False
+    if _first_real_carrier_event(order.shipment) is not None:
+        return False
+    created_at = _as_utc(order.shipment.created_at)
+    if created_at is None:
+        return False
+    return (reference_time - created_at) >= timedelta(hours=PREPARED_NOT_COLLECTED_HOURS)
+
+
+def _is_outside_delivery_sla(order: Order, reference_time: datetime) -> bool:
+    delivered_event = _delivered_event(order.shipment)
+    end_time = delivered_event.occurred_at if delivered_event else reference_time
+    elapsed = _hours_between(order.created_at, end_time)
+    if elapsed is None:
+        return False
+    return elapsed > DELIVERED_SLA_HOURS
+
+
+def _stage_label(stage: str) -> str:
+    return {
+        "pending": "Pendiente",
+        "prepared": "Preparado",
+        "picked_up": "Recogido",
+        "in_transit": "En tránsito",
+        "out_for_delivery": "En reparto",
+        "delivered": "Entregado",
+        "exception": "Incidencia",
+    }.get(stage, "Pendiente")
+
+
+def _latest_event_label(order: Order) -> str:
+    latest_norm = _latest_status_norm(order.shipment)
+    if latest_norm:
+        return _stage_label(_shipment_stage(order))
+    if order.shipment is not None:
+        return "Etiqueta creada"
+    return "Sin shipment"
 
 
 def _has_design_link(order: Order) -> bool:
@@ -232,6 +328,9 @@ def build_analytics_overview(
     ]
     blocked_orders = [order for order in orders if _is_blocked(order)]
     orders_without_shipment = [order for order in orders if order.shipment is None]
+    orders_without_tracking = [order for order in orders if _is_without_tracking(order)]
+    prepared_not_collected_orders = [order for order in orders if _is_prepared_not_collected(order, now)]
+    outside_sla_orders = [order for order in orders if _is_outside_delivery_sla(order, now)]
     stalled_tracking_orders = [order for order in orders if _is_tracking_stalled(order, now)]
 
     created_today = [order for order in orders if (_as_utc(order.created_at) or now).date().isoformat() == today_key]
@@ -239,7 +338,16 @@ def build_analytics_overview(
     created_this_month = [order for order in orders if (_as_utc(order.created_at) or now).date() >= month_start]
 
     shipped_orders = [order for order in orders if _enum_value(order.status) == "shipped"]
-    delivered_orders = [order for order in orders if _enum_value(order.status) == "delivered"]
+    stage_buckets: dict[str, list[Order]] = defaultdict(list)
+    for order in orders:
+        stage_buckets[_shipment_stage(order)].append(order)
+    pending_orders = stage_buckets["pending"]
+    prepared_orders = stage_buckets["prepared"]
+    picked_up_orders = stage_buckets["picked_up"]
+    in_transit_orders = stage_buckets["in_transit"]
+    out_for_delivery_orders = stage_buckets["out_for_delivery"]
+    delivered_orders = stage_buckets["delivered"]
+    exception_orders = stage_buckets["exception"]
 
     sent_sla_hours = [
         hours
@@ -271,24 +379,18 @@ def build_analytics_overview(
     design_link_available_orders = [order for order in personalized_orders if _has_design_link(order)]
     personalized_blocked_orders = [order for order in personalized_orders if _is_blocked(order)]
 
-    in_transit_orders = [
-        order
-        for order in orders
-        if (latest := _latest_event(order.shipment)) is not None
-        and _safe_text(latest.status_norm, "").lower() in {"label_created", "in_transit", "out_for_delivery", "pickup_available"}
-    ]
-    exception_orders = [
-        order
-        for order in orders
-        if _enum_value(order.status) == "exception"
-        or ((latest := _latest_event(order.shipment)) is not None and _safe_text(latest.status_norm, "").lower() == "exception")
-    ]
-
     # Flow metrics
     orders_with_shipment = [o for o in orders if o.shipment is not None]
 
     first_transit_times = []
+    first_pickup_times = []
+    pickup_to_delivery_times = []
     for order in orders_with_shipment:
+        first_pickup = _first_real_carrier_event(order.shipment)
+        if first_pickup is not None:
+            hours = _hours_between(order.shipment.created_at, first_pickup.occurred_at)
+            if hours is not None and hours >= 0:
+                first_pickup_times.append(hours)
         transit_events = [
             e for e in (order.shipment.events or [])
             if _safe_text(e.status_norm, "").lower() in {"in_transit", "out_for_delivery"}
@@ -298,6 +400,11 @@ def build_analytics_overview(
             hours = _hours_between(order.shipment.created_at, first_transit.occurred_at)
             if hours is not None and hours >= 0:
                 first_transit_times.append(hours)
+        delivered_ev = _delivered_event(order.shipment)
+        if first_pickup is not None and delivered_ev is not None:
+            hours = _hours_between(first_pickup.occurred_at, delivered_ev.occurred_at)
+            if hours is not None and hours >= 0:
+                pickup_to_delivery_times.append(hours)
 
     total_hours_list = []
     for order in orders:
@@ -307,8 +414,20 @@ def build_analytics_overview(
             total_hours_list.append(hours)
 
     orders_by_day_counter: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "personalized": 0, "standard": 0, "delivered": 0, "exception": 0})
+    shipping_performance_by_day: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "created_shipments": 0,
+            "delivered_orders": 0,
+            "exception_orders": 0,
+            "on_time_hits": 0,
+            "on_time_total": 0,
+            "avg_transit_hours": [],
+            "avg_total_hours": [],
+        }
+    )
     aging_buckets = {"bucket_0_24": 0, "bucket_24_48": 0, "bucket_48_72": 0, "bucket_72_plus": 0}
     status_counter: Counter[str] = Counter()
+    shipping_status_counter: Counter[str] = Counter()
     shop_counter: Counter[tuple[int, str]] = Counter()
     incident_type_counter: Counter[str] = Counter()
     personalized_breakdown = {
@@ -324,6 +443,7 @@ def build_analytics_overview(
         lambda: {"orders": 0, "personalized_orders": 0, "delivered_orders": 0}
     )
     delayed_orders: list[dict[str, Any]] = []
+    attention_shipments: list[dict[str, Any]] = []
 
     for order in orders:
         created_at = _as_utc(order.created_at)
@@ -354,15 +474,40 @@ def build_analytics_overview(
                 else:
                     aging_buckets["bucket_72_plus"] += 1
 
+        if order.shipment and (shipment_created_at := _as_utc(order.shipment.created_at)) is not None:
+            shipping_performance_by_day[shipment_created_at.date().isoformat()]["created_shipments"] += 1
+
+        delivered_event = _delivered_event(order.shipment)
+        transit_hours = _hours_between(order.shipment.created_at if order.shipment else None, delivered_event.occurred_at if delivered_event else None)
+        total_delivery_hours = _hours_between(order.created_at, delivered_event.occurred_at if delivered_event else None)
+        if delivered_event is not None:
+            delivery_day = _as_utc(delivered_event.occurred_at)
+            delivery_key = delivery_day.date().isoformat() if delivery_day else date_key
+            shipping_performance_by_day[delivery_key]["delivered_orders"] += 1
+            shipping_performance_by_day[delivery_key]["on_time_total"] += 1
+            if total_delivery_hours is not None and total_delivery_hours <= DELIVERED_SLA_HOURS:
+                shipping_performance_by_day[delivery_key]["on_time_hits"] += 1
+            if transit_hours is not None:
+                shipping_performance_by_day[delivery_key]["avg_transit_hours"].append(transit_hours)
+            if total_delivery_hours is not None:
+                shipping_performance_by_day[delivery_key]["avg_total_hours"].append(total_delivery_hours)
+
+        if _has_shipping_exception(order):
+            reference_exception_at = _as_utc((_latest_event(order.shipment).occurred_at if _latest_event(order.shipment) else order.created_at))
+            exception_key = reference_exception_at.date().isoformat() if reference_exception_at else date_key
+            shipping_performance_by_day[exception_key]["exception_orders"] += 1
+
         # Use fine-grained tracking status for shipped orders when available
         effective_status = _effective_tracking_status(order, order_status_val)
         status_counter[effective_status] += 1
+        shipping_stage = _shipment_stage(order)
+        shipping_status_counter[shipping_stage] += 1
         shop_key = (order.shop_id, _safe_text(order.shop.name if order.shop else None, f"Shop #{order.shop_id}"))
         shop_counter[shop_key] += 1
         top_shop_buckets[shop_key]["orders"] += 1
         if order.is_personalized:
             top_shop_buckets[shop_key]["personalized_orders"] += 1
-        if _enum_value(order.status) == "delivered":
+        if shipping_stage == "delivered":
             top_shop_buckets[shop_key]["delivered_orders"] += 1
 
         for incident in order.incidents:
@@ -389,11 +534,22 @@ def build_analytics_overview(
         age_hours = _hours_between(order.created_at, now) or 0.0
         if order.shipment is None and age_hours >= SENT_SLA_HOURS:
             reasons.append("Sin shipment")
+        if _is_without_tracking(order):
+            reasons.append("Sin tracking")
+        if _is_prepared_not_collected(order, now):
+            reasons.append("Preparado sin recogida")
         if _is_tracking_stalled(order, now):
             reasons.append("Tracking parado")
-        if _is_blocked(order):
+        if _has_shipping_exception(order):
+            reasons.append("Excepción carrier")
+        if _is_outside_delivery_sla(order, now):
+            reasons.append("Fuera de SLA")
+        if _is_blocked(order) and not _has_shipping_exception(order):
             reasons.append("Incidencia abierta")
         if reasons:
+            latest_event = _latest_event(order.shipment)
+            last_event_at = _as_utc(latest_event.occurred_at if latest_event else (order.shipment.created_at if order.shipment else order.created_at))
+            hours_since_update = _hours_between(last_event_at, now) if last_event_at is not None else None
             delayed_orders.append(
                 {
                     "order_id": order.id,
@@ -406,6 +562,27 @@ def build_analytics_overview(
                     "reason": " · ".join(reasons),
                 }
             )
+            attention_shipments.append(
+                {
+                    "order_id": order.id,
+                    "external_id": _safe_text(order.external_id, f"Pedido #{order.id}"),
+                    "shop_name": _safe_text(order.shop.name if order.shop else None, f"Shop #{order.shop_id}"),
+                    "customer_name": _safe_text(order.customer_name, "Sin cliente"),
+                    "tracking_number": _safe_text(order.shipment.tracking_number if order.shipment else None, "") or None,
+                    "current_stage": shipping_stage,
+                    "latest_event_label": _latest_event_label(order),
+                    "last_event_at": last_event_at,
+                    "hours_since_update": round(hours_since_update, 1) if hours_since_update is not None else None,
+                    "risk_reason": " · ".join(reasons),
+                    "_score": (30 if "Fuera de SLA" in reasons else 0)
+                    + (24 if "Excepción carrier" in reasons else 0)
+                    + (18 if "Tracking parado" in reasons else 0)
+                    + (14 if "Preparado sin recogida" in reasons else 0)
+                    + (10 if "Sin tracking" in reasons else 0)
+                    + (8 if "Sin shipment" in reasons else 0)
+                    + int(min(age_hours, 240)),
+                }
+            )
 
     carrier_performance = [
         {
@@ -416,6 +593,38 @@ def build_analytics_overview(
             "incident_rate": _percentage(data["incident_orders"], data["shipments"]),
         }
         for carrier, data in sorted(carrier_buckets.items(), key=lambda item: (-item[1]["shipments"], _safe_text(item[0], "").lower()))
+    ]
+
+    shipping_status_distribution = [
+        {
+            "label": label,
+            "value": value,
+            "percentage": _percentage(value, total_orders),
+        }
+        for label, value in (
+            ("pending", len(pending_orders)),
+            ("prepared", len(prepared_orders)),
+            ("picked_up", len(picked_up_orders)),
+            ("in_transit", len(in_transit_orders)),
+            ("out_for_delivery", len(out_for_delivery_orders)),
+            ("delivered", len(delivered_orders)),
+            ("exception", len(exception_orders)),
+            ("stalled", len(stalled_tracking_orders)),
+        )
+        if value > 0
+    ]
+
+    shipping_performance_series = [
+        {
+            "date": date_key,
+            "created_shipments": values["created_shipments"],
+            "delivered_orders": values["delivered_orders"],
+            "exception_orders": values["exception_orders"],
+            "on_time_delivery_rate": _percentage(values["on_time_hits"], values["on_time_total"]),
+            "avg_transit_hours": round(mean(values["avg_transit_hours"]), 1) if values["avg_transit_hours"] else None,
+            "avg_total_hours": round(mean(values["avg_total_hours"]), 1) if values["avg_total_hours"] else None,
+        }
+        for date_key, values in sorted(shipping_performance_by_day.items())
     ]
 
     charts = {
@@ -507,6 +716,13 @@ def build_analytics_overview(
             for label, value in incident_type_counter.most_common(10)
         ],
         "delayed_orders": sorted(delayed_orders, key=lambda item: (-item["age_hours"], item["external_id"]))[:10],
+        "attention_shipments": [
+            {key: value for key, value in item.items() if key != "_score"}
+            for item in sorted(
+                attention_shipments,
+                key=lambda item: (-item["_score"], -(item["hours_since_update"] or 0), item["external_id"]),
+            )[:18]
+        ],
     }
 
     return {
@@ -545,6 +761,9 @@ def build_analytics_overview(
             "delivered_in_sla_rate": _percentage(sum(1 for hours in delivery_hours if hours <= DELIVERED_SLA_HOURS), len(delivery_hours)),
             "blocked_orders": len(blocked_orders),
             "orders_without_shipment": len(orders_without_shipment),
+            "orders_without_tracking": len(orders_without_tracking),
+            "prepared_not_collected_orders": len(prepared_not_collected_orders),
+            "outside_sla_orders": len(outside_sla_orders),
             "stalled_tracking_orders": len(stalled_tracking_orders),
             "incident_rate": _percentage(len({incident.order_id for incident in open_incidents}), total_orders),
             "aging_buckets": aging_buckets,
@@ -562,22 +781,46 @@ def build_analytics_overview(
             "avg_personalized_preparation_hours": round(mean(personalized_prep_hours), 1) if personalized_prep_hours else None,
         },
         "shipping": {
+            "pending_orders": len(pending_orders),
+            "prepared_orders": len(prepared_orders),
+            "picked_up_orders": len(picked_up_orders),
             "in_transit_orders": len(in_transit_orders),
+            "out_for_delivery_orders": len(out_for_delivery_orders),
             "delivered_orders": len(delivered_orders),
             "exception_orders": len(exception_orders),
+            "stalled_orders": len(stalled_tracking_orders),
+            "without_tracking_orders": len(orders_without_tracking),
+            "avg_transit_hours": round(mean(pickup_to_delivery_times), 1) if pickup_to_delivery_times else None,
+            "avg_order_to_delivery_hours": round(mean(total_hours_list), 1) if total_hours_list else None,
             "carrier_performance": carrier_performance,
         },
         "charts": charts,
+        "shipping_status_distribution": shipping_status_distribution,
+        "shipping_performance_by_day": shipping_performance_series,
+        "attention": {
+            "tracking_stalled": len(stalled_tracking_orders),
+            "without_shipment": len(orders_without_shipment),
+            "without_tracking": len(orders_without_tracking),
+            "carrier_exception": len(exception_orders),
+            "outside_sla": len(outside_sla_orders),
+            "prepared_not_collected": len(prepared_not_collected_orders),
+        },
         "rankings": rankings,
         "flow": {
             "orders_received": total_orders,
-            "orders_prepared": len(orders_with_shipment),
+            "orders_prepared": len(prepared_orders),
+            "orders_picked_up": len(picked_up_orders),
             "orders_in_transit": len(in_transit_orders),
+            "orders_out_for_delivery": len(out_for_delivery_orders),
             "orders_delivered": len(delivered_orders),
             "orders_exception": len(exception_orders),
             "avg_order_to_label_hours": round(mean(sent_sla_hours), 1) if sent_sla_hours else None,
             "avg_label_to_transit_hours": round(mean(first_transit_times), 1) if first_transit_times else None,
             "avg_transit_to_delivery_hours": round(mean(delivery_hours), 1) if delivery_hours else None,
             "avg_total_hours": round(mean(total_hours_list), 1) if total_hours_list else None,
+            "avg_order_to_prepared_hours": round(mean(sent_sla_hours), 1) if sent_sla_hours else None,
+            "avg_prepared_to_picked_up_hours": round(mean(first_pickup_times), 1) if first_pickup_times else None,
+            "avg_picked_up_to_delivered_hours": round(mean(pickup_to_delivery_times), 1) if pickup_to_delivery_times else None,
+            "avg_order_to_delivered_hours": round(mean(total_hours_list), 1) if total_hours_list else None,
         },
     }
