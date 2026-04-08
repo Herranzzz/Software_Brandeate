@@ -8,64 +8,150 @@ import type { Order } from "@/lib/types";
 
 
 type Phase = "confirm" | "loading" | "done" | "error";
+type JobStatus = "queued" | "running" | "done" | "failed";
 
 type BulkDesignDownloadModalProps = {
   orders: Order[];
   onClose: () => void;
 };
 
+type BulkDownloadJobState = {
+  job_id: string;
+  status: JobStatus;
+  progress_total: number;
+  progress_done: number;
+  ok_count: number;
+  failed_count: number;
+  no_design_count: number;
+  error?: string | null;
+  ready?: boolean;
+};
+
+type BulkDownloadUrlResponse = {
+  token: string;
+  expires_at: number;
+  download_path: string;
+  job_id: string;
+};
+
+const POLL_INTERVAL_MS = 1200;
+const POLL_TIMEOUT_MS = 12 * 60 * 1000;
+
+
+async function readErrorDetail(response: Response, fallback: string) {
+  const text = (await response.text()).trim();
+  if (!text) return fallback;
+  try {
+    const payload = JSON.parse(text) as { detail?: unknown };
+    if (typeof payload.detail === "string" && payload.detail.trim()) {
+      return payload.detail.trim();
+    }
+    if (payload.detail !== undefined) {
+      return String(payload.detail);
+    }
+  } catch {
+    // plain text error
+  }
+  return text || fallback;
+}
+
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
 export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadModalProps) {
   const [phase, setPhase] = useState<Phase>("confirm");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatus>("queued");
+  const [jobId, setJobId] = useState<string | null>(null);
   const [downloadedCount, setDownloadedCount] = useState(0);
   const [totalWithDesign, setTotalWithDesign] = useState(0);
   const [failedCount, setFailedCount] = useState(0);
+  const [noDesignCount, setNoDesignCount] = useState(0);
+  const [progressDone, setProgressDone] = useState(0);
+  const [progressTotal, setProgressTotal] = useState(0);
 
-  // Quick client-side pre-check: how many orders have a detectable design
   const ordersWithDesign = orders.filter((o) =>
     o.items.some((item) => getItemPrimaryAsset(item) !== null || item.design_link),
   );
   const ordersWithoutDesign = orders.length - ordersWithDesign.length;
 
+  function syncStateFromJob(job: BulkDownloadJobState) {
+    setJobStatus(job.status);
+    setJobId(job.job_id);
+    setProgressTotal(Number(job.progress_total || 0));
+    setProgressDone(Number(job.progress_done || 0));
+    setDownloadedCount(Number(job.ok_count || 0));
+    setFailedCount(Number(job.failed_count || 0));
+    setNoDesignCount(Number(job.no_design_count || 0));
+    if (Number(job.progress_total || 0) > 0) {
+      setTotalWithDesign(Number(job.progress_total || 0));
+    }
+  }
+
   async function handleDownload() {
     setPhase("loading");
     setErrorMsg(null);
+    setJobStatus("queued");
+    setDownloadedCount(0);
+    setFailedCount(0);
+    setNoDesignCount(0);
+    setProgressDone(0);
+    setProgressTotal(0);
+    setTotalWithDesign(ordersWithDesign.length);
 
     try {
-      const response = await fetch("/api/orders/bulk/download-designs", {
+      const createResponse = await fetch("/api/orders/bulk/download-designs/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ order_ids: orders.map((o) => o.id) }),
       });
-
-      if (!response.ok) {
-        const text = await response.text();
-        let detail = "Error al generar la descarga de diseños.";
-        try {
-          const json = JSON.parse(text) as { detail?: string };
-          if (json.detail) detail = json.detail;
-        } catch {
-          // non-JSON error body
-        }
-        throw new Error(detail);
+      if (!createResponse.ok) {
+        throw new Error(await readErrorDetail(createResponse, "No se pudo iniciar la descarga de diseños."));
       }
 
-      const okCount = Number(response.headers.get("X-Design-Results") ?? "0");
-      const failures = Number(response.headers.get("X-Design-Failures") ?? "0");
-      setDownloadedCount(okCount);
-      setTotalWithDesign(ordersWithDesign.length);
-      setFailedCount(failures);
+      let currentJob = (await createResponse.json()) as BulkDownloadJobState;
+      syncStateFromJob(currentJob);
 
-      // Trigger browser download
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
+      const deadlineAt = Date.now() + POLL_TIMEOUT_MS;
+      while (currentJob.status !== "done") {
+        if (currentJob.status === "failed") {
+          throw new Error(currentJob.error || "La descarga de diseños falló durante el procesamiento.");
+        }
+        if (Date.now() > deadlineAt) {
+          throw new Error("La descarga tardó demasiado. Inténtalo de nuevo en unos segundos.");
+        }
+
+        await sleep(POLL_INTERVAL_MS);
+        const statusResponse = await fetch(`/api/orders/bulk/download-designs/jobs/${currentJob.job_id}`, {
+          cache: "no-store",
+        });
+        if (!statusResponse.ok) {
+          throw new Error(await readErrorDetail(statusResponse, "No se pudo consultar el progreso de la descarga."));
+        }
+        currentJob = (await statusResponse.json()) as BulkDownloadJobState;
+        syncStateFromJob(currentJob);
+      }
+
+      const downloadUrlResponse = await fetch(
+        `/api/orders/bulk/download-designs/jobs/${currentJob.job_id}/download-url`,
+        { method: "POST" },
+      );
+      if (!downloadUrlResponse.ok) {
+        throw new Error(await readErrorDetail(downloadUrlResponse, "No se pudo generar la URL de descarga."));
+      }
+      const downloadMeta = (await downloadUrlResponse.json()) as BulkDownloadUrlResponse;
+
+      const token = encodeURIComponent(downloadMeta.token);
+      const downloadHref = `/api/orders/bulk/download-designs/jobs/${currentJob.job_id}/download?token=${token}`;
       const anchor = document.createElement("a");
-      anchor.href = blobUrl;
+      anchor.href = downloadHref;
       anchor.download = "diseños-bulk.zip";
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
 
       setPhase("done");
     } catch (err) {
@@ -75,6 +161,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
   }
 
   const isLoading = phase === "loading";
+  const progressPct = progressTotal > 0 ? Math.max(0, Math.min(100, Math.round((progressDone / progressTotal) * 100))) : 0;
 
   return (
     <AppModal
@@ -145,7 +232,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
               ) : null}
             </div>
             <div className="table-secondary">
-              El servidor descargará cada diseño y generará el ZIP. Puede tardar unos segundos dependiendo del número de archivos.
+              El servidor preparará la descarga en segundo plano y te avisará en cuanto el ZIP esté listo.
             </div>
           </>
         ) : null}
@@ -153,10 +240,27 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
         {phase === "loading" ? (
           <div className="bulk-label-loading">
             <div className="bulk-label-spinner" aria-hidden="true" />
-            <div>
-              <div className="table-primary">Generando ZIP de diseños...</div>
-              <div className="table-secondary">
-                Descargando y empaquetando {ordersWithDesign.length} diseño{ordersWithDesign.length !== 1 ? "s" : ""}. No cierres esta ventana.
+            <div className="stack">
+              <div>
+                <div className="table-primary">Generando ZIP de diseños...</div>
+                <div className="table-secondary">
+                  Estado: <strong>{jobStatus}</strong> {jobId ? <>· Job <code>{jobId.slice(0, 8)}</code></> : null}
+                </div>
+              </div>
+
+              <div className="bulk-design-progress">
+                <div className="bulk-design-progress-meta">
+                  <span>{progressDone}/{progressTotal || totalWithDesign || 0} procesados</span>
+                  <strong>{progressPct}%</strong>
+                </div>
+                <div className="bulk-design-progress-track">
+                  <div className="bulk-design-progress-fill" style={{ width: `${progressPct}%` }} />
+                </div>
+                <div className="bulk-design-progress-counters">
+                  <span>OK: {downloadedCount}</span>
+                  <span>Fallidos: {failedCount}</span>
+                  <span>Sin diseño: {noDesignCount}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -165,12 +269,9 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
         {phase === "done" ? (
           <div className="stack">
             <div className="feedback feedback-success">
-              ✅ ZIP descargado con <strong>{downloadedCount}</strong> diseño{downloadedCount !== 1 ? "s" : ""}.
-              {failedCount > 0 ? (
-                <> {failedCount} no pudieron descargarse (URL inaccesible, timeout o archivo remoto caído).</>
-              ) : totalWithDesign > downloadedCount ? (
-                <> {totalWithDesign - downloadedCount} no pudieron descargarse.</>
-              ) : null}
+              ZIP descargado con <strong>{downloadedCount}</strong> diseño{downloadedCount !== 1 ? "s" : ""}.
+              {failedCount > 0 ? <> {failedCount} no pudieron descargarse por error remoto o timeout.</> : null}
+              {noDesignCount > 0 ? <> {noDesignCount} se omitieron por no tener diseño visible.</> : null}
             </div>
             <div className="table-secondary">
               Revisa la carpeta de descargas de tu navegador para encontrar el archivo <code>diseños-bulk.zip</code>.

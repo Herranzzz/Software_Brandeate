@@ -2,11 +2,12 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, resolve_shop_scope
-from app.models import Incident, IncidentPriority, IncidentStatus, IncidentType, Order, User
+from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, require_admin_user, resolve_shop_scope
+from app.models import Incident, IncidentPriority, IncidentStatus, IncidentType, Order, Shipment, User
 from app.schemas.incident import IncidentCreate, IncidentRead, IncidentUpdate
+from app.services.automation_rules import evaluate_order_automation_rules
 
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -61,6 +62,56 @@ def list_incidents(
         query = query.join(Incident.order).where(Order.shop_id.in_(scoped_shop_ids))
 
     return list(db.scalars(query))
+
+
+@router.post("/reconcile", status_code=status.HTTP_200_OK)
+def reconcile_automated_incidents(
+    shop_id: int | None = None,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    _admin_user: User = Depends(require_admin_user),
+) -> dict:
+    scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
+    query = (
+        select(Order)
+        .options(
+            selectinload(Order.items),
+            selectinload(Order.shipment).selectinload(Shipment.events),
+            selectinload(Order.incidents),
+        )
+        .join(Order.incidents)
+        .where(
+            Incident.is_automated.is_(True),
+            Incident.status != IncidentStatus.resolved,
+        )
+        .order_by(Order.id.asc())
+        .distinct()
+    )
+    if scoped_shop_ids is not None:
+        query = query.where(Order.shop_id.in_(scoped_shop_ids))
+
+    orders = list(db.scalars(query))
+    open_before = sum(
+        1
+        for order in orders
+        for incident in order.incidents
+        if incident.is_automated and incident.status != IncidentStatus.resolved
+    )
+    for order in orders:
+        evaluate_order_automation_rules(db=db, order=order, source="incident_reconcile")
+    db.commit()
+    open_after = sum(
+        1
+        for order in orders
+        for incident in order.incidents
+        if incident.is_automated and incident.status != IncidentStatus.resolved
+    )
+    return {
+        "orders_rechecked": len(orders),
+        "automated_open_before": open_before,
+        "automated_open_after": open_after,
+        "automated_resolved": max(open_before - open_after, 0),
+    }
 
 
 @router.get("/{incident_id}", response_model=IncidentRead)

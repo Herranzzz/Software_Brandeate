@@ -2408,6 +2408,46 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   margin-top: 4px;
 }
 
+.bulk-design-progress {
+  display: grid;
+  gap: 8px;
+}
+
+.bulk-design-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.bulk-design-progress-meta strong {
+  color: var(--text-primary);
+}
+
+.bulk-design-progress-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.bulk-design-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb 0%, #4f46e5 100%);
+  transition: width 220ms ease;
+}
+
+.bulk-design-progress-counters {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
 .orders-ops-table th:first-child,
 .orders-ops-table td:first-child {
   width: 44px;
@@ -11388,18 +11428,35 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   display: grid;
   grid-template-columns: 280px 1fr 300px;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
+.dash-analytics-grid > .card {
+  height: 100%;
+  min-height: 500px;
+  overflow: hidden;
 }
 
 @media (max-width: 1280px) {
   .dash-analytics-grid {
     grid-template-columns: 1fr 1fr;
   }
+
+  .dash-analytics-grid > .card {
+    min-height: 0;
+    height: auto;
+  }
 }
 
 @media (max-width: 768px) {
   .dash-analytics-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dash-analytics-grid .exp-alert-list {
+    overflow: visible;
+    padding-right: 0;
   }
 }
 
@@ -11415,6 +11472,7 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   display: grid;
   gap: 16px;
   align-content: start;
+  grid-template-rows: auto auto 1fr auto;
 }
 
 .dash-chart-hero {
@@ -11445,7 +11503,8 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  height: 120px;
+  height: auto;
+  min-height: 188px;
   padding: 8px 4px 0;
   border-radius: 10px;
   background: var(--surface-soft);
@@ -11494,6 +11553,34 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .dash-chart-footer {
   display: flex;
   justify-content: flex-end;
+}
+
+.dash-analytics-grid .exp-donut-card {
+  grid-template-rows: auto auto 1fr;
+}
+
+.dash-analytics-grid .exp-donut-wrap {
+  min-height: 232px;
+  margin-bottom: 10px;
+}
+
+.dash-analytics-grid .exp-status-list {
+  align-content: start;
+  gap: 7px;
+}
+
+.dash-analytics-grid .exp-alert-card {
+  grid-template-rows: auto auto 1fr auto;
+}
+
+.dash-analytics-grid .exp-alert-list {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.dash-analytics-grid .exp-alert-row {
+  min-height: 86px;
 }
 
 .dash-health-row {

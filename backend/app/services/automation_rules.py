@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ssl
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -29,7 +30,13 @@ from app.models import (
 PREPARATION_RISK_BUSINESS_DAYS = 3
 
 READY_IDLE_HOURS = 12
-TRACKING_STALLED_HOURS = 48
+TRACKING_STALLED_BUSINESS_DAYS = 2
+
+ALLOWED_AUTOMATED_INCIDENT_RULES = {
+    "preparation_risk",
+    "tracking_stalled",
+    "broken_design_link",
+}
 
 PRIORITY_RANK = {
     OrderPriority.low: 0,
@@ -174,15 +181,17 @@ def evaluate_order_automation_rules(
 ) -> None:
     """Create incidents only for the three approved automatic triggers:
     1. Order stuck in pending/in_progress for more than PREPARATION_RISK_BUSINESS_DAYS business days.
-    2. Tracking stalled (carrier has not updated the shipment in TRACKING_STALLED_HOURS hours).
+    2. Tracking stalled (carrier has not updated the shipment in TRACKING_STALLED_BUSINESS_DAYS business days).
     3. The order's design_link URL returns JSON instead of an image (broken/expired link).
     All other flags remain as visual badges but no longer generate incidents automatically.
     """
     flags = build_order_automation_flags(order)
     flag_keys = {flag["key"] for flag in flags}
+    active_incident_rules: set[str] = set()
 
     # ── 1. Preparation stuck ≥ 3 business days ──────────────────────────────
     if "preparation_risk" in flag_keys:
+        active_incident_rules.add("preparation_risk")
         _ensure_incident(
             db=db,
             order=order,
@@ -209,6 +218,7 @@ def evaluate_order_automation_rules(
 
     # ── 2. Tracking stalled ──────────────────────────────────────────────────
     if "tracking_stalled" in flag_keys:
+        active_incident_rules.add("tracking_stalled")
         _ensure_incident(
             db=db,
             order=order,
@@ -235,6 +245,7 @@ def evaluate_order_automation_rules(
 
     # ── 3. Broken design link (URL returns JSON instead of an image) ─────────
     if order.is_personalized and _has_broken_design_link(order):
+        active_incident_rules.add("broken_design_link")
         _ensure_incident(
             db=db,
             order=order,
@@ -258,6 +269,11 @@ def evaluate_order_automation_rules(
             summary="Automatización detectó un design_link que devuelve JSON en lugar de imagen.",
             payload={"source": source},
         )
+
+    _resolve_obsolete_automated_incidents(
+        order=order,
+        active_rules=active_incident_rules,
+    )
 
     # Automation events only (no incident) for other notable flags
     if "ready_idle" in flag_keys:
@@ -345,6 +361,17 @@ def _ensure_incident(
         summary=f"Automatización creó la incidencia: {title}.",
         payload={"incident_type": incident_type.value, "priority": priority.value},
     )
+
+
+def _resolve_obsolete_automated_incidents(*, order: Order, active_rules: set[str]) -> None:
+    now = datetime.now(timezone.utc)
+    for incident in order.incidents:
+        if not incident.is_automated or incident.status == IncidentStatus.resolved:
+            continue
+        rule_name = (incident.automation_rule_name or "").strip()
+        if rule_name not in ALLOWED_AUTOMATED_INCIDENT_RULES or rule_name not in active_rules:
+            incident.status = IncidentStatus.resolved
+            incident.updated_at = now
 
 
 def _ensure_automation_event(
@@ -436,8 +463,8 @@ def _is_tracking_stalled(order: Order) -> bool:
     if not order.shipment.tracking_number:
         return False
     last_event_time = max((event.occurred_at for event in order.shipment.events), default=order.shipment.created_at)
-    hours = _hours_since(last_event_time)
-    return hours is not None and hours >= TRACKING_STALLED_HOURS
+    business_days = _business_days_since(last_event_time)
+    return business_days is not None and business_days >= TRACKING_STALLED_BUSINESS_DAYS
 
 
 def _business_days_since(value: datetime | None) -> float | None:
@@ -459,40 +486,46 @@ def _business_days_since(value: datetime | None) -> float | None:
 
 
 def _is_order_pending_too_long(order: Order) -> bool:
-    if order.status not in {OrderStatus.pending, OrderStatus.in_progress}:
+    is_prepared = (
+        order.prepared_at is not None
+        or order.production_status in {ProductionStatus.packed, ProductionStatus.completed}
+        or order.status in {OrderStatus.ready_to_ship, OrderStatus.shipped, OrderStatus.delivered}
+    )
+    if is_prepared or order.status not in {OrderStatus.pending, OrderStatus.in_progress}:
         return False
     days = _business_days_since(order.created_at)
-    return days is not None and days >= PREPARATION_RISK_BUSINESS_DAYS
+    return days is not None and days > PREPARATION_RISK_BUSINESS_DAYS
 
 
-def _url_returns_json(url: str, timeout: int = 4) -> bool:
-    """Return True if the URL responds with a JSON Content-Type instead of an image.
-    Returns False on any network/timeout error (don't flag uncertain cases)."""
+def _url_is_broken_or_json(url: str, timeout: int = 4) -> bool:
+    """Return True when URL is broken or responds with JSON instead of an image."""
     try:
         ctx = ssl.create_default_context()
         req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             content_type = (resp.headers.get("Content-Type") or "").lower()
-            return "json" in content_type
+            if "json" in content_type:
+                return True
+            if not content_type:
+                return False
+            if content_type.startswith("image/"):
+                return False
+            if content_type == "application/pdf":
+                return False
+            return True
+    except urllib.error.HTTPError:
+        return True
+    except urllib.error.URLError:
+        return True
     except Exception:
         return False
 
 
 def _has_broken_design_link(order: Order) -> bool:
-    """Return True if any item has a design_link that responds with JSON.
-    Skips the HTTP check when the order already has an open broken_design_link incident
-    (idempotency – avoids hammering the same URL repeatedly)."""
-    already_flagged = any(
-        getattr(inc, "automation_rule_name", None) == "broken_design_link"
-        and inc.status != IncidentStatus.resolved
-        for inc in order.incidents
-    )
-    if already_flagged:
-        return True  # Already known broken; let _ensure_incident handle idempotency
-
+    """Return True if any item has a broken or JSON design_link."""
     for item in order.items:
         url = (item.design_link or "").strip()
-        if url and _url_returns_json(url):
+        if url and _url_is_broken_or_json(url):
             return True
     return False
 

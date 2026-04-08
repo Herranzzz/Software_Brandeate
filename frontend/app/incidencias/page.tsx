@@ -1,5 +1,7 @@
 import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
+import { IncidentStatusActions } from "@/components/incident-status-actions";
+import { IncidentsReconcileButton } from "@/components/incidents-reconcile-button";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { PersonalizationBadge } from "@/components/personalization-badge";
@@ -49,9 +51,11 @@ function matchesFilters(
 export default async function IncidenciasPage({ searchParams }: IncidenciasPageProps) {
   await requireAdminUser();
   const params = await searchParams;
+  const statusFilter = params.status ?? "open";
+  const statusParam = statusFilter === "all" ? undefined : statusFilter;
   const [incidentsFromApi, shops] = await Promise.all([
     fetchIncidents({
-      status: params.status,
+      status: statusParam,
       priority: params.priority,
       type: params.type,
       shop_id: params.shop_id,
@@ -59,7 +63,7 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
     fetchShops(),
   ]);
   const incidents = incidentsFromApi.filter((incident) =>
-    matchesFilters(incident, params.q, params.status, params.priority),
+    matchesFilters(incident, params.q, statusParam, params.priority),
   );
   const shopMap = new Map(shops.map((shop) => [shop.id, shop.name]));
   const openCount = incidents.filter((incident) => incident.status === "open").length;
@@ -81,8 +85,8 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
 
           <div className="field">
             <label htmlFor="status">Estado</label>
-            <select defaultValue={params.status ?? ""} id="status" name="status">
-              <option value="">Todos</option>
+            <select defaultValue={statusFilter} id="status" name="status">
+              <option value="all">Todos</option>
               <option value="open">open</option>
               <option value="in_progress">in_progress</option>
               <option value="resolved">resolved</option>
@@ -128,6 +132,7 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
           <button className="button" type="submit">
             Aplicar filtros
           </button>
+          <IncidentsReconcileButton />
         </form>
       </Card>
 
@@ -168,6 +173,7 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
                   <th>Estado</th>
                   <th>Responsable</th>
                   <th>Updated at</th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -193,6 +199,9 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
                     <td><span className="badge">{incident.status}</span></td>
                     <td>{incident.assignee ?? "Sin asignar"}</td>
                     <td>{formatDateTime(incident.updated_at)}</td>
+                    <td>
+                      <IncidentStatusActions compact incidentId={incident.id} status={incident.status} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
+import { OrderIncidentsPanel } from "@/components/order-incidents-panel";
 import { DesignPreviewWithValidation } from "@/components/design-preview-with-validation";
 import { PersonalizationBadge } from "@/components/personalization-badge";
 import { ProductionBadge } from "@/components/production-badge";
@@ -174,7 +175,9 @@ function buildOrderActivityFeed(
   );
 
   activities.push(
-    ...incidents.map((incident) => ({
+    ...incidents
+      .filter((incident) => incident.status !== "resolved")
+      .map((incident) => ({
       id: `incident-${incident.id}`,
       occurredAt: incident.updated_at,
       title: incident.title,
@@ -182,7 +185,7 @@ function buildOrderActivityFeed(
       meta: `Incidencia · ${incident.status}`,
       icon: "!",
       tone: "warning" as const,
-    })),
+      })),
   );
 
   return [...activities].sort((left, right) => {
@@ -366,6 +369,11 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
                 description="Todavía no hay una imagen renderizada o preview asociada a este pedido."
               />
             )}
+          </Card>
+
+          <Card className="stack">
+            <SectionTitle eyebrow="⚠️ Incidencias" title="Seguimiento del pedido" />
+            <OrderIncidentsPanel incidents={incidents} orderId={order.id} />
           </Card>
 
           <Card className="stack">

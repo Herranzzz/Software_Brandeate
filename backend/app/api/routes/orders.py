@@ -1,19 +1,31 @@
+import base64
 import csv
+import hashlib
+import hmac
 import io
+import json
+import os
 import re
 import ssl
+import tempfile
+import threading
+import time
 import urllib.request
+import uuid
 import zipfile
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 import sqlalchemy as sa
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, resolve_shop_scope
+from app.core.config import get_settings
+from app.db.session import SessionLocal
 from app.models import (
     DesignStatus,
     Incident,
@@ -783,6 +795,92 @@ _CONTENT_TYPE_EXT: dict[str, str] = {
 
 _DESIGN_FETCH_TIMEOUT = 12  # seconds per asset
 _DESIGN_FETCH_PARALLELISM = 6
+_DESIGN_JOB_TTL_SECONDS = 2 * 60 * 60
+_DESIGN_JOB_CLEANUP_INTERVAL_SECONDS = 60
+_DESIGN_DOWNLOAD_TOKEN_TTL_SECONDS = 10 * 60
+_DESIGN_JOB_MAX_WORKERS = 2
+
+_design_job_executor = ThreadPoolExecutor(max_workers=_DESIGN_JOB_MAX_WORKERS, thread_name_prefix="bulk-design-job")
+_design_jobs_lock = threading.Lock()
+_design_jobs: dict[str, dict] = {}
+_design_jobs_last_cleanup = 0.0
+
+
+def _now_ts() -> int:
+    return int(time.time())
+
+
+def _b64encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("utf-8")
+
+
+def _b64decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def _encode_download_token(payload: dict) -> str:
+    encoded_payload = _b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signature = hmac.new(
+        get_settings().auth_secret.encode("utf-8"),
+        encoded_payload.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return f"{encoded_payload}.{_b64encode(signature)}"
+
+
+def _decode_download_token(token: str) -> dict:
+    try:
+        encoded_payload, encoded_signature = token.split(".", 1)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid download token") from exc
+
+    expected_signature = hmac.new(
+        get_settings().auth_secret.encode("utf-8"),
+        encoded_payload.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    if not hmac.compare_digest(_b64decode(encoded_signature), expected_signature):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid download token")
+
+    try:
+        payload = json.loads(_b64decode(encoded_payload).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid download token") from exc
+
+    if int(payload.get("exp", 0)) < _now_ts():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Download token expired")
+    return payload
+
+
+def _safe_remove(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return
+    except Exception:
+        return
+
+
+def _cleanup_bulk_design_jobs(*, force: bool = False) -> None:
+    global _design_jobs_last_cleanup
+    now = _now_ts()
+    with _design_jobs_lock:
+        if not force and (now - _design_jobs_last_cleanup) < _DESIGN_JOB_CLEANUP_INTERVAL_SECONDS:
+            return
+        _design_jobs_last_cleanup = now
+        expired_ids: list[str] = []
+        for job_id, job in _design_jobs.items():
+            updated_at = int(job.get("updated_at", now))
+            if now - updated_at > _DESIGN_JOB_TTL_SECONDS:
+                expired_ids.append(job_id)
+        for job_id in expired_ids:
+            job = _design_jobs.pop(job_id, None)
+            if job is None:
+                continue
+            _safe_remove(job.get("zip_path"))
 
 
 def _score_asset_type(type_str: str) -> int:
@@ -885,29 +983,9 @@ def _fetch_asset(url: str) -> tuple[bytes, str]:
     return data, ext
 
 
-@router.post("/bulk/download-designs", status_code=status.HTTP_200_OK)
-def bulk_download_designs(
-    payload: "BulkDesignDownloadRequest",
-    db: Session = Depends(get_db),
-    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
-) -> Response:
-    """Generate and return a ZIP file with design assets for selected orders."""
-    orders = list(
-        db.scalars(
-            select(Order)
-            .options(selectinload(Order.items))
-            .where(Order.id.in_(payload.order_ids))
-        )
-    )
-
-    if accessible_shop_ids is not None:
-        orders = [order for order in orders if order.shop_id in accessible_shop_ids]
-
-    zip_buffer = io.BytesIO()
-    used_names: set[str] = set()
+def _build_design_download_jobs(orders: list[Order]) -> tuple[list[dict], list[dict]]:
     results: list[dict] = []
     download_jobs: list[dict] = []
-
     for order in orders:
         items_with_design: list[tuple[OrderItem, str]] = []
         for item in order.items:
@@ -936,6 +1014,311 @@ def bulk_download_designs(
                     "url_ext": url_ext,
                 }
             )
+    return download_jobs, results
+
+
+def _summarize_design_results(results: list[dict]) -> tuple[int, int, int]:
+    ok_count = sum(1 for r in results if r["status"] == "ok")
+    failed_count = sum(1 for r in results if r["status"] == "failed")
+    no_design_count = sum(1 for r in results if r["status"] == "no_design")
+    return ok_count, failed_count, no_design_count
+
+
+def _job_public_payload(job: dict) -> dict:
+    return {
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "progress_total": int(job.get("progress_total", 0)),
+        "progress_done": int(job.get("progress_done", 0)),
+        "ok_count": int(job.get("ok_count", 0)),
+        "failed_count": int(job.get("failed_count", 0)),
+        "no_design_count": int(job.get("no_design_count", 0)),
+        "error": job.get("error"),
+        "ready": bool(job.get("status") == "done"),
+    }
+
+
+def _run_bulk_design_job(job_id: str) -> None:
+    db = SessionLocal()
+    try:
+        _cleanup_bulk_design_jobs()
+        with _design_jobs_lock:
+            job = _design_jobs.get(job_id)
+            if job is None:
+                return
+            order_ids = list(job.get("order_ids") or [])
+            scope = job.get("accessible_shop_ids")
+            accessible_shop_ids = set(scope) if isinstance(scope, list) else None
+            job["status"] = "running"
+            job["updated_at"] = _now_ts()
+
+        orders = list(
+            db.scalars(
+                select(Order)
+                .options(selectinload(Order.items))
+                .where(Order.id.in_(order_ids))
+            )
+        )
+        if accessible_shop_ids is not None:
+            orders = [order for order in orders if order.shop_id in accessible_shop_ids]
+
+        download_jobs, results = _build_design_download_jobs(orders)
+        with _design_jobs_lock:
+            job = _design_jobs.get(job_id)
+            if job is None:
+                return
+            job["progress_total"] = len(download_jobs)
+            job["no_design_count"] = sum(1 for r in results if r["status"] == "no_design")
+            job["updated_at"] = _now_ts()
+
+        if not download_jobs:
+            with _design_jobs_lock:
+                job = _design_jobs.get(job_id)
+                if job is None:
+                    return
+                job["status"] = "failed"
+                job["error"] = "Los pedidos seleccionados no tienen diseños visibles para descargar."
+                job["updated_at"] = _now_ts()
+            return
+
+        fd, zip_path = tempfile.mkstemp(prefix="bulk-design-", suffix=".zip")
+        os.close(fd)
+
+        used_names: set[str] = set()
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            worker_count = max(1, min(_DESIGN_FETCH_PARALLELISM, len(download_jobs)))
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                for current_job in download_jobs:
+                    current_job["future"] = executor.submit(_fetch_asset, current_job["design_url"])
+
+                for current_job in download_jobs:
+                    future = current_job["future"]
+                    assert isinstance(future, Future)
+                    try:
+                        data, fetched_ext = future.result()
+                        ext = current_job["url_ext"] or fetched_ext or ".bin"
+                        filename = _unique_name(current_job["base"], ext, used_names)
+                        used_names.add(filename)
+                        zf.writestr(filename, data)
+                        results.append(
+                            {
+                                "order_id": current_job["order_id"],
+                                "external_id": current_job["external_id"],
+                                "status": "ok",
+                                "filename": filename,
+                            }
+                        )
+                    except Exception as exc:
+                        results.append(
+                            {
+                                "order_id": current_job["order_id"],
+                                "external_id": current_job["external_id"],
+                                "status": "failed",
+                                "reason": str(exc)[:200],
+                            }
+                        )
+                    finally:
+                        ok_count, failed_count, no_design_count = _summarize_design_results(results)
+                        with _design_jobs_lock:
+                            job = _design_jobs.get(job_id)
+                            if job is not None:
+                                job["progress_done"] = int(job.get("progress_done", 0)) + 1
+                                job["ok_count"] = ok_count
+                                job["failed_count"] = failed_count
+                                job["no_design_count"] = no_design_count
+                                job["updated_at"] = _now_ts()
+
+        ok_count, failed_count, no_design_count = _summarize_design_results(results)
+        if ok_count == 0:
+            _safe_remove(zip_path)
+            failed_example = next((r.get("reason") for r in results if r["status"] == "failed" and r.get("reason")), None)
+            detail = "No se pudo descargar ningún diseño."
+            if failed_example:
+                detail = f"{detail} Ejemplo: {failed_example}"
+            elif no_design_count > 0:
+                detail = "Los pedidos seleccionados no tienen diseños visibles para descargar."
+            with _design_jobs_lock:
+                job = _design_jobs.get(job_id)
+                if job is None:
+                    return
+                job["status"] = "failed"
+                job["error"] = detail
+                job["ok_count"] = ok_count
+                job["failed_count"] = failed_count
+                job["no_design_count"] = no_design_count
+                job["zip_path"] = None
+                job["updated_at"] = _now_ts()
+            return
+
+        with _design_jobs_lock:
+            job = _design_jobs.get(job_id)
+            if job is None:
+                _safe_remove(zip_path)
+                return
+            job["status"] = "done"
+            job["error"] = None
+            job["ok_count"] = ok_count
+            job["failed_count"] = failed_count
+            job["no_design_count"] = no_design_count
+            job["zip_path"] = zip_path
+            job["updated_at"] = _now_ts()
+    except Exception as exc:
+        with _design_jobs_lock:
+            job = _design_jobs.get(job_id)
+            if job is None:
+                return
+            job["status"] = "failed"
+            job["error"] = str(exc)[:300]
+            job["updated_at"] = _now_ts()
+    finally:
+        db.close()
+
+
+@router.post("/bulk/download-designs/jobs", status_code=status.HTTP_202_ACCEPTED)
+def create_bulk_design_download_job(
+    payload: "BulkDesignDownloadRequest",
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    _cleanup_bulk_design_jobs()
+    if not payload.order_ids:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Selecciona al menos un pedido.")
+
+    job_id = str(uuid.uuid4())
+    now = _now_ts()
+    job_state = {
+        "job_id": job_id,
+        "user_id": current_user.id,
+        "order_ids": list(payload.order_ids),
+        "accessible_shop_ids": sorted(accessible_shop_ids) if accessible_shop_ids is not None else None,
+        "status": "queued",
+        "progress_total": 0,
+        "progress_done": 0,
+        "ok_count": 0,
+        "failed_count": 0,
+        "no_design_count": 0,
+        "error": None,
+        "zip_path": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    with _design_jobs_lock:
+        _design_jobs[job_id] = job_state
+    _design_job_executor.submit(_run_bulk_design_job, job_id)
+    return _job_public_payload(job_state)
+
+
+@router.get("/bulk/download-designs/jobs/{job_id}", status_code=status.HTTP_200_OK)
+def get_bulk_design_download_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    _cleanup_bulk_design_jobs()
+    with _design_jobs_lock:
+        job = _design_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job no encontrado o expirado.")
+        if int(job.get("user_id", 0)) != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes acceso a este job.")
+        return _job_public_payload(job)
+
+
+@router.post("/bulk/download-designs/jobs/{job_id}/download-url", status_code=status.HTTP_200_OK)
+def get_bulk_design_download_url(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    _cleanup_bulk_design_jobs()
+    with _design_jobs_lock:
+        job = _design_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job no encontrado o expirado.")
+        if int(job.get("user_id", 0)) != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes acceso a este job.")
+        if job.get("status") != "done":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La descarga todavía se está preparando.")
+        if not job.get("zip_path"):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El archivo ZIP todavía no está disponible.")
+
+    expires_at = _now_ts() + _DESIGN_DOWNLOAD_TOKEN_TTL_SECONDS
+    token = _encode_download_token(
+        {
+            "type": "bulk_design_download",
+            "sub": current_user.id,
+            "job_id": job_id,
+            "exp": expires_at,
+        }
+    )
+    return {
+        "job_id": job_id,
+        "token": token,
+        "expires_at": expires_at,
+        "download_path": f"/orders/bulk/download-designs/jobs/{job_id}/download?token={token}",
+    }
+
+
+@router.get("/bulk/download-designs/jobs/{job_id}/download", status_code=status.HTTP_200_OK)
+def download_bulk_design_job_file(
+    job_id: str,
+    token: str = Query(..., min_length=10),
+) -> FileResponse:
+    _cleanup_bulk_design_jobs()
+    payload = _decode_download_token(token)
+    if payload.get("type") != "bulk_design_download":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid download token")
+    if str(payload.get("job_id")) != job_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid download token")
+
+    with _design_jobs_lock:
+        job = _design_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job no encontrado o expirado.")
+        if int(job.get("user_id", 0)) != int(payload.get("sub", -1)):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes acceso a este job.")
+        zip_path = str(job.get("zip_path") or "")
+        if job.get("status") != "done" or not zip_path:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La descarga todavía no está lista.")
+        ok_count = int(job.get("ok_count", 0))
+        failed_count = int(job.get("failed_count", 0))
+        no_design_count = int(job.get("no_design_count", 0))
+
+    if not os.path.exists(zip_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El archivo ya no está disponible.")
+
+    return FileResponse(
+        path=zip_path,
+        media_type="application/zip",
+        filename="diseños-bulk.zip",
+        headers={
+            "X-Design-Results": str(ok_count),
+            "X-Design-Failures": str(failed_count),
+            "X-Design-No-Design": str(no_design_count),
+        },
+    )
+
+
+@router.post("/bulk/download-designs", status_code=status.HTTP_200_OK)
+def bulk_download_designs(
+    payload: "BulkDesignDownloadRequest",
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> Response:
+    """Generate and return a ZIP file with design assets for selected orders."""
+    _cleanup_bulk_design_jobs()
+    orders = list(
+        db.scalars(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.id.in_(payload.order_ids))
+        )
+    )
+
+    if accessible_shop_ids is not None:
+        orders = [order for order in orders if order.shop_id in accessible_shop_ids]
+
+    zip_buffer = io.BytesIO()
+    used_names: set[str] = set()
+    download_jobs, results = _build_design_download_jobs(orders)
 
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         if download_jobs:

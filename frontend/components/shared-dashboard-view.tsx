@@ -106,6 +106,12 @@ export function SharedDashboardView({
   noteActions,
 }: SharedDashboardViewProps) {
   const maxValue = Math.max(1, ...chart.map((item) => item.value));
+  const donutTotal = donutSegments?.reduce((sum, segment) => sum + segment.value, 0) ?? 0;
+  const highPriorityIncidents = incidents.filter(
+    (incident) => incident.priority === "urgent" || incident.priority === "high",
+  ).length;
+  const incidentsPreview = incidents.slice(0, 4);
+  const incidentSummaryText = highPriorityIncidents > 0 ? `${highPriorityIncidents} urgentes` : "abiertas";
 
   return (
     <div className="stack admin-dashboard">
@@ -172,7 +178,7 @@ export function SharedDashboardView({
             <div className="exp-donut-wrap">
               <ShipmentDonut
                 centerLabel="pedidos"
-                centerValue={String(donutSegments.reduce((s, seg) => s + seg.value, 0))}
+                centerValue={String(donutTotal)}
                 radius={90}
                 segments={donutSegments}
                 showLegend={false}
@@ -184,8 +190,7 @@ export function SharedDashboardView({
             </div>
             <div className="exp-status-list">
               {donutSegments.map((seg) => {
-                const total = donutSegments.reduce((s, x) => s + x.value, 0);
-                const pct = total > 0 ? Math.round((seg.value / total) * 100) : 0;
+                const pct = donutTotal > 0 ? Math.round((seg.value / donutTotal) * 100) : 0;
                 return (
                   <div className={`exp-status-row is-${seg.tone}`} key={seg.key}>
                     <span className="exp-status-dot" />
@@ -240,14 +245,10 @@ export function SharedDashboardView({
           </div>
           <div className="exp-alert-total">
             <strong>{incidents.length}</strong>
-            <span>
-              {incidents.filter((i) => i.priority === "urgent" || i.priority === "high").length > 0
-                ? `${incidents.filter((i) => i.priority === "urgent" || i.priority === "high").length} urgentes`
-                : "abiertas"}
-            </span>
+            <span>{incidentSummaryText}</span>
           </div>
           <div className="exp-alert-list">
-            {incidents.slice(0, 5).map((incident) => {
+            {incidentsPreview.map((incident) => {
               const isHot = incident.priority === "urgent" || incident.priority === "high";
               return (
                 <div className={`exp-alert-row${isHot ? " is-hot" : ""}`} key={incident.id}>
