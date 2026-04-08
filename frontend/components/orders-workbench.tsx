@@ -212,7 +212,13 @@ function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
     case "has_incident":
       return order.has_open_incident;
     case "not_prepared":
-      return !isPrepared(order);
+      // Aligned with the "Sin preparar" badge: no shipment and not yet shipped/delivered
+      return (
+        !order.shipment &&
+        order.status !== "shipped" &&
+        order.status !== "ready_to_ship" &&
+        order.status !== "delivered"
+      );
     default:
       return true;
   }
