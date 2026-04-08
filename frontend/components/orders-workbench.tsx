@@ -196,7 +196,7 @@ function getOperationalStatusMeta(order: Order) {
 
   if (order.shipment || order.status === "shipped" || order.status === "ready_to_ship") {
     return {
-      label: "Recogido",
+      label: "Listo para enviar",
       className: "badge badge-status badge-status-ready-to-ship",
     };
   }
@@ -907,13 +907,9 @@ export function OrdersWorkbench({
                           <td>
                             <div className="orders-status-stack">
                               <span className={operationalStatus.className}>{operationalStatus.label}</span>
-                              {getAutomationFlags(order).length > 0 ? (
-                                <div className="automation-flag-row">
-                                  {getAutomationFlags(order).slice(0, 2).map((flag) => (
-                                    <AutomationFlagBadge flag={flag} key={`${order.id}-${flag.key}`} />
-                                  ))}
-                                </div>
-                              ) : null}
+                              {getAutomationFlags(order).filter((f) => f.key !== "design_ready" && f.key !== "ready_idle").slice(0, 2).map((flag) => (
+                                <AutomationFlagBadge flag={flag} key={`${order.id}-${flag.key}`} />
+                              ))}
                             </div>
                           </td>
                           <td>
