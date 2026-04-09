@@ -21,8 +21,9 @@ def _ssl_context() -> ssl.SSLContext | None:
 
 
 _token_lock = threading.Lock()
-_cached_token: str | None = None
-_token_expires_at: float = 0.0
+# Keyed by base_url so switching between test and production environments
+# (CTT_API_BASE_URL env var) always fetches a fresh token for that environment.
+_token_cache: dict[str, tuple[str, float]] = {}  # base_url -> (token, expires_at)
 
 
 class CTTError(Exception):
@@ -51,11 +52,12 @@ def _api_headers(*, token: str | None = None, include_content_type: bool = False
 
 
 def get_token() -> str:
-    global _cached_token, _token_expires_at
+    base = _base_url()
 
     with _token_lock:
-        if _cached_token and time.time() < _token_expires_at:
-            return _cached_token
+        cached = _token_cache.get(base)
+        if cached and time.time() < cached[1]:
+            return cached[0]
 
         settings = get_settings()
         if not settings.ctt_client_id or not settings.ctt_client_secret:
@@ -71,7 +73,7 @@ def get_token() -> str:
         }).encode()
 
         req = request.Request(
-            f"{_base_url()}/integrations/oauth2/token",
+            f"{base}/integrations/oauth2/token",
             data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
@@ -82,10 +84,10 @@ def get_token() -> str:
         except error.HTTPError as exc:
             raise CTTError(f"Token request failed ({exc.code}): {exc.read().decode()}") from exc
 
-        _cached_token = payload["access_token"]
+        token = payload["access_token"]
         expires_in = int(payload.get("expires_in", 86400))
-        _token_expires_at = time.time() + expires_in - 60  # 60 s safety margin
-        return _cached_token
+        _token_cache[base] = (token, time.time() + expires_in - 60)  # 60 s safety margin
+        return token
 
 
 def create_shipping(shipping_data: dict) -> dict:
