@@ -82,7 +82,9 @@ def get_token() -> str:
             with request.urlopen(req, context=_ssl_context()) as resp:
                 payload = json.loads(resp.read())
         except error.HTTPError as exc:
-            raise CTTError(f"Token request failed ({exc.code}): {exc.read().decode()}") from exc
+            raise CTTError(
+                f"Token request failed ({exc.code}) for {base}: {exc.read().decode()}"
+            ) from exc
 
         token = payload["access_token"]
         expires_in = int(payload.get("expires_in", 86400))
