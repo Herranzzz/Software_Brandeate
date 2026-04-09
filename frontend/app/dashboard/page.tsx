@@ -17,6 +17,7 @@ type DashboardPageProps = {
 };
 
 type RangePreset = "today" | "7d" | "30d" | "90d";
+const INCIDENTS_SYNC_PERIOD_DAYS = 14;
 
 function resolveRangePreset(value?: string): RangePreset {
   if (value === "today" || value === "30d" || value === "90d") return value;
@@ -125,11 +126,24 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const range = resolveRangePreset(params.range);
   const employeePeriod = resolveEmployeePeriod(params.employee_period);
   const rangeDays = getRangeDays(range);
+  const incidentsLinkParams = new URLSearchParams({
+    status: "open",
+    period: "14d",
+  });
+  if (params.shop_id) {
+    incidentsLinkParams.set("shop_id", params.shop_id);
+  }
+  const incidentsLinkHref = `/incidencias?${incidentsLinkParams.toString()}`;
   const [userResult, shopsResult, ordersResultSettled, incidentsResult, employeeAnalyticsResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchShops(),
     fetchOrders({ shop_id: params.shop_id }, { cacheSeconds: 30 }),
-    fetchIncidents({ shop_id: params.shop_id, recent_days: rangeDays, include_historical: false }),
+    fetchIncidents({
+      shop_id: params.shop_id,
+      status: "open",
+      recent_days: INCIDENTS_SYNC_PERIOD_DAYS,
+      include_historical: false,
+    }),
     fetchEmployeeAnalytics({ period: employeePeriod, shop_id: params.shop_id }),
   ]);
   // requireAdminUser redirects on failure — re-throw to trigger it
@@ -145,7 +159,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     employeeAnalyticsResult.status === "fulfilled" ? employeeAnalyticsResult.value.employees : [];
 
   const orders = ordersResult.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
-  const incidentsInRange = incidents.filter((incident) => isWithinLastDays(incident.updated_at, rangeDays));
+  const openIncidentsList = incidents;
   const activeShop = shops.find((shop) => String(shop.id) === params.shop_id);
   const chart = buildChart(orders, rangeDays);
   const donutSegments = buildDonutSegments(orders);
@@ -157,8 +171,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const shippedOrders     = orders.filter((o) => o.status === "shipped").length;
   const deliveredOrders   = orders.filter((o) => o.status === "delivered").length;
   const withShipment      = orders.filter((o) => o.shipment).length;
-  const openIncidents     = incidentsInRange.filter((i) => i.status !== "resolved").length;
-  const urgentIncidents   = incidentsInRange.filter((i) => i.priority === "urgent" || i.priority === "high").length;
+  const openIncidents     = openIncidentsList.length;
+  const urgentIncidents   = openIncidentsList.filter((i) => i.priority === "urgent" || i.priority === "high").length;
 
   return (
     <SharedDashboardView
@@ -206,7 +220,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </Link>
         )
       }
-      incidents={incidentsInRange.map((incident) => ({
+      incidents={openIncidentsList.map((incident) => ({
         id: incident.id,
         title: incident.title,
         priority: incident.priority,
@@ -214,8 +228,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         status: incident.status,
         updatedAt: formatDateTime(incident.updated_at),
       }))}
-      incidentsEmptyMessage="No hay incidencias abiertas ahora mismo."
-      incidentsLinkHref="/incidencias"
+      incidentsEmptyMessage="No hay incidencias abiertas en la ventana operativa."
+      incidentsLinkHref={incidentsLinkHref}
       incidentsLinkLabel="Ver incidencias"
       incidentsTitle="Incidencias recientes"
       kpis={[

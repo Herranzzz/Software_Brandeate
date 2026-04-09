@@ -20,6 +20,7 @@ type PortalPageProps = {
 };
 
 type RangePreset = "today" | "7d" | "30d" | "90d";
+const INCIDENTS_SYNC_PERIOD_DAYS = 14;
 
 function resolveRangePreset(value?: string): RangePreset {
   if (value === "today" || value === "30d" || value === "90d") return value;
@@ -133,8 +134,9 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       { cacheSeconds: 30 },
     ),
     fetchIncidents({
+      status: "open",
       ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
-      recent_days: rangeDays,
+      recent_days: INCIDENTS_SYNC_PERIOD_DAYS,
       include_historical: false,
     }),
     fetchShopifyIntegrations(),
@@ -150,7 +152,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
   const workspace = workspaceResult.status === "fulfilled" ? workspaceResult.value : null;
 
   const orders = ordersResult.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
-  const incidentsInRange = incidents.filter((incident) => isWithinLastDays(incident.updated_at, rangeDays));
+  const openIncidentsList = incidents;
   const chart = buildChart(orders, rangeDays);
   const donutSegments = buildDonutSegments(orders);
   const timeFilters = buildTimeFilters(range, tenantScope.selectedShopId);
@@ -158,13 +160,22 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
     ? integrations.find((integration) => String(integration.shop_id) === tenantScope.selectedShopId) ?? null
     : integrations[0] ?? null;
   const shopQuery = tenantScope.selectedShopId ? `?shop_id=${tenantScope.selectedShopId}` : "";
+  const incidentsLinkParams = new URLSearchParams({
+    view: "incidents",
+    incident_status: "open",
+    incident_period: "14d",
+  });
+  if (tenantScope.selectedShopId) {
+    incidentsLinkParams.set("shop_id", tenantScope.selectedShopId);
+  }
+  const incidentsLinkHref = `/portal/operations?${incidentsLinkParams.toString()}`;
   const pendingOrders = orders.filter((order) => order.status === "pending").length;
   const inProductionOrders = orders.filter((order) => order.production_status === "in_production").length;
   const shippedOrders = orders.filter((order) => order.status === "shipped").length;
   const deliveredOrders = orders.filter((order) => order.status === "delivered").length;
   const withShipment = orders.filter((order) => order.shipment).length;
-  const openIncidents = incidentsInRange.filter((incident) => incident.status !== "resolved").length;
-  const urgentIncidents = incidentsInRange.filter((incident) => incident.priority === "urgent" || incident.priority === "high").length;
+  const openIncidents = openIncidentsList.length;
+  const urgentIncidents = openIncidentsList.filter((incident) => incident.priority === "urgent" || incident.priority === "high").length;
 
   return (
     <SharedDashboardView
@@ -192,7 +203,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
           {tenantScope.selectedShop && activeIntegration ? <PortalSyncButton shopId={tenantScope.selectedShop.id} /> : null}
         </div>
       }
-      incidents={incidentsInRange.map((incident) => ({
+      incidents={openIncidentsList.map((incident) => ({
         id: incident.id,
         title: incident.title,
         priority: incident.priority,
@@ -201,7 +212,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
         updatedAt: formatDateTime(incident.updated_at),
       }))}
       incidentsEmptyMessage="No hay incidencias abiertas en tu cuenta ahora mismo."
-      incidentsLinkHref={`/portal/incidencias${shopQuery}`}
+      incidentsLinkHref={incidentsLinkHref}
       incidentsLinkLabel="Ver incidencias"
       incidentsTitle="Incidencias recientes"
       kpis={[
