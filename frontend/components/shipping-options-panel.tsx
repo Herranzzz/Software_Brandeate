@@ -1,24 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Card } from "@/components/card";
-import { EmptyState } from "@/components/empty-state";
 import { SectionTitle } from "@/components/section-title";
 import type { Order } from "@/lib/types";
-
-type Quote = {
-  quote_id: number | null;
-  carrier: string;
-  service_code: string;
-  service_name: string;
-  delivery_type: string;
-  amount: number;
-  currency: string;
-  estimated_days_min?: number | null;
-  estimated_days_max?: number | null;
-  weight_tier_code?: string | null;
-};
 
 type PickupPoint = {
   id: string;
@@ -33,11 +19,6 @@ type PickupPoint = {
   opening_hours?: string[] | null;
 };
 
-type LiveRatesResponse = {
-  currency: string;
-  quotes: Quote[];
-};
-
 type PickupResponse = {
   points: PickupPoint[];
 };
@@ -47,209 +28,204 @@ type ShippingOptionsPanelProps = {
   token?: string | null;
 };
 
-function formatEta(quote: Quote) {
-  if (quote.estimated_days_min && quote.estimated_days_max) {
-    return `${quote.estimated_days_min}-${quote.estimated_days_max} días`;
-  }
-  if (quote.estimated_days_min) {
-    return `${quote.estimated_days_min} días`;
-  }
-  return "ETA no definida";
-}
-
 export function ShippingOptionsPanel({ order, token }: ShippingOptionsPanelProps) {
-  const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [pickupPoints, setPickupPoints] = useState<PickupPoint[]>([]);
-  const [loadingRates, setLoadingRates] = useState(false);
-  const [loadingPickup, setLoadingPickup] = useState(false);
-  const [selectedQuote, setSelectedQuote] = useState<number | null>(null);
-  const [selectedPickup, setSelectedPickup] = useState<string | null>(null);
+  const [points, setPoints] = useState<PickupPoint[]>([]);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const headers = useMemo(() => ({
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }), [token]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [postalInput, setPostalInput] = useState(order.shipping_postal_code ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!order.shop_id) return;
-    setLoadingRates(true);
-    setError(null);
-    fetch("/api/shipping-options/live-rates", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        shop_id: order.shop_id,
-        order_id: order.id,
-        destination_country_code: order.shipping_country_code ?? "ES",
-        destination_postal_code: order.shipping_postal_code ?? "28001",
-        destination_city: order.shipping_town ?? "",
-        weight_tier_code: order.shipment?.weight_tier_code ?? null,
-        weight_kg: order.shipment?.shipping_weight_declared ?? null,
-        is_personalized: order.is_personalized,
-      }),
-    })
-      .then(async (res) => (res.ok ? res.json() : Promise.reject(await res.json())))
-      .then((data: LiveRatesResponse) => {
-        setQuotes(data.quotes ?? []);
-        if (data.quotes?.length) {
-          const matchById = data.quotes.find((quote) => quote.quote_id === order.shipping_rate_quote_id);
-          const matchByService = data.quotes.find((quote) => quote.service_code === order.shipping_service_code);
-          const fallback = data.quotes[0].quote_id ?? null;
-          setSelectedQuote(matchById?.quote_id ?? matchByService?.quote_id ?? fallback);
-        }
-      })
-      .catch(() => setError("No se pudieron cargar las tarifas ahora mismo."))
-      .finally(() => setLoadingRates(false));
-  }, [headers, order]);
+  const headers = useMemo(
+    () => ({
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }),
+    [token],
+  );
 
-  useEffect(() => {
+  function fetchPoints(postal: string) {
     if (!order.shop_id) return;
-    setLoadingPickup(true);
+    setLoading(true);
     setError(null);
+    setSaved(false);
     fetch("/api/shipping-options/pickup-points", {
       method: "POST",
       headers,
       body: JSON.stringify({
         shop_id: order.shop_id,
         carrier: "CTT",
-        destination_country_code: order.shipping_country_code ?? "ES",
-        destination_postal_code: order.shipping_postal_code ?? "28001",
+        destination_country_code: order.shipping_country_code ?? "PT",
+        destination_postal_code: postal,
         destination_city: order.shipping_town ?? "",
         max_distance_km: 10,
       }),
     })
       .then(async (res) => (res.ok ? res.json() : Promise.reject(await res.json())))
       .then((data: PickupResponse) => {
-        setPickupPoints(data.points ?? []);
-        if (order.pickup_point_json && typeof order.pickup_point_json === "object") {
-          const existing = order.pickup_point_json as { id?: string };
-          if (existing?.id) setSelectedPickup(existing.id);
-        }
+        setPoints(data.points ?? []);
       })
-      .catch(() => setError("No se pudieron cargar los puntos de recogida."))
-      .finally(() => setLoadingPickup(false));
-  }, [headers, order]);
+      .catch(() => setError("No se pudieron cargar los puntos CTT para este código postal."))
+      .finally(() => setLoading(false));
+  }
 
-  const activeQuote = quotes.find((quote) => quote.quote_id === selectedQuote);
-  const pickupEnabled = activeQuote?.delivery_type === "pickup_point";
+  useEffect(() => {
+    // Pre-select existing pickup point from order
+    if (order.pickup_point_json && typeof order.pickup_point_json === "object") {
+      const existing = order.pickup_point_json as { id?: string };
+      if (existing?.id) setSelectedId(existing.id);
+    }
+    // Fetch initial points
+    fetchPoints(order.shipping_postal_code ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSave() {
-    if (!activeQuote) return;
+    const point = points.find((p) => p.id === selectedId);
+    if (!point) return;
     setSaving(true);
+    setSaved(false);
     try {
       setError(null);
-      const payload = {
-        order_id: order.id,
-        delivery_type: activeQuote.delivery_type,
-        carrier: activeQuote.carrier,
-        service_code: activeQuote.service_code,
-        service_name: activeQuote.service_name,
-        quote_id: activeQuote.quote_id,
-        amount: activeQuote.amount,
-        currency: activeQuote.currency,
-        estimated_days_min: activeQuote.estimated_days_min,
-        estimated_days_max: activeQuote.estimated_days_max,
-        pickup_point: pickupEnabled
-          ? pickupPoints.find((point) => point.id === selectedPickup) ?? null
-          : null,
-      };
-      const response = await fetch("/api/shipping-options/select", {
+      const res = await fetch("/api/shipping-options/select", {
         method: "POST",
         headers,
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          order_id: order.id,
+          delivery_type: "pickup_point",
+          carrier: "CTT",
+          service_code: "CTT_PICKUP",
+          service_name: "CTT Entrega en Punto",
+          pickup_point: point,
+        }),
       });
-      if (!response.ok) {
-        throw new Error("No se pudo guardar la opción de envío");
-      }
+      if (!res.ok) throw new Error("Error al guardar");
+      setSaved(true);
+    } catch {
+      setError("No se pudo guardar el punto. Inténtalo de nuevo.");
     } finally {
       setSaving(false);
     }
   }
 
+  const selectedPoint = points.find((p) => p.id === selectedId);
+
   return (
     <Card className="stack">
-      <SectionTitle eyebrow="Checkout" title="Opciones de envío" />
-      <p className="subtitle">
-        Preparando live rates, pickup points y la selección inteligente de método. Esta capa usa datos
-        mock por ahora, pero deja la estructura lista para conectar carriers reales.
-      </p>
-      {error ? <div className="alert-banner warning">{error}</div> : null}
+      <SectionTitle eyebrow="📍 CTT" title="Punto de entrega" />
 
-      <div className="stack">
-        <div>
-          <div className="section-title section-title-small">Tarifas dinámicas</div>
-          {loadingRates ? (
-            <div className="muted">Cargando tarifas...</div>
-          ) : quotes.length === 0 ? (
-            <EmptyState title="Sin tarifas" description="No hay rates disponibles aún para este destino." />
-          ) : (
-            <div className="shipping-option-grid">
-              {quotes.map((quote) => (
-                <button
-                  key={quote.quote_id ?? quote.service_code}
-                  className={`shipping-option-card ${selectedQuote === quote.quote_id ? "is-active" : ""}`}
-                  type="button"
-                  onClick={() => setSelectedQuote(quote.quote_id ?? null)}
-                >
-                  <div className="shipping-option-head">
-                    <div>
-                      <div className="table-primary">{quote.service_name}</div>
-                      <div className="table-secondary">{quote.delivery_type === "pickup_point" ? "Recogida" : "Domicilio"}</div>
-                    </div>
-                    <div className="shipping-option-price">{quote.amount.toFixed(2)} {quote.currency}</div>
-                  </div>
-                  <div className="shipping-option-meta">
-                    <span>{quote.carrier} · {quote.service_code}</span>
-                    <span>{formatEta(quote)}</span>
-                  </div>
-                </button>
-              ))}
+      {/* Current selection banner */}
+      {selectedPoint && (
+        <div className="ctt-selected-banner">
+          <div className="ctt-selected-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+              <circle cx="12" cy="10" r="3" />
+            </svg>
+          </div>
+          <div className="ctt-selected-body">
+            <div className="ctt-selected-label">Punto de recogida asignado</div>
+            <div className="ctt-selected-name">{selectedPoint.name}</div>
+            <div className="ctt-selected-addr">
+              {selectedPoint.address1}
+              {selectedPoint.address2 ? ` · ${selectedPoint.address2}` : ""}
+              {" · "}
+              {selectedPoint.postal_code} {selectedPoint.city}
             </div>
-          )}
+            {selectedPoint.opening_hours?.[0] && (
+              <div className="ctt-selected-hours">{selectedPoint.opening_hours[0]}</div>
+            )}
+          </div>
         </div>
+      )}
 
-        <div>
-          <div className="section-title section-title-small">Pickup points (CTT)</div>
-          <p className="muted">Disponible si eliges una tarifa con entrega en punto de recogida.</p>
-          {loadingPickup ? (
-            <div className="muted">Cargando puntos...</div>
-          ) : pickupPoints.length === 0 ? (
-            <EmptyState title="Sin puntos" description="No hay puntos de recogida disponibles aún." />
-          ) : (
-            <div className={`pickup-point-grid ${pickupEnabled ? "" : "is-disabled"}`}>
-              {pickupPoints.map((point) => (
-                <button
-                  key={point.id}
-                  className={`pickup-point-card ${selectedPickup === point.id ? "is-active" : ""}`}
-                  type="button"
-                  onClick={() => setSelectedPickup(point.id)}
-                  disabled={!pickupEnabled}
-                >
-                  <div className="table-primary">{point.name}</div>
-                  <div className="table-secondary">{point.address1}{point.address2 ? ` · ${point.address2}` : ""}</div>
-                  <div className="table-secondary">{point.postal_code} · {point.city}</div>
-                  {point.opening_hours?.length ? (
-                    <div className="pickup-point-hours">{point.opening_hours[0]}</div>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          )}
+      {/* Search bar */}
+      <div className="ctt-search-bar">
+        <div className="ctt-search-label">Buscar puntos CTT por código postal</div>
+        <div className="ctt-search-row">
+          <input
+            ref={inputRef}
+            className="ctt-search-input"
+            placeholder="Ej. 28001"
+            value={postalInput}
+            onChange={(e) => setPostalInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") fetchPoints(postalInput);
+            }}
+          />
+          <button
+            className="button"
+            type="button"
+            disabled={loading}
+            onClick={() => fetchPoints(postalInput)}
+          >
+            {loading ? "Buscando..." : "Buscar"}
+          </button>
         </div>
       </div>
 
-      <div className="shipping-option-footer">
-        <div>
-          <div className="table-primary">Selección actual</div>
-          <div className="table-secondary">
-            {activeQuote
-              ? `${activeQuote.service_name} · ${activeQuote.delivery_type === "pickup_point" ? "Recogida" : "Domicilio"}`
-              : "Sin seleccionar"}
-          </div>
+      {error && <div className="alert-banner warning">{error}</div>}
+
+      {/* Points grid */}
+      {!loading && points.length === 0 && !error && (
+        <div className="ctt-empty">
+          <div className="ctt-empty-icon">📭</div>
+          <div className="ctt-empty-text">No se encontraron puntos CTT para este código postal</div>
         </div>
-        <button className="btn btn-primary" onClick={handleSave} disabled={!activeQuote || saving} type="button">
-          {saving ? "Guardando..." : "Guardar opción"}
+      )}
+
+      {points.length > 0 && (
+        <div className="ctt-points-grid">
+          {points.map((point) => {
+            const isActive = selectedId === point.id;
+            return (
+              <button
+                key={point.id}
+                className={`ctt-point-card ${isActive ? "is-active" : ""}`}
+                type="button"
+                onClick={() => setSelectedId(point.id)}
+              >
+                <div className="ctt-point-dot" />
+                <div className="ctt-point-body">
+                  <div className="ctt-point-name">{point.name}</div>
+                  <div className="ctt-point-addr">{point.address1}</div>
+                  <div className="ctt-point-city">{point.postal_code} · {point.city}</div>
+                  {point.opening_hours?.[0] && (
+                    <div className="ctt-point-hours">{point.opening_hours[0]}</div>
+                  )}
+                </div>
+                {isActive && (
+                  <div className="ctt-point-check">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="ctt-footer">
+        {saved && (
+          <span className="ctt-saved-msg">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            Punto guardado correctamente
+          </span>
+        )}
+        <button
+          className="button"
+          type="button"
+          disabled={!selectedPoint || saving}
+          onClick={handleSave}
+        >
+          {saving ? "Guardando..." : "Guardar punto de entrega"}
         </button>
       </div>
     </Card>

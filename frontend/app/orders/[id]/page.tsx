@@ -309,37 +309,38 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
     <div className="stack">
       <div className="detail-grid">
         <div className="stack">
-          <Card className="card-soft stack order-hero-card">
-            <div className="order-hero-topline">
-              <div className="order-hero-copy">
-                <div className="order-hero-heading">
-                  <h1 className="order-hero-title">{order.external_id}</h1>
-                  <div className="order-hero-badges">
-                    <StatusBadge status={order.status} />
-                    <ProductionBadge status={order.production_status} />
-                    <PersonalizationBadge isPersonalized={order.is_personalized} />
-                  </div>
+
+          {/* ── Hero ─────────────────────────────────────────────── */}
+          <div className="order-hero-v2">
+            <div className="order-hero-v2-top">
+              <div>
+                <div className="order-hero-v2-id">{order.external_id}</div>
+                <div className="order-hero-v2-badges">
+                  <StatusBadge status={order.status} />
+                  <ProductionBadge status={order.production_status} />
+                  <PersonalizationBadge isPersonalized={order.is_personalized} />
                 </div>
-                <p className="order-hero-subtitle">
-                  {order.customer_name}
-                  <span className="order-hero-dot">·</span>
-                  {order.customer_email}
-                  <span className="order-hero-dot">·</span>
-                  Shop #{order.shop_id}
-                  <span className="order-hero-dot">·</span>
-                  {formatDateTime(order.created_at)}
-                </p>
+                <div className="order-hero-v2-sub">
+                  <span>{order.customer_name}</span>
+                  <span className="order-hero-v2-dot">·</span>
+                  <span>{order.customer_email}</span>
+                  <span className="order-hero-v2-dot">·</span>
+                  <span>Shop #{order.shop_id}</span>
+                  <span className="order-hero-v2-dot">·</span>
+                  <span>{formatDateTime(order.created_at)}</span>
+                </div>
               </div>
-              <div className="order-hero-admin-actions">
-                <Link className="button-secondary order-hero-back" href="/orders">
-                  Volver al listado
+              <div className="order-hero-v2-actions">
+                <Link className="button-secondary" href="/orders">
+                  ← Volver
                 </Link>
                 <CttShipmentButton order={order} />
                 <OrderActionModals orderId={order.id} shipment={order.shipment} />
               </div>
             </div>
-          </Card>
+          </div>
 
+          {/* ── Items ────────────────────────────────────────────── */}
           <Card className="stack">
             <SectionTitle eyebrow="📦 Producto" title="Contenido del pedido" />
             <div className="items-list">
@@ -348,85 +349,94 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 const designStatus = getItemDesignStatus(item);
 
                 return (
-                  <article className="item-card item-card-portal item-card-admin" key={item.id}>
-                    <div className="item-head">
-                      <div className="item-copy">
-                        <div className="item-product-title">{itemSummary.productName}</div>
-                        <div className="item-variant-title">{itemSummary.variantName}</div>
+                  <article className="order-item-card-v2" key={item.id}>
+                    <div className="order-item-v2-head">
+                      <div>
+                        <div className="order-item-v2-name">{itemSummary.productName}</div>
+                        <div className="order-item-v2-variant">{itemSummary.variantName}</div>
                       </div>
-                      <span className="badge">x{item.quantity}</span>
+                      <span className="badge">×{item.quantity}</span>
                     </div>
-
-                    <div className="item-meta-grid item-meta-grid-admin">
-                      <div className="item-meta-pill">
+                    <div className="order-item-v2-pills">
+                      <div className="order-item-v2-pill">
                         <span className="kv-label">Unidades</span>
                         <strong>{item.quantity}</strong>
                       </div>
-                      <div className="item-meta-pill">
+                      <div className="order-item-v2-pill">
                         <span className="kv-label">SKU</span>
                         <strong>{item.sku || "Sin SKU"}</strong>
                       </div>
-                      <div className="item-meta-pill">
+                      <div className="order-item-v2-pill">
                         <span className="kv-label">Diseño</span>
-                        <div>
-                          {item.design_status ? <DesignStatusBadge status={item.design_status} /> : <span className="badge badge-design badge-design-default">{designStatus.label}</span>}
-                        </div>
+                        {item.design_status
+                          ? <DesignStatusBadge status={item.design_status} />
+                          : <span className="badge badge-design badge-design-default">{designStatus.label}</span>
+                        }
                       </div>
-                      <div className="item-meta-pill">
+                      <div className="order-item-v2-pill">
                         <span className="kv-label">Assets</span>
                         <strong>{getVisibleAssets(item).length}</strong>
                       </div>
                     </div>
-
-                    <div className="table-secondary item-note">
-                      {item.personalization_notes ?? "Sin notas adicionales para este producto."}
-                    </div>
+                    {item.personalization_notes && (
+                      <div className="table-secondary" style={{ fontSize: "0.82rem" }}>
+                        {item.personalization_notes}
+                      </div>
+                    )}
                   </article>
                 );
               })}
 
-              {order.items.length === 0 ? (
+              {order.items.length === 0 && (
                 <EmptyState
                   title="Sin items cargados"
                   description="Este pedido todavía no tiene líneas de producto disponibles."
                 />
-              ) : null}
+              )}
             </div>
           </Card>
 
+          {/* ── Activity timeline ─────────────────────────────────── */}
           <Card className="stack">
             <SectionTitle eyebrow="📋 Actividad" title="Timeline del pedido" />
-            <div className="order-activity-timeline">
+            <div className="order-timeline-v">
               {activityFeed.map((activity, index) => (
-                <article className={`order-activity-card order-activity-card-${activity.tone}`} key={activity.id}>
-                  <div className="order-activity-node">
-                    <span className="order-activity-icon">{activity.icon}</span>
-                    {index < activityFeed.length - 1 ? <div className="order-activity-connector" /> : null}
+                <div
+                  className={`order-timeline-item is-${activity.tone}`}
+                  key={activity.id}
+                >
+                  <div className="order-timeline-rail">
+                    <div className="order-timeline-node">{activity.icon}</div>
+                    {index < activityFeed.length - 1 && (
+                      <div className="order-timeline-spine" />
+                    )}
                   </div>
-                  <div className="order-activity-topline">
-                    <span className="order-activity-meta">{activity.meta}</span>
-                    <span className="order-activity-date">{formatDateTime(activity.occurredAt)}</span>
+                  <div className="order-timeline-content">
+                    <div className="order-timeline-topline">
+                      <span className="order-timeline-label">{activity.meta}</span>
+                      <span className="order-timeline-date">{formatDateTime(activity.occurredAt)}</span>
+                    </div>
+                    <div className="order-timeline-title">{activity.title}</div>
+                    <div className="order-timeline-desc">{activity.description}</div>
                   </div>
-                  <div className="order-activity-title">{activity.title}</div>
-                  <div className="order-activity-description">{activity.description}</div>
-                </article>
+                </div>
               ))}
             </div>
           </Card>
 
+          {/* ── Automation ────────────────────────────────────────── */}
           <Card className="stack">
             <SectionTitle eyebrow="⚡ Automatización" title="Reglas aplicadas" />
             {(order.automation_flags ?? []).length > 0 || (order.automation_events?.length ?? 0) > 0 ? (
               <div className="stack">
-                {(order.automation_flags ?? []).length > 0 ? (
+                {(order.automation_flags ?? []).length > 0 && (
                   <div className="automation-flag-row">
                     {(order.automation_flags ?? []).map((flag) => (
                       <AutomationFlagBadge flag={flag} key={`${order.id}-${flag.key}`} />
                     ))}
                   </div>
-                ) : null}
-
-                {order.automation_events && order.automation_events.length > 0 ? (
+                )}
+                {order.automation_events && order.automation_events.length > 0 && (
                   <div className="mini-table">
                     {order.automation_events.slice(0, 8).map((event) => (
                       <div className="mini-table-row" key={event.id}>
@@ -442,7 +452,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                       </div>
                     ))}
                   </div>
-                ) : null}
+                )}
               </div>
             ) : (
               <EmptyState
@@ -452,10 +462,14 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             )}
           </Card>
 
+          {/* ── CTT Pickup selector ───────────────────────────────── */}
           <ShippingOptionsPanel order={order} token={token} />
         </div>
 
+        {/* ── Aside ──────────────────────────────────────────────── */}
         <aside className="stack">
+
+          {/* Design preview */}
           <Card className="stack">
             <SectionTitle eyebrow="🎨 Diseño" title="Render de personalización" />
             {primaryItemSummary && designPreviewUrl ? (
@@ -482,11 +496,13 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             )}
           </Card>
 
+          {/* Incidents */}
           <Card className="stack">
             <SectionTitle eyebrow="⚠️ Incidencias" title="Seguimiento del pedido" />
             <OrderIncidentsPanel incidents={incidents} orderId={order.id} />
           </Card>
 
+          {/* Shipment details */}
           <Card className="stack">
             <SectionTitle eyebrow="🚚 Envío" title="Shipment" />
             {order.shipment ? (
@@ -507,7 +523,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                   <div>{formatDateTime(order.shipment.label_created_at ?? order.shipment.created_at)}</div>
                 </div>
                 <div className="kv-row">
-                  <span className="kv-label">Estado envío</span>
+                  <span className="kv-label">Estado</span>
                   <div>{order.shipment.shipping_status_detail ?? order.shipment.shipping_status ?? "Etiqueta creada"}</div>
                 </div>
                 <div className="kv-row">
@@ -523,7 +539,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                   <div>
                     {order.shipment.tracking_url ? (
                       <a className="table-link table-link-strong" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">
-                        Abrir tracking del carrier
+                        Abrir tracking →
                       </a>
                     ) : "Pendiente"}
                   </div>
@@ -533,15 +549,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                   <div className="order-inline-actions">
                     {shipmentLabelUrl ? (
                       <>
-                        <a className="table-link table-link-strong" href={shipmentLabelUrl} rel="noreferrer" target="_blank">
-                          Ver PDF
-                        </a>
-                        <a className="table-link" download href={shipmentLabelDownloadUrl ?? shipmentLabelUrl} rel="noreferrer" target="_blank">
-                          Descargar PDF
-                        </a>
-                        <a className="table-link" download href={shipmentLabelThermalUrl ?? "#"} rel="noreferrer" target="_blank">
-                          Descargar ZPL
-                        </a>
+                        <a className="table-link table-link-strong" href={shipmentLabelUrl} rel="noreferrer" target="_blank">Ver PDF</a>
+                        <a className="table-link" download href={shipmentLabelDownloadUrl ?? shipmentLabelUrl} rel="noreferrer" target="_blank">Descargar</a>
+                        <a className="table-link" download href={shipmentLabelThermalUrl ?? "#"} rel="noreferrer" target="_blank">ZPL</a>
                       </>
                     ) : "No disponible"}
                   </div>
@@ -550,17 +560,17 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                   <span className="kv-label">Shopify</span>
                   <div>
                     {order.shipment.shopify_sync_status === "synced"
-                      ? "Tracking y fulfillment sincronizados"
+                      ? "Sincronizado"
                       : order.shipment.shopify_sync_status === "failed"
-                        ? order.shipment.shopify_sync_error ?? "La sync falló"
+                        ? order.shipment.shopify_sync_error ?? "Sync fallida"
                         : order.shipment.shopify_sync_status === "not_configured"
-                          ? "Integración no configurada"
+                          ? "Sin integración"
                           : "Pendiente"}
                   </div>
                 </div>
                 <div className="kv-row">
                   <span className="kv-label">Tracking público</span>
-                  <div className="stack" style={{ gap: "10px" }}>
+                  <div className="order-inline-actions">
                     <Link className="table-link table-link-strong" href={`/tracking/${order.shipment.public_token}`}>
                       /tracking/{order.shipment.public_token}
                     </Link>
@@ -576,11 +586,12 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             )}
           </Card>
 
+          {/* Address */}
           <Card className="stack">
-            <SectionTitle eyebrow="📍 Dirección" title="Snapshot Shopify y dirección operativa" />
+            <SectionTitle eyebrow="📍 Dirección" title="Snapshot y dirección operativa" />
             <div className="kv">
               <div className="kv-row">
-                <span className="kv-label">Shopify · contacto</span>
+                <span className="kv-label">Contacto Shopify</span>
                 <div>
                   {shippingSnapshot?.name || order.customer_name}
                   {shippingSnapshot?.email ? ` · ${shippingSnapshot.email}` : ""}
@@ -588,37 +599,36 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 </div>
               </div>
               <div className="kv-row">
-                <span className="kv-label">Shopify · dirección</span>
-                <div className="stack" style={{ gap: "6px" }}>
-                  {shopifyAddressLines.length > 0 ? (
-                    shopifyAddressLines.map((line) => <span key={line}>{line}</span>)
-                  ) : (
-                    <span>Sin snapshot de dirección todavía</span>
-                  )}
+                <span className="kv-label">Dirección Shopify</span>
+                <div className="stack" style={{ gap: "4px" }}>
+                  {shopifyAddressLines.length > 0
+                    ? shopifyAddressLines.map((line) => <span key={line}>{line}</span>)
+                    : <span>Sin snapshot todavía</span>
+                  }
                 </div>
               </div>
               <div className="kv-row">
-                <span className="kv-label">Operativa · CTT</span>
-                <div className="stack" style={{ gap: "6px" }}>
-                  {operationalAddressLines.length > 0 ? (
-                    operationalAddressLines.map((line) => <span key={line}>{line}</span>)
-                  ) : (
-                    <span>Sin dirección operativa cargada</span>
-                  )}
+                <span className="kv-label">Dirección CTT</span>
+                <div className="stack" style={{ gap: "4px" }}>
+                  {operationalAddressLines.length > 0
+                    ? operationalAddressLines.map((line) => <span key={line}>{line}</span>)
+                    : <span>Sin dirección operativa</span>
+                  }
                 </div>
               </div>
               <div className="kv-row">
-                <span className="kv-label">Validación rápida</span>
+                <span className="kv-label">Validación</span>
                 <div>
                   {order.shipping_address_line1 && order.shipping_postal_code && order.shipping_town
-                    ? "La dirección interna está lista para crear etiqueta."
-                    : "Faltan datos en la dirección interna; conviene resincronizar Shopify antes de etiquetar."}
+                    ? "Dirección lista para etiquetar."
+                    : "Faltan datos — resincroniza Shopify antes de etiquetar."}
                 </div>
               </div>
             </div>
           </Card>
 
-          {fulfillmentOrders.length > 0 ? (
+          {/* Fulfillment orders */}
+          {fulfillmentOrders.length > 0 && (
             <Card className="stack">
               <SectionTitle eyebrow="🛒 Shopify" title="Fulfillment orders" />
               <div className="mini-table">
@@ -639,7 +649,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 ))}
               </div>
             </Card>
-          ) : null}
+          )}
         </aside>
       </div>
     </div>

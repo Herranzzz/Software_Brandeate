@@ -72,6 +72,10 @@ function getVolumeBucket(totalOrders: number) {
   return "low";
 }
 
+function initials(name: string) {
+  return name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+}
+
 export default async function CustomersPage({ searchParams }: CustomerAccountsPageProps) {
   await requireAdminUser();
   const params = await searchParams;
@@ -260,30 +264,30 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
 
   return (
     <div className="stack customer-accounts-page">
+      {/* ── Header ─────────────────────────────────────────────────── */}
       <Card className="stack customer-accounts-hero">
         <PageHeader
           actions={
             <CreateShopButton
               buttonClassName="button"
-              buttonLabel="Nueva tienda"
+              buttonLabel="Nueva cuenta"
               description="Da de alta una nueva cuenta cliente y luego podrás completar integración, branding y accesos."
               successRedirectPath="/customers"
               title="Crear cuenta / tienda"
             />
           }
-          eyebrow="Cuentas de cliente"
-          title="Account management operativo"
-          description="Lee todas las tiendas desde una unica vista: estado de la cuenta, sync, riesgo operativo, expediciones e incidencias sin perder contexto."
+          eyebrow="CRM operativo"
+          title="Cuentas de cliente"
+          description="Estado, salud operativa, sync y expediciones de cada tienda en una sola vista."
         />
 
         <form className="customer-accounts-toolbar" method="get">
           <SearchInput
             defaultValue={params.q ?? ""}
-            placeholder="Buscar por tienda, slug, dominio o SKU principal"
+            placeholder="Buscar por tienda, slug, dominio o SKU…"
           />
-
           <div className="field">
-            <label htmlFor="health">Estado de la cuenta</label>
+            <label htmlFor="health">Estado</label>
             <select defaultValue={params.health ?? "all"} id="health" name="health">
               <option value="all">Todas</option>
               <option value="healthy">Saludables</option>
@@ -291,17 +295,15 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
               <option value="risk">Riesgo</option>
             </select>
           </div>
-
           <div className="field">
             <label htmlFor="volume">Volumen</label>
             <select defaultValue={params.volume ?? "all"} id="volume" name="volume">
               <option value="all">Todos</option>
-              <option value="high">Alto</option>
-              <option value="medium">Medio</option>
+              <option value="high">Alto ≥100</option>
+              <option value="medium">Medio ≥25</option>
               <option value="low">Bajo</option>
             </select>
           </div>
-
           <div className="field">
             <label htmlFor="incidents">Incidencias</label>
             <select defaultValue={params.incidents ?? "all"} id="incidents" name="incidents">
@@ -310,81 +312,78 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
               <option value="none">Sin incidencias</option>
             </select>
           </div>
-
           <div className="field">
-            <label htmlFor="sync">Sync status</label>
+            <label htmlFor="sync">Sync</label>
             <select defaultValue={params.sync ?? "all"} id="sync" name="sync">
               <option value="all">Todas</option>
-              <option value="recent">Sync reciente</option>
+              <option value="recent">Sync OK</option>
               <option value="attention">Revisar sync</option>
             </select>
           </div>
-
           <div className="customer-accounts-toolbar-actions">
-            <button className="button" type="submit">
-              Aplicar
-            </button>
-            <button className="button button-secondary" type="button">
-              Exportar
-            </button>
+            <button className="button" type="submit">Filtrar</button>
           </div>
         </form>
       </Card>
 
-      <section className="customer-accounts-kpis">
-        <Card className="customer-accounts-kpi">
-          <span className="customer-accounts-kpi-label">Total cuentas</span>
-          <strong>{kpis.total}</strong>
-          <span className="table-secondary">clientes visibles en la operativa</span>
-        </Card>
-        <Card className="customer-accounts-kpi">
-          <span className="customer-accounts-kpi-label">Activas</span>
-          <strong>{kpis.active}</strong>
-          <span className="table-secondary">con pedidos todavia en juego</span>
-        </Card>
-        <Card className="customer-accounts-kpi">
-          <span className="customer-accounts-kpi-label">Con incidencias</span>
-          <strong>{kpis.incidents}</strong>
-          <span className="table-secondary">casos abiertos que requieren seguimiento</span>
-        </Card>
-        <Card className="customer-accounts-kpi">
-          <span className="customer-accounts-kpi-label">Sync reciente</span>
-          <strong>{kpis.recentSync}</strong>
-          <span className="table-secondary">sincronizadas en las ultimas 6 horas</span>
-        </Card>
-        <Card className="customer-accounts-kpi">
-          <span className="customer-accounts-kpi-label">En producción</span>
-          <strong>{kpis.production}</strong>
-          <span className="table-secondary">cuentas con trabajo interno en marcha</span>
-        </Card>
-        <Card className="customer-accounts-kpi">
-          <span className="customer-accounts-kpi-label">En tránsito</span>
-          <strong>{kpis.transit}</strong>
-          <span className="table-secondary">cuentas con expediciones vivas</span>
-        </Card>
-        <Card className="customer-accounts-kpi">
-          <span className="customer-accounts-kpi-label">En riesgo</span>
-          <strong>{kpis.risk}</strong>
-          <span className="table-secondary">SLA, incidencias o sync comprometida</span>
-        </Card>
-      </section>
+      {/* ── KPI strip ──────────────────────────────────────────────── */}
+      <div className="crm-kpi-strip">
+        <article className="crm-kpi-card">
+          <span className="crm-kpi-label">Total cuentas</span>
+          <span className="crm-kpi-value">{kpis.total}</span>
+          <span className="crm-kpi-hint">clientes en la operativa</span>
+        </article>
+        <article className="crm-kpi-card is-blue">
+          <span className="crm-kpi-label">Activas</span>
+          <span className="crm-kpi-value">{kpis.active}</span>
+          <span className="crm-kpi-hint">con pedidos en curso</span>
+        </article>
+        <article className="crm-kpi-card is-orange">
+          <span className="crm-kpi-label">En producción</span>
+          <span className="crm-kpi-value">{kpis.production}</span>
+          <span className="crm-kpi-hint">trabajo interno activo</span>
+        </article>
+        <article className="crm-kpi-card is-sky">
+          <span className="crm-kpi-label">En tránsito</span>
+          <span className="crm-kpi-value">{kpis.transit}</span>
+          <span className="crm-kpi-hint">expediciones vivas</span>
+        </article>
+        <article className="crm-kpi-card is-green">
+          <span className="crm-kpi-label">Sync reciente</span>
+          <span className="crm-kpi-value">{kpis.recentSync}</span>
+          <span className="crm-kpi-hint">sync &lt;6h</span>
+        </article>
+        <article className="crm-kpi-card is-accent">
+          <span className="crm-kpi-label">Con incidencias</span>
+          <span className="crm-kpi-value">{kpis.incidents}</span>
+          <span className="crm-kpi-hint">casos abiertos</span>
+        </article>
+        <article className="crm-kpi-card is-red">
+          <span className="crm-kpi-label">En riesgo</span>
+          <span className="crm-kpi-value">{kpis.risk}</span>
+          <span className="crm-kpi-hint">SLA comprometido</span>
+        </article>
+      </div>
 
+      {/* ── Workbench ──────────────────────────────────────────────── */}
       {rows.length === 0 ? (
         <Card className="stack">
           <EmptyState
             title="No hay cuentas para esta vista"
-            description="Ajusta los filtros o conecta nuevas tiendas para recuperar el pulso operativo desde aqui."
+            description="Ajusta los filtros o conecta nuevas tiendas para recuperar el pulso operativo."
           />
         </Card>
       ) : (
         <section className="customer-accounts-workbench">
+
+          {/* Left — account list */}
           <Card className="stack table-card">
             <div className="table-header">
               <div>
                 <span className="eyebrow">Cuentas</span>
-                <h3 className="section-title section-title-small">Radar de clientes y tiendas</h3>
+                <h3 className="section-title section-title-small">Radar de clientes</h3>
               </div>
-              <div className="muted">{rows.length} cuentas visibles</div>
+              <div className="muted">{rows.length} cuentas</div>
             </div>
 
             <div className="customer-accounts-list">
@@ -398,20 +397,17 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
                 if (params.sync) href.set("sync", params.sync);
                 href.set("selected", String(entry.shop.id));
 
+                const isActive = selectedEntry?.shop.id === entry.shop.id;
+
                 return (
-                  <div
-                    className={`customer-account-row ${selectedEntry?.shop.id === entry.shop.id ? "is-active" : ""}`}
+                  <Link
                     key={entry.shop.id}
+                    href={`/customers?${href.toString()}`}
+                    className={`crm-account-row ${isActive ? "is-active" : ""} ${entry.health === "risk" ? "is-risk" : entry.health === "attention" ? "is-attention" : ""}`}
                   >
+                    {/* Brand */}
                     <div className="customer-account-brand">
-                      <div className="customer-account-logo">
-                        {entry.shop.name
-                          .split(" ")
-                          .map((part) => part[0])
-                          .join("")
-                          .slice(0, 2)
-                          .toUpperCase()}
-                      </div>
+                      <div className="crm-avatar">{initials(entry.shop.name)}</div>
                       <div>
                         <div className="table-primary">{entry.shop.name}</div>
                         <div className="table-secondary">
@@ -421,13 +417,17 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
                       </div>
                     </div>
 
+                    {/* Health */}
                     <div className="customer-account-health-wrap">
                       <span className={health.className}>{health.label}</span>
-                      <span className="table-secondary">
-                        {entry.integration?.last_synced_at ? `Sync ${formatDateTime(entry.integration.last_synced_at)}` : "Sin sync"}
+                      <span className="table-secondary" style={{ fontSize: "0.72rem" }}>
+                        {entry.integration?.last_synced_at
+                          ? `Sync ${formatDateTime(entry.integration.last_synced_at)}`
+                          : "Sin sync"}
                       </span>
                     </div>
 
+                    {/* Mini metrics */}
                     <div className="customer-account-mini-metrics">
                       <div>
                         <span className="customer-account-mini-label">Activos</span>
@@ -438,171 +438,176 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
                         <strong>{entry.metrics.inProduction}</strong>
                       </div>
                       <div>
-                        <span className="customer-account-mini-label">Transito</span>
+                        <span className="customer-account-mini-label">Tránsito</span>
                         <strong>{entry.metrics.inTransit}</strong>
                       </div>
                       <div>
                         <span className="customer-account-mini-label">Incidencias</span>
-                        <strong>{entry.metrics.openIncidents}</strong>
+                        <strong style={{ color: entry.metrics.openIncidents > 0 ? "var(--danger)" : "inherit" }}>
+                          {entry.metrics.openIncidents}
+                        </strong>
                       </div>
                     </div>
 
+                    {/* Meta */}
                     <div className="customer-account-meta">
                       <div className="table-secondary">
                         {entry.metrics.personalized > 0
-                          ? `${entry.metrics.personalized} personalizados / ${entry.metrics.standard} estandar`
-                          : "Solo operativa estandar"}
+                          ? `${entry.metrics.personalized} personalizados / ${entry.metrics.standard} estándar`
+                          : "Solo operativa estándar"}
                       </div>
                       <div className="customer-account-links">
-                        <Link className="table-link" href={`/customers?${href.toString()}`}>
-                          Ver cuenta
-                        </Link>
-                        <Link className="table-link" href={`/orders?shop_id=${entry.shop.id}`}>
-                          Ver pedidos
-                        </Link>
-                        <Link className="table-link" href={`/shipments?shop_id=${entry.shop.id}`}>
-                          Ver envíos
-                        </Link>
+                        <span className="table-link">Ver pedidos →</span>
+                        <span className="table-link">Ver envíos →</span>
                       </div>
                     </div>
-                  </div>
+                  </Link>
                 );
               })}
             </div>
           </Card>
 
-          <Card className="stack customer-account-drawer">
+          {/* Right — CRM drawer */}
+          <div className="crm-drawer">
             {selectedEntry ? (
               <>
-                <div className="customer-account-drawer-head">
-                  <div className="customer-account-brand">
-                    <div className="customer-account-logo customer-account-logo-large">
-                      {selectedEntry.shop.name
-                        .split(" ")
-                        .map((part) => part[0])
-                        .join("")
-                        .slice(0, 2)
-                        .toUpperCase()}
-                    </div>
-                    <div>
-                      <span className="eyebrow">Cuenta seleccionada</span>
-                      <h3 className="section-title section-title-small">{selectedEntry.shop.name}</h3>
-                      <div className="table-secondary">
-                        {selectedEntry.integration?.shop_domain ?? selectedEntry.shop.slug}
-                      </div>
-                    </div>
+                {/* Head */}
+                <div className="crm-drawer-head">
+                  <div className="crm-drawer-avatar">{initials(selectedEntry.shop.name)}</div>
+                  <div className="crm-drawer-name">{selectedEntry.shop.name}</div>
+                  <div className="crm-drawer-meta">
+                    {selectedEntry.integration?.shop_domain ?? selectedEntry.shop.slug}
+                    {" · "}
+                    {selectedEntry.metrics.totalOrders} pedidos totales
                   </div>
-                  <span className={getHealthMeta(selectedEntry.health).className}>
-                    {getHealthMeta(selectedEntry.health).label}
-                  </span>
-                </div>
-
-                <div className="customer-account-drawer-grid">
-                  <div className="customer-account-drawer-stat">
-                    <span className="customer-account-mini-label">Pedidos del dia</span>
-                    <strong>{selectedEntry.metrics.ordersToday}</strong>
-                  </div>
-                  <div className="customer-account-drawer-stat">
-                    <span className="customer-account-mini-label">En producción</span>
-                    <strong>{selectedEntry.metrics.inProduction}</strong>
-                  </div>
-                  <div className="customer-account-drawer-stat">
-                    <span className="customer-account-mini-label">En tránsito</span>
-                    <strong>{selectedEntry.metrics.inTransit}</strong>
-                  </div>
-                  <div className="customer-account-drawer-stat">
-                    <span className="customer-account-mini-label">Entregados</span>
-                    <strong>{selectedEntry.metrics.delivered}</strong>
+                  <div className="crm-drawer-health">
+                    <span className={getHealthMeta(selectedEntry.health).className}>
+                      {getHealthMeta(selectedEntry.health).label}
+                    </span>
                   </div>
                 </div>
 
-                <div className="status-summary-list">
-                  <div className="status-summary-row">
-                    <span>Última sincronización</span>
-                    <strong>
-                      {selectedEntry.integration?.last_synced_at
-                        ? formatDateTime(selectedEntry.integration.last_synced_at)
-                        : "Sin sincronización"}
+                {/* Stats 2×2 grid */}
+                <div className="crm-drawer-stats">
+                  <div className="crm-drawer-stat">
+                    <span className="crm-stat-label">Hoy</span>
+                    <span className="crm-stat-value">{selectedEntry.metrics.ordersToday}</span>
+                  </div>
+                  <div className="crm-drawer-stat">
+                    <span className="crm-stat-label">Producción</span>
+                    <span className="crm-stat-value">{selectedEntry.metrics.inProduction}</span>
+                  </div>
+                  <div className="crm-drawer-stat">
+                    <span className="crm-stat-label">Tránsito</span>
+                    <span className="crm-stat-value">{selectedEntry.metrics.inTransit}</span>
+                  </div>
+                  <div className="crm-drawer-stat">
+                    <span className="crm-stat-label">Entregados</span>
+                    <span className="crm-stat-value">{selectedEntry.metrics.delivered}</span>
+                  </div>
+                </div>
+
+                {/* Operativa */}
+                <div className="crm-drawer-section">
+                  <div className="crm-drawer-section-title">Operativa</div>
+                  <div className="crm-status-row">
+                    <span>Última sync</span>
+                    <strong>{selectedEntry.integration?.last_synced_at ? formatDateTime(selectedEntry.integration.last_synced_at) : "Sin sync"}</strong>
+                  </div>
+                  <div className="crm-status-row">
+                    <span>Estado sync</span>
+                    <strong>{selectedEntry.integration?.last_sync_status ?? "—"}</strong>
+                  </div>
+                  <div className="crm-status-row">
+                    <span>Excepciones</span>
+                    <strong style={{ color: selectedEntry.metrics.exceptionShipments > 0 ? "var(--danger)" : "inherit" }}>
+                      {selectedEntry.metrics.exceptionShipments}
                     </strong>
                   </div>
-                  <div className="status-summary-row">
-                    <span>Sync status</span>
-                    <strong>{selectedEntry.integration?.last_sync_status ?? "Sin estado"}</strong>
+                  <div className="crm-status-row">
+                    <span>Atascados +48h</span>
+                    <strong style={{ color: selectedEntry.metrics.stalledShipments > 0 ? "var(--warning)" : "inherit" }}>
+                      {selectedEntry.metrics.stalledShipments}
+                    </strong>
                   </div>
-                  <div className="status-summary-row">
-                    <span>Envios con excepcion</span>
-                    <strong>{selectedEntry.metrics.exceptionShipments}</strong>
-                  </div>
-                  <div className="status-summary-row">
-                    <span>Envios atascados</span>
-                    <strong>{selectedEntry.metrics.stalledShipments}</strong>
-                  </div>
-                  <div className="status-summary-row">
+                  <div className="crm-status-row">
                     <span>Sin tracking</span>
                     <strong>{selectedEntry.metrics.withoutTracking}</strong>
                   </div>
-                  <div className="status-summary-row">
+                  <div className="crm-status-row">
                     <span>Pedidos bloqueados</span>
-                    <strong>{selectedEntry.metrics.blockedOrders}</strong>
+                    <strong style={{ color: selectedEntry.metrics.blockedOrders > 0 ? "var(--danger)" : "inherit" }}>
+                      {selectedEntry.metrics.blockedOrders}
+                    </strong>
                   </div>
                 </div>
 
-                <div className="customer-account-drawer-block">
-                  <div className="table-primary">Actividad reciente</div>
-                  <div className="table-secondary">
-                    {selectedEntry.lastOrder
-                      ? `${selectedEntry.lastOrder.external_id} · ${formatDateTime(selectedEntry.lastOrder.created_at)}`
-                      : "Sin pedidos recientes"}
+                {/* Actividad */}
+                <div className="crm-drawer-section">
+                  <div className="crm-drawer-section-title">Actividad reciente</div>
+                  <div className="crm-status-row">
+                    <span>Último pedido</span>
+                    <strong style={{ fontSize: "0.8rem" }}>
+                      {selectedEntry.lastOrder
+                        ? `${selectedEntry.lastOrder.external_id}`
+                        : "Sin pedidos"}
+                    </strong>
+                  </div>
+                  {selectedEntry.lastOrder && (
+                    <div className="crm-status-row">
+                      <span>Fecha</span>
+                      <strong style={{ fontSize: "0.78rem" }}>{formatDateTime(selectedEntry.lastOrder.created_at)}</strong>
+                    </div>
+                  )}
+                  <div className="crm-status-row">
+                    <span>Incidencia reciente</span>
+                    <strong style={{ fontSize: "0.8rem", color: selectedEntry.latestIncident ? "var(--danger)" : "inherit" }}>
+                      {selectedEntry.latestIncident ? selectedEntry.latestIncident.title : "Sin incidencias"}
+                    </strong>
                   </div>
                 </div>
 
-                <div className="customer-account-drawer-block">
-                  <div className="table-primary">Incidencia reciente</div>
-                  <div className="table-secondary">
-                    {selectedEntry.latestIncident
-                      ? `${selectedEntry.latestIncident.title} · ${formatDateTime(selectedEntry.latestIncident.updated_at)}`
-                      : "Sin incidencias abiertas"}
+                {/* Mix & top SKU */}
+                <div className="crm-drawer-section">
+                  <div className="crm-drawer-section-title">Producto</div>
+                  <div className="crm-status-row">
+                    <span>Mix operativo</span>
+                    <strong style={{ fontSize: "0.8rem" }}>
+                      {selectedEntry.metrics.personalized}p / {selectedEntry.metrics.standard}e
+                    </strong>
+                  </div>
+                  <div className="crm-status-row">
+                    <span>Top SKU</span>
+                    <strong style={{ fontSize: "0.78rem" }}>
+                      {selectedEntry.topSku
+                        ? `${selectedEntry.topSku.sku} · ${selectedEntry.topSku.quantity} uds.`
+                        : "Sin historial"}
+                    </strong>
                   </div>
                 </div>
 
-                <div className="customer-account-drawer-block">
-                  <div className="table-primary">Mix operativo</div>
-                  <div className="table-secondary">
-                    {selectedEntry.metrics.personalized} personalizados / {selectedEntry.metrics.standard} estandar
-                  </div>
-                </div>
-
-                <div className="customer-account-drawer-block">
-                  <div className="table-primary">Top SKU</div>
-                  <div className="table-secondary">
-                    {selectedEntry.topSku
-                      ? `${selectedEntry.topSku.sku} · ${selectedEntry.topSku.quantity} uds.`
-                      : "Sin suficiente historial todavia"}
-                  </div>
-                </div>
-
-                <div className="customer-account-drawer-actions">
+                {/* Actions */}
+                <div className="crm-drawer-actions">
+                  <Link className="button" href={`/tenant/${selectedEntry.shop.id}/dashboard/overview`}>
+                    Ver cuenta completa
+                  </Link>
                   <Link className="button button-secondary" href={`/orders?shop_id=${selectedEntry.shop.id}`}>
-                    Ver pedidos
+                    Pedidos
                   </Link>
                   <Link className="button button-secondary" href={`/shipments?shop_id=${selectedEntry.shop.id}`}>
-                    Ver envíos
-                  </Link>
-                  <Link className="button button-secondary" href={`/analytics?shop_id=${selectedEntry.shop.id}`}>
-                    Ver analytics
-                  </Link>
-                  <Link className="button" href={`/tenant/${selectedEntry.shop.id}/dashboard/overview`}>
-                    Ver cuenta
+                    Envíos
                   </Link>
                 </div>
               </>
             ) : (
-              <EmptyState
-                title="Selecciona una cuenta"
-                description="Abre una cuenta desde la lista para revisar su salud, actividad y accesos rapidos."
-              />
+              <div style={{ padding: "32px 22px" }}>
+                <EmptyState
+                  title="Selecciona una cuenta"
+                  description="Abre una cuenta desde la lista para revisar su salud, actividad y accesos."
+                />
+              </div>
             )}
-          </Card>
+          </div>
         </section>
       )}
     </div>
