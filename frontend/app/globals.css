@@ -11423,10 +11423,10 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   }
 }
 
-/* ── Dashboard analytics 3-col grid ─────────────────────────── */
+/* ── Dashboard analytics 2-col grid ─────────────────────────── */
 .dash-analytics-grid {
   display: grid;
-  grid-template-columns: 280px 1fr 300px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: stretch;
 }
@@ -11557,20 +11557,6 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .dash-analytics-grid .exp-status-list {
   align-content: start;
   gap: 8px;
-}
-
-.dash-analytics-grid .exp-alert-card {
-  grid-template-rows: auto auto auto auto;
-}
-
-.dash-analytics-grid .exp-alert-list {
-  max-height: 324px;
-  overflow: auto;
-  padding-right: 4px;
-}
-
-.dash-analytics-grid .exp-alert-row {
-  min-height: 74px;
 }
 
 .dash-health-row {
