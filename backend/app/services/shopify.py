@@ -43,6 +43,9 @@ SHOPIFY_PROVIDER = "shopify"
 SHOPIFY_API_VERSION = "2026-01"
 logger = logging.getLogger(__name__)
 SHOPIFY_RECENT_ORDERS_PAGE_SIZE = 10
+# Commit and expunge the SQLAlchemy session every N orders during import to
+# prevent unbounded memory growth on long syncs (full imports / large shops).
+_IMPORT_BATCH_SIZE = 50
 
 
 def _truncate_sync_error(message: str | None, max_length: int = 900) -> str | None:
@@ -1400,6 +1403,14 @@ def import_shopify_orders(
         db.add(order)
         result.imported_count += 1
 
+        # Commit and expunge every _IMPORT_BATCH_SIZE orders so SQLAlchemy's
+        # identity map doesn't grow unbounded on large syncs.  After expunge_all
+        # the next find_existing_order() will re-query from the freshly committed
+        # state, which is safe because every processed order is already flushed.
+        if result.total_fetched % _IMPORT_BATCH_SIZE == 0:
+            db.commit()
+            db.expunge_all()
+
     db.commit()
     return result
 
@@ -1470,10 +1481,13 @@ def run_shopify_sync_cycle(
         backfilled_variant_orders_count = 0
         if should_run_backfill:
             try:
+                # Cap backfill at 200 orders per cycle regardless of the full-sync
+                # limit to avoid loading thousands of ORM objects at once.
+                backfill_cap = min(get_settings().shopify_sync_max_orders, 200)
                 backfilled_variant_orders_count = backfill_missing_shopify_order_links(
                     db=db,
                     integration=integration,
-                    max_orders=get_settings().shopify_sync_max_orders,
+                    max_orders=backfill_cap,
                 )
             except Exception as exc:
                 logger.warning(
@@ -2711,6 +2725,11 @@ def backfill_missing_shopify_order_links(
         after_tracking = _snapshot_order_tracking(order)
         if before != after or before_order_gid != order.shopify_order_gid or before_tracking != after_tracking:
             updated_orders_count += 1
+
+        # Commit after each backfilled order to avoid accumulating a large
+        # dirty session; expunge_all releases the identity-map cache.
+        db.commit()
+        db.expunge_all()
 
     return updated_orders_count
 
