@@ -6,8 +6,10 @@ import { useCallback, useState, type CSSProperties, type ReactNode, type SVGProp
 
 import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import { useLayoutState } from "@/components/layout-state-provider";
+import type { User } from "@/lib/types";
 
-type AppShellProps = { children: ReactNode };
+type AppShellUser = Pick<User, "name" | "role">;
+type AppShellProps = { children: ReactNode; currentUser: AppShellUser | null };
 type IconProps = SVGProps<SVGSVGElement>;
 
 /* ─── Icons ──────────────────────────────────────────────────────────────── */
@@ -141,13 +143,25 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function getInitials(name?: string | null) {
+  if (!name) return "BR";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "BR";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+}
+
 /* ─── AppShell ────────────────────────────────────────────────────────────── */
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, currentUser }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const { isSidebarCollapsed, theme, toggleTheme } = useLayoutState();
+  const showEmployeeIdentity = Boolean(currentUser && currentUser.role !== "super_admin");
+  const sidebarLogo = showEmployeeIdentity ? getInitials(currentUser?.name) : "BR";
+  const sidebarTitle = showEmployeeIdentity ? currentUser?.name ?? "Brandeate" : "Brandeate";
+  const sidebarEyebrow = showEmployeeIdentity ? "Empleado" : "Operaciones";
 
   const handleLogout = useCallback(async () => {
     setIsLoggingOut(true);
@@ -183,10 +197,10 @@ export function AppShell({ children }: AppShellProps) {
             <SidebarCollapseButton />
           </div>
           <div className="tenant-brand-lockup">
-            <div className="tenant-logo tenant-logo-fallback">BR</div>
+            <div className="tenant-logo tenant-logo-fallback">{sidebarLogo}</div>
             <div className="tenant-brand-copy">
-              <span className="eyebrow">Operaciones</span>
-              <h1 className="tenant-title">Brandeate</h1>
+              <span className="eyebrow">{sidebarEyebrow}</span>
+              <h1 className="tenant-title">{sidebarTitle}</h1>
             </div>
           </div>
         </div>

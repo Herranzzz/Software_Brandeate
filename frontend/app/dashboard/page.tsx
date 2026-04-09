@@ -148,6 +148,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   ]);
   // requireAdminUser redirects on failure — re-throw to trigger it
   if (userResult.status === "rejected") throw userResult.reason;
+  const currentUser = userResult.value;
+  const firstName = currentUser.name.trim().split(/\s+/)[0] ?? "equipo";
 
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const ordersResult =
@@ -271,7 +273,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       recentOrdersLinkLabel="Ver todos"
       recentOrdersTitle="Últimos pedidos"
       subtitle="Sigue el volumen de pedidos, el estado operativo y los puntos de atención más urgentes desde una sola vista."
-      title={activeShop ? `Control de ${activeShop.name}` : "Bienvenido de nuevo"}
+      title={activeShop ? `Hola, ${firstName} · ${activeShop.name}` : `Hola, ${firstName}`}
     />
   );
 }

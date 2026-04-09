@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import { LayoutStateProvider } from "@/components/layout-state-provider";
+import { fetchCurrentUser } from "@/lib/auth";
 
 import "./globals.css";
 
@@ -27,11 +28,12 @@ export const metadata: Metadata = {
 };
 
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const currentUser = await fetchCurrentUser();
   return (
     <html lang="es" suppressHydrationWarning className={outfit.variable}>
       <body>
@@ -52,7 +54,9 @@ export default function RootLayout({
           }}
         />
         <LayoutStateProvider>
-          <AppShell>{children}</AppShell>
+          <AppShell currentUser={currentUser ? { name: currentUser.name, role: currentUser.role } : null}>
+            {children}
+          </AppShell>
         </LayoutStateProvider>
       </body>
     </html>
