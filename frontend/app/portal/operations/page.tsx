@@ -43,7 +43,7 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
   const view = params.view === "incidents" ? "incidents" : "shipments";
   const shipmentStatus = params.shipment_status ?? "all";
   const incidentStatus = params.incident_status ?? "open";
-  const incidentPeriod = params.incident_period ?? "30d";
+  const incidentPeriod = params.incident_period ?? "14d";
   const includeHistoricalIncidents = incidentPeriod === "all";
   const incidentRecentDays = includeHistoricalIncidents
     ? undefined
@@ -179,6 +179,7 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
                 <div className="operations-search-row">
                   <select className="operations-search-input" defaultValue={incidentPeriod} name="incident_period">
                     <option value="7d">Últimos 7 días</option>
+                    <option value="14d">Últimos 14 días</option>
                     <option value="30d">Últimos 30 días</option>
                     <option value="90d">Últimos 90 días</option>
                     <option value="all">Histórico</option>

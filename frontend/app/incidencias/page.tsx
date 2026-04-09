@@ -52,9 +52,9 @@ function matchesFilters(
 export default async function IncidenciasPage({ searchParams }: IncidenciasPageProps) {
   await requireAdminUser();
   const params = await searchParams;
-  const periodFilter = params.period ?? "30d";
+  const periodFilter = params.period ?? "14d";
   const includeHistorical = periodFilter === "all";
-  const recentDays = includeHistorical ? undefined : Number.parseInt(periodFilter.replace("d", ""), 10) || 30;
+  const recentDays = includeHistorical ? undefined : Number.parseInt(periodFilter.replace("d", ""), 10) || 14;
   const statusFilter = params.status ?? "open";
   const statusParam = statusFilter === "all" ? undefined : statusFilter;
   const [incidentsFromApi, shops] = await Promise.all([
@@ -139,6 +139,7 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
             <label htmlFor="period">Periodo</label>
             <select defaultValue={periodFilter} id="period" name="period">
               <option value="7d">Últimos 7 días</option>
+              <option value="14d">Últimos 14 días</option>
               <option value="30d">Últimos 30 días</option>
               <option value="90d">Últimos 90 días</option>
               <option value="all">Histórico</option>

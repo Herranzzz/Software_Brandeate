@@ -6,7 +6,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -39,6 +39,12 @@ ALLOWED_AUTOMATED_INCIDENT_RULES = {
     "tracking_stalled",
     "broken_design_link",
 }
+
+AUTOMATED_INCIDENT_RULE_PRIORITY = (
+    "broken_design_link",
+    "tracking_stalled",
+    "preparation_risk",
+)
 
 PRIORITY_RANK = {
     OrderPriority.low: 0,
@@ -245,7 +251,9 @@ def reconcile_incident_lifecycle(
 
     terminal_condition = or_(
         Order.status == OrderStatus.delivered,
-        Order.shipment.has(Shipment.shipping_status == "delivered"),
+        Order.shipment.has(
+            func.lower(func.trim(func.coalesce(Shipment.shipping_status, ""))) == "delivered"
+        ),
     )
     stale_condition = or_(
         and_(
@@ -311,45 +319,24 @@ def evaluate_order_automation_rules(
     flag_keys = {flag["key"] for flag in flags}
     active_incident_rules: set[str] = set()
 
-    # ── 1. Preparation stuck ≥ 3 business days ──────────────────────────────
-    if "preparation_risk" in flag_keys:
-        active_incident_rules.add("preparation_risk")
-        _ensure_incident(
-            db=db,
-            order=order,
-            incident_type=IncidentType.shipping_exception,
-            title="Pedido sin preparar desde hace más de 3 días hábiles",
-            description=(
-                f"El pedido lleva más de {PREPARATION_RISK_BUSINESS_DAYS} días hábiles "
-                "en estado pendiente o en producción sin avanzar. Requiere revisión."
-            ),
-            priority=IncidentPriority.high,
-            rule_name="preparation_risk",
-        )
+    # ── 1. Broken design link (URL returns JSON instead of an image) ─────────
+    if order.is_personalized and _has_broken_design_link(order):
+        active_incident_rules.add("broken_design_link")
         _ensure_automation_event(
             db=db,
             order=order,
             shipment_id=order.shipment.id if order.shipment else None,
             entity_type=AutomationEntityType.order,
             entity_id=order.id,
-            rule_name="preparation_risk",
+            rule_name="broken_design_link",
             action_type=AutomationActionType.flag_detected,
-            summary="Automatización marcó el pedido como atascado en preparación (≥3 días hábiles).",
-            payload={"source": source, "created_at": order.created_at.isoformat()},
+            summary="Automatización detectó un design_link que devuelve JSON en lugar de imagen.",
+            payload={"source": source},
         )
 
     # ── 2. Tracking stalled ──────────────────────────────────────────────────
     if "tracking_stalled" in flag_keys:
         active_incident_rules.add("tracking_stalled")
-        _ensure_incident(
-            db=db,
-            order=order,
-            incident_type=IncidentType.shipping_exception,
-            title="Tracking atascado",
-            description="El tracking no registra movimiento reciente y requiere revisión operativa.",
-            priority=IncidentPriority.high,
-            rule_name="tracking_stalled",
-        )
         _ensure_automation_event(
             db=db,
             order=order,
@@ -365,10 +352,25 @@ def evaluate_order_automation_rules(
             },
         )
 
-    # ── 3. Broken design link (URL returns JSON instead of an image) ─────────
-    if order.is_personalized and _has_broken_design_link(order):
-        active_incident_rules.add("broken_design_link")
-        _ensure_incident(
+    # ── 3. Preparation stuck ≥ 3 business days ──────────────────────────────
+    if "preparation_risk" in flag_keys:
+        active_incident_rules.add("preparation_risk")
+        _ensure_automation_event(
+            db=db,
+            order=order,
+            shipment_id=order.shipment.id if order.shipment else None,
+            entity_type=AutomationEntityType.order,
+            entity_id=order.id,
+            rule_name="preparation_risk",
+            action_type=AutomationActionType.flag_detected,
+            summary="Automatización marcó el pedido como atascado en preparación (≥3 días hábiles).",
+            payload={"source": source, "created_at": order.created_at.isoformat()},
+        )
+
+    primary_incident_rule = _select_primary_incident_rule(active_incident_rules)
+    primary_incident: Incident | None = None
+    if primary_incident_rule == "broken_design_link":
+        primary_incident = _ensure_incident(
             db=db,
             order=order,
             incident_type=IncidentType.missing_asset,
@@ -380,22 +382,36 @@ def evaluate_order_automation_rules(
             priority=IncidentPriority.high,
             rule_name="broken_design_link",
         )
-        _ensure_automation_event(
+    elif primary_incident_rule == "tracking_stalled":
+        primary_incident = _ensure_incident(
             db=db,
             order=order,
-            shipment_id=order.shipment.id if order.shipment else None,
-            entity_type=AutomationEntityType.order,
-            entity_id=order.id,
-            rule_name="broken_design_link",
-            action_type=AutomationActionType.flag_detected,
-            summary="Automatización detectó un design_link que devuelve JSON en lugar de imagen.",
-            payload={"source": source},
+            incident_type=IncidentType.shipping_exception,
+            title="Tracking atascado",
+            description="El tracking no registra movimiento reciente y requiere revisión operativa.",
+            priority=IncidentPriority.high,
+            rule_name="tracking_stalled",
+        )
+    elif primary_incident_rule == "preparation_risk":
+        primary_incident = _ensure_incident(
+            db=db,
+            order=order,
+            incident_type=IncidentType.shipping_exception,
+            title="Pedido sin preparar desde hace más de 3 días hábiles",
+            description=(
+                f"El pedido lleva más de {PREPARATION_RISK_BUSINESS_DAYS} días hábiles "
+                "en estado pendiente o en producción sin avanzar. Requiere revisión."
+            ),
+            priority=IncidentPriority.high,
+            rule_name="preparation_risk",
         )
 
     _resolve_obsolete_automated_incidents(
         order=order,
-        active_rules=active_incident_rules,
+        active_rules={primary_incident_rule} if primary_incident_rule else set(),
     )
+    if primary_incident is not None:
+        _collapse_automated_incidents(order=order, keep_incident=primary_incident)
 
     # Automation events only (no incident) for other notable flags
     if "ready_idle" in flag_keys:
@@ -442,23 +458,38 @@ def _ensure_incident(
     description: str,
     priority: IncidentPriority,
     rule_name: str,
-) -> None:
+) -> Incident:
     existing = next(
         (
             incident
             for incident in order.incidents
-            if incident.type == incident_type and incident.title == title and incident.status != IncidentStatus.resolved
+            if incident.is_automated
+            and incident.automation_rule_name == rule_name
+            and incident.status != IncidentStatus.resolved
         ),
         None,
     )
+    if existing is None:
+        existing = next(
+            (
+                incident
+                for incident in order.incidents
+                if incident.is_automated and incident.status != IncidentStatus.resolved
+            ),
+            None,
+        )
     if existing is not None:
+        if incident_type != existing.type:
+            existing.type = incident_type
+        if title != existing.title:
+            existing.title = title
+        if description != (existing.description or ""):
+            existing.description = description
         if priority.value != existing.priority.value:
             existing.priority = priority
-        if not existing.is_automated:
-            existing.is_automated = True
         if existing.automation_rule_name != rule_name:
             existing.automation_rule_name = rule_name
-        return
+        return existing
 
     incident = Incident(
         type=incident_type,
@@ -483,6 +514,18 @@ def _ensure_incident(
         summary=f"Automatización creó la incidencia: {title}.",
         payload={"incident_type": incident_type.value, "priority": priority.value},
     )
+    return incident
+
+
+def _collapse_automated_incidents(*, order: Order, keep_incident: Incident) -> None:
+    now = datetime.now(timezone.utc)
+    for incident in order.incidents:
+        if incident is keep_incident:
+            continue
+        if not incident.is_automated or incident.status == IncidentStatus.resolved:
+            continue
+        incident.status = IncidentStatus.resolved
+        incident.updated_at = now
 
 
 def _resolve_obsolete_automated_incidents(*, order: Order, active_rules: set[str]) -> None:
@@ -494,6 +537,13 @@ def _resolve_obsolete_automated_incidents(*, order: Order, active_rules: set[str
         if rule_name not in ALLOWED_AUTOMATED_INCIDENT_RULES or rule_name not in active_rules:
             incident.status = IncidentStatus.resolved
             incident.updated_at = now
+
+
+def _select_primary_incident_rule(active_rules: set[str]) -> str | None:
+    for rule_name in AUTOMATED_INCIDENT_RULE_PRIORITY:
+        if rule_name in active_rules:
+            return rule_name
+    return None
 
 
 def _ensure_automation_event(
