@@ -107,6 +107,11 @@ export function SharedDashboardView({
 }: SharedDashboardViewProps) {
   const maxValue = Math.max(1, ...chart.map((item) => item.value));
   const donutTotal = donutSegments?.reduce((sum, segment) => sum + segment.value, 0) ?? 0;
+  const highPriorityIncidents = incidents.filter(
+    (incident) => incident.priority === "urgent" || incident.priority === "high",
+  ).length;
+  const incidentsPreview = incidents.slice(0, 3);
+  const incidentSummaryText = highPriorityIncidents > 0 ? `${highPriorityIncidents} urgentes` : "abiertas";
 
   return (
     <div className="stack admin-dashboard">
@@ -286,40 +291,47 @@ export function SharedDashboardView({
             </div>
           </Card>
 
-          <Card className="stack admin-dashboard-panel">
+          <Card className="stack admin-dashboard-panel exp-alert-card">
             <div className="admin-dashboard-panel-head">
               <div>
-                <span className="eyebrow">🚨 Atención prioritaria</span>
+                <span className="eyebrow">Atención</span>
                 <h3 className="section-title section-title-small">{incidentsTitle}</h3>
               </div>
-              <Link className="admin-dashboard-inline-link" href={incidentsLinkHref}>
-                {incidentsLinkLabel}
-              </Link>
             </div>
 
-            <div className="incident-list incident-list-rich">
-              {incidents.slice(0, 4).map((incident) => (
-                <article className="incident-item incident-item-rich" key={incident.id}>
-                  <div className="incident-content">
-                    <div className="incident-topline">
-                      <div className="activity-title">{incident.title}</div>
-                      <span className={`incident-priority incident-priority-${incident.priority}`}>
-                        {incident.priority}
-                      </span>
+            <div className="exp-alert-total">
+              <strong>{incidents.length}</strong>
+              <span>{incidentSummaryText}</span>
+            </div>
+            <div className="exp-alert-list">
+              {incidentsPreview.map((incident) => {
+                const isHot = incident.priority === "urgent" || incident.priority === "high";
+                return (
+                  <div className={`exp-alert-row${isHot ? " is-hot" : ""}`} key={incident.id}>
+                    <span className="exp-alert-icon">{isHot ? "🔴" : "🟡"}</span>
+                    <div className="exp-alert-body">
+                      <strong>{incident.title}</strong>
+                      <span>{incident.secondary}</span>
                     </div>
-                    <div className="table-secondary">{incident.secondary}</div>
-                    <div className="incident-meta-row">
-                      <span>{incident.status}</span>
-                      <span>{incident.updatedAt}</span>
-                    </div>
+                    <span className={`exp-alert-count is-${isHot ? "red" : "orange"}`}>
+                      {incident.priority}
+                    </span>
                   </div>
-                </article>
-              ))}
+                );
+              })}
 
               {incidents.length === 0 ? (
-                <div className="admin-dashboard-empty">{incidentsEmptyMessage}</div>
+                <div className="exp-table-empty" style={{ padding: "20px 0" }}>
+                  <span>✅</span>
+                  <p>{incidentsEmptyMessage}</p>
+                </div>
               ) : null}
             </div>
+            {incidents.length > 0 && (
+              <Link className="exp-period-pill" href={incidentsLinkHref} style={{ marginTop: 4, justifySelf: "start" }}>
+                {incidentsLinkLabel} →
+              </Link>
+            )}
           </Card>
 
           <Card className="stack admin-dashboard-panel admin-dashboard-panel-note">
