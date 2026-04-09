@@ -32,6 +32,10 @@ services:
         value: "14"
       - key: INCIDENTS_AUTO_RESOLVE_IN_PROGRESS_DAYS
         value: "30"
+      - key: ORDERS_DEFAULT_PAGE_SIZE
+        value: "100"
+      - key: ORDERS_MAX_PAGE_SIZE
+        value: "200"
       - key: SHOPIFY_WEBHOOK_SECRET
         sync: false
       - key: SHOPIFY_SSL_VERIFY
@@ -100,6 +104,10 @@ services:
         value: "14"
       - key: INCIDENTS_AUTO_RESOLVE_IN_PROGRESS_DAYS
         value: "30"
+      - key: ORDERS_DEFAULT_PAGE_SIZE
+        value: "100"
+      - key: ORDERS_MAX_PAGE_SIZE
+        value: "200"
       - key: SHOPIFY_SSL_VERIFY
         value: "true"
       - key: SHOPIFY_SSL_CAFILE

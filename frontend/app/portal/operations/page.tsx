@@ -47,16 +47,21 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
   const includeHistoricalIncidents = incidentPeriod === "all";
   const incidentRecentDays = includeHistoricalIncidents
     ? undefined
-    : Number.parseInt(incidentPeriod.replace("d", ""), 10) || 30;
+    : Number.parseInt(incidentPeriod.replace("d", ""), 10) || 14;
   const orderQuery = (params.order_query ?? "").trim().toLowerCase();
-  const perPageOptions = [50, 100, 250, 500];
+  const perPageOptions = [25, 50, 100, 200];
   const parsedPerPage = Number(params.per_page);
   const perPage = perPageOptions.includes(parsedPerPage) ? parsedPerPage : 50;
   const shops = await fetchMyShops();
   const tenantScope = resolveTenantScope(shops, params.shop_id);
 
   const [orders, incidents] = await Promise.all([
-    fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined).then(({ orders }) => orders),
+    fetchOrders({
+      ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+      page: 1,
+      per_page: perPage,
+      ...(orderQuery ? { q: orderQuery } : {}),
+    }).then(({ orders }) => orders),
     fetchIncidents({
       ...(incidentStatus !== "all" ? { status: incidentStatus } : {}),
       ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),

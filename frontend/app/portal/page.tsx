@@ -128,7 +128,11 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
   const branding = getTenantBranding(tenantScope.selectedShop ?? shops[0]);
 
   const [ordersResultSettled, incidentsResult, integrationsResult, workspaceResult] = await Promise.allSettled([
-    fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
+    fetchOrders(
+      tenantScope.selectedShopId
+        ? { shop_id: tenantScope.selectedShopId, page: 1, per_page: 200 }
+        : { page: 1, per_page: 200 },
+    ),
     fetchIncidents({
       ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
       recent_days: rangeDays,

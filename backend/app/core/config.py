@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     incidents_operational_window_days: int = 14
     incidents_auto_resolve_open_days: int = 14
     incidents_auto_resolve_in_progress_days: int = 30
+    # Protect list endpoints from unbounded responses that can spike memory.
+    orders_default_page_size: int = 100
+    orders_max_page_size: int = 200
 
     # CTT Express
     ctt_client_id: str | None = None
