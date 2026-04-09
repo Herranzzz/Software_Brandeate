@@ -129,9 +129,8 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
 
   const [ordersResultSettled, incidentsResult, integrationsResult, workspaceResult] = await Promise.allSettled([
     fetchOrders(
-      tenantScope.selectedShopId
-        ? { shop_id: tenantScope.selectedShopId, page: 1, per_page: 200 }
-        : { page: 1, per_page: 200 },
+      tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined,
+      { cacheSeconds: 30 },
     ),
     fetchIncidents({
       ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),

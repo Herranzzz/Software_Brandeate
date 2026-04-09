@@ -38,7 +38,7 @@ function readBooleanParam(value?: string) {
 export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const params = await searchParams;
   const page = Math.max(Number(params.page ?? "1") || 1, 1);
-  const perPage = Math.min(Math.max(Number(params.per_page ?? "100") || 100, 1), 200);
+  const perPage = Math.min(Math.max(Number(params.per_page ?? "100") || 100, 1), 500);
   const view = params.view === "batches" ? "batches" : "queue";
 
   const [userResult, ordersResult, shopsResult, batchesResult] = await Promise.allSettled([
@@ -57,7 +57,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       q: params.q,
       page,
       per_page: perPage,
-    }),
+    }, { cacheSeconds: 20 }),
     fetchShops(),
     fetchPickBatches({ shop_id: params.shop_id }),
   ]);

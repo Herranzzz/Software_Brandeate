@@ -374,10 +374,6 @@ def list_orders(
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> list[Order]:
-    settings = get_settings()
-    max_page_size = max(1, int(settings.orders_max_page_size or 200))
-    default_page_size = min(max(1, int(settings.orders_default_page_size or 100)), max_page_size)
-
     scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
     lifecycle = reconcile_incident_lifecycle(db=db, scoped_shop_ids=scoped_shop_ids)
     if lifecycle["resolved_total"] > 0:
@@ -412,10 +408,10 @@ def list_orders(
         _order_query().order_by(Order.created_at.desc(), Order.id.desc()),
         **filter_kwargs,
     )
-    requested_per_page = per_page if per_page is not None else default_page_size
-    safe_per_page = max(1, min(requested_per_page, max_page_size))
-    safe_page = max(page or 1, 1)
-    data_query = data_query.limit(safe_per_page).offset((safe_page - 1) * safe_per_page)
+    if per_page is not None:
+        safe_per_page = max(1, min(per_page, 500))
+        safe_page = max(page or 1, 1)
+        data_query = data_query.limit(safe_per_page).offset((safe_page - 1) * safe_per_page)
 
     orders = list(db.scalars(data_query))
     _enrich_order_variant_titles(db, orders)

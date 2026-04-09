@@ -96,6 +96,8 @@ export async function fetchOrders(params?: {
   q?: string;
   page?: string | number;
   per_page?: string | number;
+}, options?: {
+  cacheSeconds?: number;
 }): Promise<{ orders: Order[]; totalCount: number }> {
   const searchParams = new URLSearchParams();
   if (params?.status) {
@@ -149,9 +151,18 @@ export async function fetchOrders(params?: {
 
   const query = searchParams.toString();
   const headers = await buildAuthHeaders();
-  const response = await fetch(apiUrl(`/orders${query ? `?${query}` : ""}`), {
-    cache: "no-store",
+  const cacheSeconds = Math.max(Number(options?.cacheSeconds ?? 0), 0);
+  const fetchOptions: RequestInit & { next?: { revalidate: number } } = {
     headers,
+  };
+  if (cacheSeconds > 0) {
+    fetchOptions.cache = "force-cache";
+    fetchOptions.next = { revalidate: cacheSeconds };
+  } else {
+    fetchOptions.cache = "no-store";
+  }
+  const response = await fetch(apiUrl(`/orders${query ? `?${query}` : ""}`), {
+    ...fetchOptions,
   });
 
   if (!response.ok) {

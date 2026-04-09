@@ -128,7 +128,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const [userResult, shopsResult, ordersResultSettled, incidentsResult, employeeAnalyticsResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchShops(),
-    fetchOrders({ shop_id: params.shop_id, page: 1, per_page: 200 }),
+    fetchOrders({ shop_id: params.shop_id }, { cacheSeconds: 30 }),
     fetchIncidents({ shop_id: params.shop_id, recent_days: rangeDays, include_historical: false }),
     fetchEmployeeAnalytics({ period: employeePeriod, shop_id: params.shop_id }),
   ]);

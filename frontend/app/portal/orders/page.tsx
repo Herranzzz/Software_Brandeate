@@ -67,7 +67,7 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const params = await searchParams;
   const page = Math.max(Number(params.page ?? "1") || 1, 1);
-  const perPage = Math.min(Math.max(Number(params.per_page ?? "50") || 50, 1), 200);
+  const perPage = Math.min(Math.max(Number(params.per_page ?? "50") || 50, 1), 500);
   const query = (params.q ?? "").trim();
   const quickFilter = quickFilterOptions.some((item) => item.key === params.quick)
     ? (params.quick as PortalOrderQuickFilter)
@@ -84,7 +84,7 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
       q: query || undefined,
       ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
       ...quickFilterToApiParams(quickFilter),
-    });
+    }, { cacheSeconds: 20 });
     orders = result.orders;
     totalCount = result.totalCount;
   } catch {
@@ -179,7 +179,8 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
                 <option value="25">25</option>
                 <option value="50">50</option>
                 <option value="100">100</option>
-                <option value="200">200</option>
+                <option value="250">250</option>
+                <option value="500">500</option>
               </select>
               <input name="page" type="hidden" value="1" />
               <button className="button button-secondary" type="submit">Aplicar</button>
