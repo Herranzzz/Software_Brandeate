@@ -129,7 +129,11 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
 
   const [ordersResultSettled, incidentsResult, integrationsResult, workspaceResult] = await Promise.allSettled([
     fetchOrders(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
-    fetchIncidents(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
+    fetchIncidents({
+      ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+      recent_days: rangeDays,
+      include_historical: false,
+    }),
     fetchShopifyIntegrations(),
     fetchEmployeeWorkspace(),
   ]);

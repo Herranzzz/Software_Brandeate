@@ -1,13 +1,14 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, require_admin_user, resolve_shop_scope
+from app.core.config import get_settings
 from app.models import Incident, IncidentPriority, IncidentStatus, IncidentType, Order, Shipment, User
 from app.schemas.incident import IncidentCreate, IncidentRead, IncidentUpdate
-from app.services.automation_rules import evaluate_order_automation_rules
+from app.services.automation_rules import evaluate_order_automation_rules, reconcile_incident_lifecycle
 
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -46,10 +47,21 @@ def list_incidents(
     priority: IncidentPriority | None = None,
     type: IncidentType | None = None,
     shop_id: int | None = None,
+    recent_days: int | None = None,
+    include_historical: bool = False,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> list[Incident]:
     scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
+    lifecycle = reconcile_incident_lifecycle(db=db, scoped_shop_ids=scoped_shop_ids)
+    if lifecycle["resolved_total"] > 0:
+        db.commit()
+
+    settings = get_settings()
+    effective_recent_days = None if include_historical else recent_days
+    if effective_recent_days is None and not include_historical:
+        effective_recent_days = max(int(settings.incidents_operational_window_days or 30), 1)
+
     query = _incident_query().order_by(Incident.updated_at.desc(), Incident.id.desc())
 
     if status is not None:
@@ -58,6 +70,9 @@ def list_incidents(
         query = query.where(Incident.priority == priority)
     if type is not None:
         query = query.where(Incident.type == type)
+    if effective_recent_days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max(int(effective_recent_days), 1))
+        query = query.where(Incident.updated_at >= cutoff)
     if scoped_shop_ids is not None:
         query = query.join(Incident.order).where(Order.shop_id.in_(scoped_shop_ids))
 
@@ -72,6 +87,21 @@ def reconcile_automated_incidents(
     _admin_user: User = Depends(require_admin_user),
 ) -> dict:
     scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
+    count_base_query = select(func.count()).select_from(Incident).where(Incident.status != IncidentStatus.resolved)
+    automated_count_base_query = (
+        select(func.count())
+        .select_from(Incident)
+        .where(Incident.status != IncidentStatus.resolved, Incident.is_automated.is_(True))
+    )
+    if scoped_shop_ids is not None:
+        count_base_query = count_base_query.where(Incident.order.has(Order.shop_id.in_(scoped_shop_ids)))
+        automated_count_base_query = automated_count_base_query.where(Incident.order.has(Order.shop_id.in_(scoped_shop_ids)))
+
+    open_before = int(db.scalar(count_base_query) or 0)
+    automated_open_before = int(db.scalar(automated_count_base_query) or 0)
+
+    lifecycle = reconcile_incident_lifecycle(db=db, scoped_shop_ids=scoped_shop_ids)
+
     query = (
         select(Order)
         .options(
@@ -81,7 +111,6 @@ def reconcile_automated_incidents(
         )
         .join(Order.incidents)
         .where(
-            Incident.is_automated.is_(True),
             Incident.status != IncidentStatus.resolved,
         )
         .order_by(Order.id.asc())
@@ -91,26 +120,23 @@ def reconcile_automated_incidents(
         query = query.where(Order.shop_id.in_(scoped_shop_ids))
 
     orders = list(db.scalars(query))
-    open_before = sum(
-        1
-        for order in orders
-        for incident in order.incidents
-        if incident.is_automated and incident.status != IncidentStatus.resolved
-    )
     for order in orders:
         evaluate_order_automation_rules(db=db, order=order, source="incident_reconcile")
     db.commit()
-    open_after = sum(
-        1
-        for order in orders
-        for incident in order.incidents
-        if incident.is_automated and incident.status != IncidentStatus.resolved
-    )
+
+    open_after = int(db.scalar(count_base_query) or 0)
+    automated_open_after = int(db.scalar(automated_count_base_query) or 0)
     return {
         "orders_rechecked": len(orders),
-        "automated_open_before": open_before,
-        "automated_open_after": open_after,
-        "automated_resolved": max(open_before - open_after, 0),
+        "open_before": open_before,
+        "open_after": open_after,
+        "resolved_total": max(open_before - open_after, 0),
+        "automated_open_before": automated_open_before,
+        "automated_open_after": automated_open_after,
+        "automated_resolved": max(automated_open_before - automated_open_after, 0),
+        "lifecycle_resolved_terminal_orders": lifecycle["resolved_terminal_orders"],
+        "lifecycle_resolved_stale": lifecycle["resolved_stale"],
+        "lifecycle_resolved_total": lifecycle["resolved_total"],
     }
 
 

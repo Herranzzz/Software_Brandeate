@@ -60,7 +60,7 @@ from app.schemas.pick_batch import (
     PickBatchCreate,
     PickBatchRead,
 )
-from app.services.automation_rules import evaluate_order_automation_rules
+from app.services.automation_rules import evaluate_order_automation_rules, reconcile_incident_lifecycle
 from app.services.orders import infer_order_is_personalized, sync_order_item_design_statuses
 
 
@@ -375,6 +375,10 @@ def list_orders(
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> list[Order]:
     scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
+    lifecycle = reconcile_incident_lifecycle(db=db, scoped_shop_ids=scoped_shop_ids)
+    if lifecycle["resolved_total"] > 0:
+        db.commit()
+
     filter_kwargs = dict(
         status=status,
         production_status=production_status,
@@ -550,6 +554,10 @@ def export_orders_csv(
 ) -> Response:
     """Exporta los pedidos filtrados como un archivo CSV."""
     scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
+    lifecycle = reconcile_incident_lifecycle(db=db, scoped_shop_ids=scoped_shop_ids)
+    if lifecycle["resolved_total"] > 0:
+        db.commit()
+
     filter_kwargs = dict(
         status=status,
         production_status=production_status,

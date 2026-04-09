@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     shopify_webhook_secret: str | None = None
     shopify_ssl_verify: bool = True
     shopify_ssl_cafile: str | None = None
+    # Incidents should stay operational and compact by default:
+    # - operational list defaults to recent items (unless user asks history)
+    # - stale non-resolved incidents are auto-closed after inactivity
+    incidents_operational_window_days: int = 30
+    incidents_auto_resolve_open_days: int = 21
+    incidents_auto_resolve_in_progress_days: int = 45
 
     # CTT Express
     ctt_client_id: str | None = None

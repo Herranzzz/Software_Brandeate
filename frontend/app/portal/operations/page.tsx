@@ -13,6 +13,7 @@ type PortalOperationsPageProps = {
     view?: string;
     shipment_status?: string;
     incident_status?: string;
+    incident_period?: string;
     order_query?: string;
     per_page?: string;
     shop_id?: string;
@@ -41,7 +42,12 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
   const params = await searchParams;
   const view = params.view === "incidents" ? "incidents" : "shipments";
   const shipmentStatus = params.shipment_status ?? "all";
-  const incidentStatus = params.incident_status ?? "all";
+  const incidentStatus = params.incident_status ?? "open";
+  const incidentPeriod = params.incident_period ?? "30d";
+  const includeHistoricalIncidents = incidentPeriod === "all";
+  const incidentRecentDays = includeHistoricalIncidents
+    ? undefined
+    : Number.parseInt(incidentPeriod.replace("d", ""), 10) || 30;
   const orderQuery = (params.order_query ?? "").trim().toLowerCase();
   const perPageOptions = [50, 100, 250, 500];
   const parsedPerPage = Number(params.per_page);
@@ -54,6 +60,8 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
     fetchIncidents({
       ...(incidentStatus !== "all" ? { status: incidentStatus } : {}),
       ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+      ...(incidentRecentDays ? { recent_days: incidentRecentDays } : {}),
+      include_historical: includeHistoricalIncidents,
     }),
   ]);
 
@@ -100,6 +108,7 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
           view,
           shipment_status: shipmentStatus,
           incident_status: incidentStatus,
+          incident_period: incidentPeriod,
           order_query: orderQuery,
           per_page: perPage,
         }}
@@ -113,6 +122,7 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
           {tenantScope.selectedShopId ? <input name="shop_id" type="hidden" value={tenantScope.selectedShopId} /> : null}
           {view === "shipments" ? <input name="shipment_status" type="hidden" value={shipmentStatus} /> : null}
           {view === "incidents" ? <input name="incident_status" type="hidden" value={incidentStatus} /> : null}
+          {view === "shipments" ? <input name="incident_period" type="hidden" value={incidentPeriod} /> : null}
           <input name="per_page" type="hidden" value={perPage} />
 
           <div className="operations-segmented">
@@ -159,6 +169,19 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
                         {option} pedidos
                       </option>
                     ))}
+                  </select>
+                  <button className="button button-secondary" type="submit">Aplicar</button>
+                </div>
+              </div>
+
+              <div className="operations-filter-group">
+                <span className="operations-filter-label">Periodo</span>
+                <div className="operations-search-row">
+                  <select className="operations-search-input" defaultValue={incidentPeriod} name="incident_period">
+                    <option value="7d">Últimos 7 días</option>
+                    <option value="30d">Últimos 30 días</option>
+                    <option value="90d">Últimos 90 días</option>
+                    <option value="all">Histórico</option>
                   </select>
                   <button className="button button-secondary" type="submit">Aplicar</button>
                 </div>

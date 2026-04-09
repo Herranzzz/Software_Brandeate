@@ -129,7 +129,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     requireAdminUser(),
     fetchShops(),
     fetchOrders({ shop_id: params.shop_id }),
-    fetchIncidents({ shop_id: params.shop_id }),
+    fetchIncidents({ shop_id: params.shop_id, recent_days: rangeDays, include_historical: false }),
     fetchEmployeeAnalytics({ period: employeePeriod, shop_id: params.shop_id }),
   ]);
   // requireAdminUser redirects on failure — re-throw to trigger it

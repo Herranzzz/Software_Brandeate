@@ -19,6 +19,7 @@ type IncidenciasPageProps = {
     type?: string;
     q?: string;
     shop_id?: string;
+    period?: string;
   }>;
 };
 
@@ -51,6 +52,9 @@ function matchesFilters(
 export default async function IncidenciasPage({ searchParams }: IncidenciasPageProps) {
   await requireAdminUser();
   const params = await searchParams;
+  const periodFilter = params.period ?? "30d";
+  const includeHistorical = periodFilter === "all";
+  const recentDays = includeHistorical ? undefined : Number.parseInt(periodFilter.replace("d", ""), 10) || 30;
   const statusFilter = params.status ?? "open";
   const statusParam = statusFilter === "all" ? undefined : statusFilter;
   const [incidentsFromApi, shops] = await Promise.all([
@@ -59,6 +63,8 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
       priority: params.priority,
       type: params.type,
       shop_id: params.shop_id,
+      recent_days: recentDays,
+      include_historical: includeHistorical,
     }),
     fetchShops(),
   ]);
@@ -76,7 +82,7 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
       <PageHeader
         eyebrow="Incidencias"
         title="Bandeja operativa"
-        description="Seguimiento real de incidencias operativas vinculadas a pedidos."
+        description="Solo incidencias activas y recientes por defecto. El histórico completo queda bajo demanda."
       />
 
       <Card className="stack filter-card">
@@ -126,6 +132,16 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
                   {shop.name}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label htmlFor="period">Periodo</label>
+            <select defaultValue={periodFilter} id="period" name="period">
+              <option value="7d">Últimos 7 días</option>
+              <option value="30d">Últimos 30 días</option>
+              <option value="90d">Últimos 90 días</option>
+              <option value="all">Histórico</option>
             </select>
           </div>
 

@@ -16,7 +16,7 @@ export default async function TenantDashboardPage({ params }: TenantDashboardPag
   const [shop, orders, incidents] = await Promise.all([
     fetchShopById(shopId),
     fetchOrders({ shop_id: shopId }).then(({ orders }) => orders),
-    fetchIncidents({ shop_id: shopId }),
+    fetchIncidents({ shop_id: shopId, status: "open", recent_days: 30, include_historical: false }),
   ]);
 
   if (!shop) {

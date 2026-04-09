@@ -6,9 +6,15 @@ import { useState, useTransition } from "react";
 
 type ReconcilePayload = {
   orders_rechecked: number;
+  open_before: number;
+  open_after: number;
+  resolved_total: number;
   automated_open_before: number;
   automated_open_after: number;
   automated_resolved: number;
+  lifecycle_resolved_terminal_orders: number;
+  lifecycle_resolved_stale: number;
+  lifecycle_resolved_total: number;
 };
 
 
@@ -44,7 +50,7 @@ export function IncidentsReconcileButton() {
     }
     const payload = (await response.json()) as ReconcilePayload;
     setFeedback(
-      `Revisión completada: ${payload.orders_rechecked} pedidos comprobados, ${payload.automated_resolved} incidencias automáticas cerradas.`,
+      `Revisión completada: ${payload.orders_rechecked} pedidos comprobados, ${payload.resolved_total} incidencias cerradas (${payload.automated_resolved} automáticas, ${payload.lifecycle_resolved_total} por ciclo de vida).`,
     );
     startTransition(() => {
       router.refresh();

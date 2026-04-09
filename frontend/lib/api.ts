@@ -270,6 +270,8 @@ export async function fetchIncidents(params?: {
   priority?: string;
   type?: string;
   shop_id?: string | number;
+  recent_days?: string | number;
+  include_historical?: boolean;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.status) {
@@ -283,6 +285,12 @@ export async function fetchIncidents(params?: {
   }
   if (params?.shop_id !== undefined && params.shop_id !== "") {
     searchParams.set("shop_id", String(params.shop_id));
+  }
+  if (params?.recent_days !== undefined && params.recent_days !== "") {
+    searchParams.set("recent_days", String(params.recent_days));
+  }
+  if (params?.include_historical !== undefined) {
+    searchParams.set("include_historical", String(params.include_historical));
   }
 
   const query = searchParams.toString();

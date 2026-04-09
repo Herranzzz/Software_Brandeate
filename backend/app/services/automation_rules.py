@@ -6,9 +6,10 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models import (
     AutomationActionType,
     AutomationEntityType,
@@ -22,6 +23,7 @@ from app.models import (
     OrderPriority,
     OrderStatus,
     ProductionStatus,
+    Shipment,
 )
 
 
@@ -173,6 +175,122 @@ def build_order_automation_flags(order: Order) -> list[dict]:
     return serialized
 
 
+def _safe_positive_days(value: int | None, fallback: int) -> int:
+    if value is None:
+        return fallback
+    return max(int(value), 1)
+
+
+def _is_order_terminal_for_incidents(order: Order) -> bool:
+    if order.status == OrderStatus.delivered:
+        return True
+    if order.shipment is not None and (order.shipment.shipping_status or "").strip().lower() == "delivered":
+        return True
+    return False
+
+
+def _incident_is_stale(
+    *,
+    incident: Incident,
+    now: datetime,
+    open_days: int,
+    in_progress_days: int,
+) -> bool:
+    if incident.status == IncidentStatus.resolved:
+        return False
+    if incident.updated_at is None:
+        return False
+
+    elapsed = max(0.0, (now - incident.updated_at.astimezone(timezone.utc)).total_seconds() / 86400.0)
+    if incident.status == IncidentStatus.open:
+        return elapsed >= float(open_days)
+    if incident.status == IncidentStatus.in_progress:
+        return elapsed >= float(in_progress_days)
+    return False
+
+
+def _resolve_order_incident_lifecycle(order: Order) -> int:
+    settings = get_settings()
+    open_days = _safe_positive_days(settings.incidents_auto_resolve_open_days, 21)
+    in_progress_days = _safe_positive_days(settings.incidents_auto_resolve_in_progress_days, 45)
+    now = datetime.now(timezone.utc)
+    is_terminal = _is_order_terminal_for_incidents(order)
+    resolved = 0
+
+    for incident in order.incidents:
+        if incident.status == IncidentStatus.resolved:
+            continue
+        if is_terminal or _incident_is_stale(
+            incident=incident,
+            now=now,
+            open_days=open_days,
+            in_progress_days=in_progress_days,
+        ):
+            incident.status = IncidentStatus.resolved
+            incident.updated_at = now
+            resolved += 1
+
+    return resolved
+
+
+def reconcile_incident_lifecycle(
+    *,
+    db: Session,
+    scoped_shop_ids: set[int] | None = None,
+) -> dict[str, int]:
+    settings = get_settings()
+    open_days = _safe_positive_days(settings.incidents_auto_resolve_open_days, 21)
+    in_progress_days = _safe_positive_days(settings.incidents_auto_resolve_in_progress_days, 45)
+    now = datetime.now(timezone.utc)
+
+    terminal_condition = or_(
+        Order.status == OrderStatus.delivered,
+        Order.shipment.has(Shipment.shipping_status == "delivered"),
+    )
+    stale_condition = or_(
+        and_(
+            Incident.status == IncidentStatus.open,
+            Incident.updated_at < now - timedelta(days=open_days),
+        ),
+        and_(
+            Incident.status == IncidentStatus.in_progress,
+            Incident.updated_at < now - timedelta(days=in_progress_days),
+        ),
+    )
+
+    terminal_stmt = (
+        update(Incident)
+        .where(
+            Incident.status != IncidentStatus.resolved,
+            Incident.order.has(terminal_condition),
+        )
+        .values(status=IncidentStatus.resolved, updated_at=now)
+    )
+    stale_stmt = (
+        update(Incident)
+        .where(
+            Incident.status != IncidentStatus.resolved,
+            stale_condition,
+        )
+        .values(status=IncidentStatus.resolved, updated_at=now)
+    )
+
+    if scoped_shop_ids is not None:
+        terminal_stmt = terminal_stmt.where(Incident.order.has(Order.shop_id.in_(scoped_shop_ids)))
+        stale_stmt = stale_stmt.where(Incident.order.has(Order.shop_id.in_(scoped_shop_ids)))
+
+    terminal_result = db.execute(terminal_stmt)
+    stale_result = db.execute(stale_stmt)
+    terminal_resolved = max(int(terminal_result.rowcount or 0), 0)
+    stale_resolved = max(int(stale_result.rowcount or 0), 0)
+
+    return {
+        "resolved_terminal_orders": terminal_resolved,
+        "resolved_stale": stale_resolved,
+        "resolved_total": terminal_resolved + stale_resolved,
+    }
+
+
 def evaluate_order_automation_rules(
     *,
     db: Session,
@@ -185,6 +303,10 @@ def evaluate_order_automation_rules(
     3. The order's design_link URL returns JSON instead of an image (broken/expired link).
     All other flags remain as visual badges but no longer generate incidents automatically.
     """
+    _resolve_order_incident_lifecycle(order)
+    if _is_order_terminal_for_incidents(order):
+        return
+
     flags = build_order_automation_flags(order)
     flag_keys = {flag["key"] for flag in flags}
     active_incident_rules: set[str] = set()
