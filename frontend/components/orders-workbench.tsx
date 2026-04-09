@@ -55,11 +55,13 @@ type OrdersWorkbenchProps = {
 
 type QuickFilterKey =
   | "has_incident"
-  | "not_prepared";
+  | "not_prepared"
+  | "label_no_update";
 
 const quickFilterMeta: Array<{ key: QuickFilterKey; label: string }> = [
   { key: "has_incident", label: "⚠️ Con incidencia" },
   { key: "not_prepared", label: "🔧 No preparados" },
+  { key: "label_no_update", label: "📦 Etiqueta sin avances" },
 ];
 
 
@@ -217,6 +219,13 @@ function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
         !order.shipment &&
         order.status !== "shipped" &&
         order.status !== "ready_to_ship" &&
+        order.status !== "delivered"
+      );
+    case "label_no_update":
+      // Has a CTT label (tracking number) but no tracking events from the carrier yet
+      return (
+        Boolean(order.shipment?.tracking_number?.trim()) &&
+        (!order.shipment?.events || order.shipment.events.length === 0) &&
         order.status !== "delivered"
       );
     default:
