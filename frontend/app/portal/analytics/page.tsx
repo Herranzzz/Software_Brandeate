@@ -55,6 +55,7 @@ const STATUS_DISPLAY_LABELS: Record<string, string> = {
   in_progress: "En producción",
   ready_to_ship: "Preparado",
   label_created: "Etiqueta creada",
+  picked_up: "Recogido",
   shipped: "Enviado",
   in_transit: "En tránsito",
   out_for_delivery: "En reparto",
@@ -69,6 +70,7 @@ const STATUS_COLORS: Record<string, string> = {
   in_progress: "#F59E0B",    // amber  — en producción
   ready_to_ship: "#38BDF8",  // sky    — preparado
   label_created: "#38BDF8",  // sky    — etiqueta creada
+  picked_up: "#0EA5E9",      // cyan   — recogido por carrier
   shipped: "#6366F1",        // indigo — enviado genérico
   in_transit: "#6366F1",     // indigo — en tránsito
   out_for_delivery: "#F97316", // orange — en reparto (cerca del destinatario)
@@ -134,6 +136,14 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
   const shops = await fetchMyShops();
   const params = (await searchParams) ?? {};
   const tenantScope = resolveTenantScope(shops, readValue(params.shop_id));
+  const shippingStatusParam = readValue(params.shipping_status);
+  const shippingStatus =
+    shippingStatusParam === "picked_up" ||
+    shippingStatusParam === "in_transit" ||
+    shippingStatusParam === "out_for_delivery" ||
+    shippingStatusParam === "delivered"
+      ? shippingStatusParam
+      : undefined;
   const filters = {
     date_from: readValue(params.date_from),
     date_to: readValue(params.date_to),
@@ -143,6 +153,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
     status: readValue(params.status),
     production_status: readValue(params.production_status),
     carrier: readValue(params.carrier),
+    shipping_status: shippingStatus,
   };
   let analytics: AnalyticsOverview | null = null;
   try {
@@ -236,6 +247,7 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
           status: filters.status,
           production_status: filters.production_status,
           carrier: filters.carrier,
+          shipping_status: filters.shipping_status,
         }}
         selectedShopId={tenantScope.selectedShopId}
         shops={tenantScope.shops}
@@ -281,6 +293,13 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
               <option value="">Todo el mix</option>
               <option value="true">Solo personalizados</option>
               <option value="false">Solo estándar</option>
+            </select>
+            <select className="portal-inline-select" defaultValue={filters.shipping_status ?? ""} name="shipping_status">
+              <option value="">Estado envío (todos)</option>
+              <option value="picked_up">Recogido</option>
+              <option value="in_transit">En tránsito</option>
+              <option value="out_for_delivery">En reparto</option>
+              <option value="delivered">Entregado</option>
             </select>
             <button className="button button-secondary" type="submit">Aplicar</button>
             <Link className="button button-secondary" href="/portal/shipments">Limpiar</Link>

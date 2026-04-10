@@ -290,7 +290,38 @@ def map_ctt_tracking_status(raw_status: str | None) -> str:
         return "delivered"
     if any(token in status for token in ("en reparto", "out for delivery", "reparto", "delivery route", "em distribuição")):
         return "out_for_delivery"
-    if any(token in status for token in ("disponible para recoger", "available for pickup", "pickup point", "parcel shop", "parcelshop", "recogida")):
+    if any(token in status for token in ("no recogido", "not collected", "failed pickup")):
+        return "exception"
+    if any(
+        token in status
+        for token in (
+            "recogido por",
+            "paquete recogido",
+            "picked up by",
+            "collected by",
+            "accepted by carrier",
+            "aceptado por el transportista",
+            "admitido en delegación",
+            "admitido por ctt",
+            "admitted by ctt",
+            "colis pris en charge",
+            "recolhido",
+        )
+    ):
+        return "picked_up"
+    if any(
+        token in status
+        for token in (
+            "disponible para recoger",
+            "disponible para su recogida",
+            "listo para recoger",
+            "available for pickup",
+            "ready for pickup",
+            "pickup point",
+            "parcel shop",
+            "parcelshop",
+        )
+    ):
         return "pickup_available"
     if any(token in status for token in ("incidencia", "exception", "failed", "attempt", "devuelto", "returned", "refused", "address", "impossib", "unable")):
         return "exception"

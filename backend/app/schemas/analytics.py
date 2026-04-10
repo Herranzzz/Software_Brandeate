@@ -14,6 +14,7 @@ class AnalyticsFiltersRead(BaseModel):
     status: str | None
     production_status: str | None
     carrier: str | None
+    shipping_status: str | None
 
 
 class AnalyticsKpisRead(BaseModel):

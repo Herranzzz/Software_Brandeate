@@ -14,6 +14,7 @@ function getFlowStatus(orderStatus: string, latestEventNorm?: string | null): Fl
   const s = latestEventNorm?.toLowerCase() ?? orderStatus;
   if (s === "delivered" || orderStatus === "delivered") return "delivered";
   if (s === "out_for_delivery") return "out_for_delivery";
+  if (s === "picked_up" || s === "pickup_available") return "in_transit";
   if (s === "in_transit") return "in_transit";
   if (s === "exception" || orderStatus === "exception") return "exception";
   if (s === "label_created" || orderStatus === "shipped" || orderStatus === "ready_to_ship") return "prepared";

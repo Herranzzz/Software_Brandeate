@@ -23,7 +23,9 @@ type PortalOperationsPageProps = {
 
 const shipmentViews = [
   { value: "all", label: "Todo" },
+  { value: "picked_up", label: "Recogido" },
   { value: "in_transit", label: "En tránsito" },
+  { value: "out_for_delivery", label: "En reparto" },
   { value: "delivered", label: "Entregados" },
   { value: "exception", label: "Con incidencia" },
   { value: "pending", label: "Sin eventos" },
@@ -86,7 +88,12 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
         order,
         shipment: order.shipment,
         lastEvent,
-        derivedStatus: lastEvent?.status_norm ?? "pending",
+        derivedStatus:
+          (
+            (lastEvent?.status_norm ?? order.shipment?.shipping_status) === "pickup_available"
+              ? "picked_up"
+              : (lastEvent?.status_norm ?? order.shipment?.shipping_status)
+          ) ?? "pending",
       };
     })
     .filter((row) => {

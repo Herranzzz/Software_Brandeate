@@ -3,6 +3,7 @@ from app.models import DesignStatus, Order, OrderStatus
 
 SHIPPED_EVENT_LABELS = {
     "label_created",
+    "picked_up",
     "in_transit",
     "out_for_delivery",
     "pickup_available",

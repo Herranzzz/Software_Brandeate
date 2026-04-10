@@ -8,6 +8,7 @@ import type { Shipment } from "@/lib/types";
 
 const trackingEventOptions = [
   "label_created",
+  "picked_up",
   "in_transit",
   "out_for_delivery",
   "pickup_available",

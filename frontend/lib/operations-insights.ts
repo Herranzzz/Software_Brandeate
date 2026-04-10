@@ -4,6 +4,7 @@ import { sortTrackingEvents } from "@/lib/format";
 export type ShipmentStateKey =
   | "pending_preparation"
   | "label_created"
+  | "picked_up"
   | "in_transit"
   | "out_for_delivery"
   | "delivered"
@@ -12,6 +13,7 @@ export type ShipmentStateKey =
 export const shipmentStateMeta: Record<ShipmentStateKey, { label: string; tone: string; description: string }> = {
   pending_preparation: { label: "Pendiente de preparación", tone: "slate", description: "sin shipment todavía" },
   label_created: { label: "Etiqueta creada", tone: "blue", description: "shipment listo para salir" },
+  picked_up: { label: "Recogido", tone: "sky", description: "carrier con primer escaneo" },
   in_transit: { label: "En tránsito", tone: "indigo", description: "movimiento activo del carrier" },
   out_for_delivery: { label: "En reparto", tone: "sky", description: "última milla en curso" },
   delivered: { label: "Entregado", tone: "green", description: "cierre confirmado" },
@@ -84,7 +86,8 @@ export function getShipmentState(order: Order): ShipmentStateKey {
   if (status === "delivered" || order.status === "delivered") return "delivered";
   if (status === "exception" || order.status === "exception" || order.has_open_incident) return "exception";
   if (status === "out_for_delivery") return "out_for_delivery";
-  if (status === "in_transit" || status === "pickup_available") return "in_transit";
+  if (status === "picked_up" || status === "pickup_available") return "picked_up";
+  if (status === "in_transit") return "in_transit";
   if (order.shipment) return "label_created";
   return "pending_preparation";
 }

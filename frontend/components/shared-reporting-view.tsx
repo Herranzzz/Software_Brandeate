@@ -78,14 +78,18 @@ export function SharedReportingView({
   const flow = analytics.flow;
   const received = flow.orders_received;
   const prepared = flow.orders_prepared;
+  const pickedUp = flow.orders_picked_up ?? 0;
   const inTransit = flow.orders_in_transit;
+  const outForDelivery = flow.orders_out_for_delivery ?? 0;
   const delivered = flow.orders_delivered;
   const exception = flow.orders_exception;
 
   const flowSteps = [
     { key: "received", label: "📦 Recibido", value: received, tone: "slate" },
     { key: "prepared", label: "🏷️ Preparado", value: prepared, tone: "indigo" },
+    { key: "picked_up", label: "🚚 Recogido", value: pickedUp, tone: "blue" },
     { key: "in_transit", label: "🚚 En tránsito", value: inTransit, tone: "blue" },
+    { key: "out_for_delivery", label: "📬 En reparto", value: outForDelivery, tone: "orange" },
     { key: "delivered", label: "✅ Entregado", value: delivered, tone: "green" },
     { key: "exception", label: "🚨 Incidencia", value: exception, tone: "red" },
   ] as const;

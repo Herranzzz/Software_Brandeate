@@ -1,31 +1,48 @@
-import { ClientAccountsPanel } from "@/components/client-accounts-panel";
-import { fetchAdminUsers, fetchShops } from "@/lib/api";
+import { EmployeesManagementPanel } from "@/components/employees-management-panel";
+import { fetchEmployeeAnalytics, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
-import type { AdminUser } from "@/lib/types";
+import type { EmployeeMetricsPeriod } from "@/lib/types";
 
-function isClientAccount(user: AdminUser) {
-  return user.role === "shop_admin" || user.role === "shop_viewer";
+
+type EmployeesPageProps = {
+  searchParams: Promise<{
+    period?: string;
+  }>;
+};
+
+
+function resolveEmployeePeriod(value?: string): EmployeeMetricsPeriod {
+  return value === "day" ? "day" : "week";
 }
 
-export default async function EmployeesPage() {
-  const [userResult, shopsResult, usersResult] = await Promise.allSettled([
+
+export default async function EmployeesPage({ searchParams }: EmployeesPageProps) {
+  const params = await searchParams;
+  const period = resolveEmployeePeriod(params.period);
+
+  const [userResult, shopsResult, analyticsResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchShops(),
-    fetchAdminUsers(),
+    fetchEmployeeAnalytics({ period }),
   ]);
   if (userResult.status === "rejected") throw userResult.reason;
   const currentUser = userResult.value;
 
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
-  const accounts = usersResult.status === "fulfilled" ? usersResult.value.filter(isClientAccount) : [];
+  const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value.employees : [];
 
   return (
-    <ClientAccountsPanel
+    <EmployeesManagementPanel
       currentUser={{
         id: currentUser.id,
         role: currentUser.role,
       }}
-      accounts={accounts}
+      employees={analytics}
+      period={period}
+      periodLinks={[
+        { label: "Día", href: "/employees?period=day", active: period === "day" },
+        { label: "Semana", href: "/employees?period=week", active: period === "week" },
+      ]}
       shops={shops}
     />
   );

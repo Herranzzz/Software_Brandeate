@@ -148,6 +148,7 @@ export function getTrackingHeadline(status: OrderStatus, latestEventStatus?: str
   if (
     status === "shipped" ||
     current === "label_created" ||
+    current === "picked_up" ||
     current === "in_transit" ||
     current === "out_for_delivery" ||
     current === "pickup_available"

@@ -90,6 +90,7 @@ export function getClientOrderStage(order: Order): ClientOrderStageKey {
 
   if (
     order.status === "shipped" ||
+    shipmentStatus === "picked_up" ||
     shipmentStatus === "in_transit" ||
     shipmentStatus === "pickup_available" ||
     shipmentStatus === "label_created"

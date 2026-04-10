@@ -79,15 +79,15 @@ function buildDonutSegments(orders: Order[]): ShipmentSegment[] {
     if (raw === "delivered" || o.status === "delivered") return "delivered";
     if (raw === "out_for_delivery") return "out_for_delivery";
     if (raw === "in_transit") return "in_transit";
-    if (raw === "pickup_available") return "pickup_available";
+    if (raw === "picked_up" || raw === "pickup_available") return "picked_up";
     return "label_created";
   };
   const countKey = (key: string) => withShipment.filter((o) => getKey(o) === key).length;
   const segments: ShipmentSegment[] = [
     { key: "label_created", label: "🏷️ Etiqueta creada", value: countKey("label_created"), tone: "indigo" },
+    { key: "picked_up", label: "🚚 Recogido", value: countKey("picked_up"), tone: "blue" },
     { key: "in_transit", label: "🚚 En tránsito", value: countKey("in_transit"), tone: "blue" },
     { key: "out_for_delivery", label: "🚛 En reparto", value: countKey("out_for_delivery"), tone: "sky" },
-    { key: "pickup_available", label: "📍 Disponible recogida", value: countKey("pickup_available"), tone: "orange" },
     { key: "delivered", label: "✅ Entregado", value: countKey("delivered"), tone: "green" },
     { key: "exception", label: "🚨 Incidencia", value: countKey("exception"), tone: "red" },
   ];

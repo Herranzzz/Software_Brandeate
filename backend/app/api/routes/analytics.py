@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -27,6 +28,7 @@ def get_analytics_overview(
     status: OrderStatus | None = None,
     production_status: ProductionStatus | None = None,
     carrier: str | None = None,
+    shipping_status: Literal["picked_up", "in_transit", "out_for_delivery", "delivered"] | None = None,
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ):
@@ -54,6 +56,7 @@ def get_analytics_overview(
                 status=status.value if status else None,
                 production_status=production_status.value if production_status else None,
                 carrier=carrier,
+                shipping_status=shipping_status,
             ),
             accessible_shop_ids=scoped_shop_ids,
         )

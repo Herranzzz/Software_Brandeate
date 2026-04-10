@@ -487,6 +487,7 @@ export async function fetchAnalyticsOverview(params?: {
   status?: string;
   production_status?: string;
   carrier?: string;
+  shipping_status?: string;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.date_from) {
@@ -512,6 +513,9 @@ export async function fetchAnalyticsOverview(params?: {
   }
   if (params?.carrier) {
     searchParams.set("carrier", params.carrier);
+  }
+  if (params?.shipping_status) {
+    searchParams.set("shipping_status", params.shipping_status);
   }
 
   const headers = await buildAuthHeaders();

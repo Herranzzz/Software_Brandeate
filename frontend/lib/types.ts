@@ -377,6 +377,7 @@ export type AnalyticsFilters = {
   status: string | null;
   production_status: string | null;
   carrier: string | null;
+  shipping_status: string | null;
 };
 
 export type AnalyticsKpis = {

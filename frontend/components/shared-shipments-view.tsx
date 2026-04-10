@@ -34,6 +34,7 @@ type SharedShipmentsViewProps = {
   integrations: ShopIntegration[];
   analytics: AnalyticsOverview | null;
   selectedShopId?: string;
+  selectedShippingStatus?: string;
   period: ShipmentPeriod;
   dateFrom: string;
   dateTo: string;
@@ -370,6 +371,7 @@ export function SharedShipmentsView({
   integrations,
   analytics,
   selectedShopId = "",
+  selectedShippingStatus = "all",
   period,
   dateFrom,
   dateTo,
@@ -403,6 +405,9 @@ export function SharedShipmentsView({
           </div>
           <form action={basePath} className="exp-toolbar" method="get">
             <input name="period" type="hidden" value={period} />
+            {selectedShippingStatus !== "all" ? (
+              <input name="shipping_status" type="hidden" value={selectedShippingStatus} />
+            ) : null}
             <div className="field">
               <label htmlFor={`${basePath}-shop_id`}>Tienda</label>
               <select defaultValue={selectedShopId} id={`${basePath}-shop_id`} name="shop_id">
@@ -457,7 +462,13 @@ export function SharedShipmentsView({
             {/* Period pills */}
             <div className="exp-period-pills">
               {rangeShortcuts.map((sc) => {
-                const href = buildQuery({ shop_id: selectedShopId, period: sc.value, date_from: sc.dateFrom || undefined, date_to: sc.dateTo || undefined });
+                const href = buildQuery({
+                  shop_id: selectedShopId,
+                  shipping_status: selectedShippingStatus === "all" ? undefined : selectedShippingStatus,
+                  period: sc.value,
+                  date_from: sc.dateFrom || undefined,
+                  date_to: sc.dateTo || undefined,
+                });
                 return (
                   <Link
                     className={`exp-period-pill${sc.value === period ? " is-active" : ""}`}
@@ -486,6 +497,20 @@ export function SharedShipmentsView({
         {/* Toolbar */}
         <form action={basePath} className="exp-toolbar" method="get">
           <input name="period" type="hidden" value={period} />
+          <div className="field">
+            <label htmlFor={`${basePath}-shipping_status`}>Estado envío</label>
+            <select
+              defaultValue={selectedShippingStatus}
+              id={`${basePath}-shipping_status`}
+              name="shipping_status"
+            >
+              <option value="all">Todos</option>
+              <option value="picked_up">Recogido</option>
+              <option value="in_transit">En tránsito</option>
+              <option value="out_for_delivery">En reparto</option>
+              <option value="delivered">Entregado</option>
+            </select>
+          </div>
           <div className="field">
             <label htmlFor={`${basePath}-shop_id`}>Cuenta</label>
             <select defaultValue={selectedShopId} id={`${basePath}-shop_id`} name="shop_id">

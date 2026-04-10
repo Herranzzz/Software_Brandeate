@@ -18,6 +18,7 @@ const incidentPriorities: IncidentPriority[] = ["low", "medium", "high", "urgent
 
 const trackingEventOptions = [
   "label_created",
+  "picked_up",
   "in_transit",
   "out_for_delivery",
   "pickup_available",

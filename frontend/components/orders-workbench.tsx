@@ -178,6 +178,13 @@ function getOperationalStatusMeta(order: Order) {
     };
   }
 
+  if (shipmentState === "picked_up") {
+    return {
+      label: "Recogido",
+      className: "badge badge-status badge-status-shipped",
+    };
+  }
+
   if (shipmentState === "pickup_available") {
     return {
       label: "Listo para recoger",

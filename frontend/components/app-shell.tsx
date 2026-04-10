@@ -131,7 +131,7 @@ const navGroups = [
     label: "Gestión",
     items: [
       { href: "/customers", label: "Clientes", icon: AccountsIcon },
-      { href: "/employees", label: "Cuentas cliente", icon: EmployeesIcon },
+      { href: "/employees", label: "Empleados", icon: EmployeesIcon },
       { href: "/returns", label: "Devoluciones", icon: ReturnsAdminIcon },
       { href: "/incidencias", label: "Incidencias", icon: IncidenciasIcon },
     ],

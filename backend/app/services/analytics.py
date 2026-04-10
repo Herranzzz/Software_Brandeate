@@ -29,6 +29,7 @@ class AnalyticsFilters:
     status: str | None = None
     production_status: str | None = None
     carrier: str | None = None
+    shipping_status: str | None = None
 
 
 def _enum_value(value: Any) -> str | None:
@@ -263,6 +264,8 @@ def _order_matches_filters(order: Order, filters: AnalyticsFilters, channel_shop
         return False
     if filters.carrier is not None and (_carrier_for_order(order) or "").lower() != filters.carrier.lower():
         return False
+    if filters.shipping_status is not None and _shipment_stage(order) != filters.shipping_status:
+        return False
     if filters.channel:
         if filters.channel != "shopify":
             return False
@@ -394,6 +397,8 @@ def build_analytics_overview(
     )
 
     orders = list(db.scalars(query))
+    if filters.shipping_status:
+        orders = [order for order in orders if _shipment_stage(order) == filters.shipping_status]
 
     now = datetime.now(UTC)
     today_key = now.date().isoformat()
@@ -823,6 +828,7 @@ def build_analytics_overview(
             "status": filters.status,
             "production_status": filters.production_status,
             "carrier": filters.carrier,
+            "shipping_status": filters.shipping_status,
         },
         "kpis": {
             "total_orders": total_orders,
