@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, require_admin_user
 from app.models import Order, Shipment, TrackingEvent, User
@@ -8,6 +8,7 @@ from app.schemas.shipment import (
     ShipmentTrackingBatchSyncRead,
     ShipmentCreate,
     ShipmentRead,
+    ShipmentSummaryRead,
     ShipmentTrackingSyncRead,
     TrackingEventCreate,
     TrackingEventRead,
@@ -18,6 +19,9 @@ from app.services.orders import sync_order_status_from_tracking
 
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
+
+DEFAULT_SHIPMENTS_PER_PAGE = 100
+MAX_SHIPMENTS_PER_PAGE = 200
 
 
 @router.post("", response_model=ShipmentRead, status_code=status.HTTP_201_CREATED)
@@ -76,7 +80,18 @@ def create_shipment(
     db.refresh(shipment)
     return db.scalar(
         select(Shipment)
-        .options(selectinload(Shipment.events))
+        .options(
+            selectinload(Shipment.events).load_only(
+                TrackingEvent.id,
+                TrackingEvent.shipment_id,
+                TrackingEvent.status_norm,
+                TrackingEvent.status_raw,
+                TrackingEvent.source,
+                TrackingEvent.location,
+                TrackingEvent.occurred_at,
+                TrackingEvent.created_at,
+            )
+        )
         .where(Shipment.id == shipment.id)
     )
 
@@ -89,7 +104,18 @@ def get_shipment(
 ) -> Shipment:
     shipment = db.scalar(
         select(Shipment)
-        .options(selectinload(Shipment.events))
+        .options(
+            selectinload(Shipment.events).load_only(
+                TrackingEvent.id,
+                TrackingEvent.shipment_id,
+                TrackingEvent.status_norm,
+                TrackingEvent.status_raw,
+                TrackingEvent.source,
+                TrackingEvent.location,
+                TrackingEvent.occurred_at,
+                TrackingEvent.created_at,
+            )
+        )
         .where(Shipment.id == shipment_id)
     )
     if shipment is None:
@@ -100,22 +126,63 @@ def get_shipment(
     return shipment
 
 
-@router.get("", response_model=list[ShipmentRead])
+@router.get("", response_model=list[ShipmentSummaryRead])
 def list_shipments(
+    response: Response,
     shop_id: int | None = None,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=DEFAULT_SHIPMENTS_PER_PAGE, ge=1, le=MAX_SHIPMENTS_PER_PAGE),
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> list[Shipment]:
-    query = select(Shipment).options(selectinload(Shipment.events)).order_by(
+    query = select(Shipment).options(
+        load_only(
+            Shipment.id,
+            Shipment.order_id,
+            Shipment.created_by_employee_id,
+            Shipment.fulfillment_id,
+            Shipment.carrier,
+            Shipment.tracking_number,
+            Shipment.tracking_url,
+            Shipment.shipping_status,
+            Shipment.shipping_status_detail,
+            Shipment.provider_reference,
+            Shipment.shipping_rule_id,
+            Shipment.shipping_rule_name,
+            Shipment.detected_zone,
+            Shipment.resolution_mode,
+            Shipment.shipping_type_code,
+            Shipment.weight_tier_code,
+            Shipment.weight_tier_label,
+            Shipment.shipping_weight_declared,
+            Shipment.package_count,
+            Shipment.label_created_at,
+            Shipment.shopify_sync_status,
+            Shipment.shopify_sync_error,
+            Shipment.shopify_last_sync_attempt_at,
+            Shipment.shopify_synced_at,
+            Shipment.public_token,
+            Shipment.created_at,
+        )
+    ).order_by(
         Shipment.created_at.desc(),
         Shipment.id.desc(),
     )
+    count_query = select(func.count()).select_from(Shipment)
     if accessible_shop_ids is not None and shop_id is not None and shop_id not in accessible_shop_ids:
         return []
     if shop_id is not None:
         query = query.join(Shipment.order).where(Order.shop_id == shop_id)
+        count_query = count_query.join(Shipment.order).where(Order.shop_id == shop_id)
     elif accessible_shop_ids is not None:
         query = query.join(Shipment.order).where(Order.shop_id.in_(accessible_shop_ids))
+        count_query = count_query.join(Shipment.order).where(Order.shop_id.in_(accessible_shop_ids))
+
+    total_count = int(db.scalar(count_query) or 0)
+    response.headers["X-Total-Count"] = str(total_count)
+    safe_per_page = max(1, min(per_page, MAX_SHIPMENTS_PER_PAGE))
+    safe_page = max(page, 1)
+    query = query.limit(safe_per_page).offset((safe_page - 1) * safe_per_page)
 
     return list(db.scalars(query))
 
@@ -163,7 +230,19 @@ def sync_single_shipment_tracking(
 ) -> ShipmentTrackingSyncRead:
     shipment = db.scalar(
         select(Shipment)
-        .options(selectinload(Shipment.events), selectinload(Shipment.order))
+        .options(
+            selectinload(Shipment.events).load_only(
+                TrackingEvent.id,
+                TrackingEvent.shipment_id,
+                TrackingEvent.status_norm,
+                TrackingEvent.status_raw,
+                TrackingEvent.source,
+                TrackingEvent.location,
+                TrackingEvent.occurred_at,
+                TrackingEvent.created_at,
+            ),
+            selectinload(Shipment.order),
+        )
         .where(Shipment.id == shipment_id)
     )
     if shipment is None:
@@ -174,7 +253,22 @@ def sync_single_shipment_tracking(
     result = sync_shipment_tracking(db=db, shipment=shipment)
     db.commit()
     db.refresh(shipment)
-    reloaded = db.scalar(select(Shipment).options(selectinload(Shipment.events)).where(Shipment.id == shipment.id))
+    reloaded = db.scalar(
+        select(Shipment)
+        .options(
+            selectinload(Shipment.events).load_only(
+                TrackingEvent.id,
+                TrackingEvent.shipment_id,
+                TrackingEvent.status_norm,
+                TrackingEvent.status_raw,
+                TrackingEvent.source,
+                TrackingEvent.location,
+                TrackingEvent.occurred_at,
+                TrackingEvent.created_at,
+            )
+        )
+        .where(Shipment.id == shipment.id)
+    )
     assert reloaded is not None
     return ShipmentTrackingSyncRead(
         shipment=reloaded,
@@ -205,7 +299,22 @@ def sync_active_shipments_tracking(
     changed_count = 0
     events_created = 0
     for result in results:
-        shipment = db.scalar(select(Shipment).options(selectinload(Shipment.events)).where(Shipment.id == result.shipment_id))
+        shipment = db.scalar(
+            select(Shipment)
+            .options(
+                selectinload(Shipment.events).load_only(
+                    TrackingEvent.id,
+                    TrackingEvent.shipment_id,
+                    TrackingEvent.status_norm,
+                    TrackingEvent.status_raw,
+                    TrackingEvent.source,
+                    TrackingEvent.location,
+                    TrackingEvent.occurred_at,
+                    TrackingEvent.created_at,
+                )
+            )
+            .where(Shipment.id == result.shipment_id)
+        )
         if shipment is None:
             continue
         changed_count += int(result.changed)

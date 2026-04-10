@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import DesignStatus, DeliveryType, OrderItem, OrderPriority, OrderStatus, ProductionStatus
 from app.schemas.automation import AutomationEventRead
-from app.schemas.shipment import ShipmentRead
+from app.schemas.shipment import ShipmentRead, ShipmentSummaryRead
 
 
 class OrderItemBase(BaseModel):
@@ -39,6 +39,25 @@ class OrderItemRead(OrderItemBase):
     customization_provider: str | None = None
     id: int
     order_id: int
+    created_at: datetime
+
+
+class OrderItemListRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_id: int
+    product_id: str | None
+    variant_id: str | None
+    sku: str
+    name: str
+    title: str | None
+    variant_title: str | None
+    quantity: int
+    design_link: str | None
+    customization_provider: str | None = None
+    design_status: DesignStatus | None = None
+    personalization_assets_json: list[dict] | dict | None = None
     created_at: datetime
 
 
@@ -97,6 +116,55 @@ class AutomationFlagRead(BaseModel):
     label: str
     tone: str
     description: str
+
+
+class OrderListRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    shop_id: int
+    external_id: str
+    shopify_order_gid: str | None
+    shopify_order_name: str | None
+    customer_external_id: str | None
+    status: OrderStatus
+    production_status: ProductionStatus
+    priority: OrderPriority
+    is_personalized: bool
+    customer_name: str
+    customer_email: str
+    shipping_name: str | None
+    shipping_phone: str | None
+    shipping_country_code: str | None
+    shipping_postal_code: str | None
+    shipping_address_line1: str | None
+    shipping_address_line2: str | None
+    shipping_town: str | None
+    shipping_province_code: str | None
+    shopify_shipping_snapshot_json: dict | list | None
+    shopify_shipping_rate_name: str | None
+    shopify_shipping_rate_amount: float | None
+    shopify_shipping_rate_currency: str | None
+    delivery_type: DeliveryType | None
+    shipping_service_code: str | None
+    shipping_service_name: str | None
+    shipping_rate_amount: float | None
+    shipping_rate_currency: str | None
+    shipping_rate_estimated_days_min: int | None
+    shipping_rate_estimated_days_max: int | None
+    shipping_rate_quote_id: int | None
+    pickup_point_json: dict | list | None
+    note: str | None
+    tags_json: list[str] | None
+    channel: str | None
+    shopify_financial_status: str | None
+    shopify_fulfillment_status: str | None
+    created_at: datetime
+    has_open_incident: bool
+    open_incidents_count: int
+    automation_flags: list["AutomationFlagRead"] = Field(default_factory=list)
+    items: list[OrderItemListRead]
+    shipment: ShipmentSummaryRead | None = None
 
 
 class OrderRead(BaseModel):

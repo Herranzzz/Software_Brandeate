@@ -21,6 +21,8 @@ import type {
 const DEFAULT_API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "");
+const DEFAULT_ORDERS_PER_PAGE = 100;
+const MAX_ORDERS_PER_PAGE = 250;
 
 
 export function getApiBaseUrl() {
@@ -100,6 +102,9 @@ export async function fetchOrders(params?: {
   cacheSeconds?: number;
 }): Promise<{ orders: Order[]; totalCount: number }> {
   const searchParams = new URLSearchParams();
+  const safePage = Math.max(Number(params?.page ?? 1) || 1, 1);
+  const requestedPerPage = Number(params?.per_page ?? DEFAULT_ORDERS_PER_PAGE) || DEFAULT_ORDERS_PER_PAGE;
+  const safePerPage = Math.min(Math.max(requestedPerPage, 1), MAX_ORDERS_PER_PAGE);
   if (params?.status) {
     searchParams.set("status", String(params.status));
   }
@@ -142,12 +147,8 @@ export async function fetchOrders(params?: {
   if (params?.q) {
     searchParams.set("q", params.q);
   }
-  if (params?.page !== undefined && params.page !== "") {
-    searchParams.set("page", String(params.page));
-  }
-  if (params?.per_page !== undefined && params.per_page !== "") {
-    searchParams.set("per_page", String(params.per_page));
-  }
+  searchParams.set("page", String(safePage));
+  searchParams.set("per_page", String(safePerPage));
 
   const query = searchParams.toString();
   const headers = await buildAuthHeaders();
@@ -197,6 +198,8 @@ export async function fetchPickBatches(params?: {
 export async function fetchShopCustomers(params?: {
   shop_id?: string | number;
   q?: string;
+  page?: string | number;
+  per_page?: string | number;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.shop_id !== undefined && params.shop_id !== "") {
@@ -204,6 +207,12 @@ export async function fetchShopCustomers(params?: {
   }
   if (params?.q) {
     searchParams.set("q", params.q);
+  }
+  if (params?.page !== undefined && params.page !== "") {
+    searchParams.set("page", String(params.page));
+  }
+  if (params?.per_page !== undefined && params.per_page !== "") {
+    searchParams.set("per_page", String(params.per_page));
   }
 
   const headers = await buildAuthHeaders();
@@ -283,6 +292,8 @@ export async function fetchIncidents(params?: {
   shop_id?: string | number;
   recent_days?: string | number;
   include_historical?: boolean;
+  page?: string | number;
+  per_page?: string | number;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.status) {
@@ -302,6 +313,12 @@ export async function fetchIncidents(params?: {
   }
   if (params?.include_historical !== undefined) {
     searchParams.set("include_historical", String(params.include_historical));
+  }
+  if (params?.page !== undefined && params.page !== "") {
+    searchParams.set("page", String(params.page));
+  }
+  if (params?.per_page !== undefined && params.per_page !== "") {
+    searchParams.set("per_page", String(params.per_page));
   }
 
   const query = searchParams.toString();
@@ -488,6 +505,8 @@ export async function fetchAnalyticsOverview(params?: {
 export async function fetchReturns(params?: {
   shop_id?: string | number;
   status?: string;
+  page?: string | number;
+  per_page?: string | number;
 }): Promise<Return[]> {
   const searchParams = new URLSearchParams();
   if (params?.shop_id !== undefined && params.shop_id !== "") {
@@ -495,6 +514,12 @@ export async function fetchReturns(params?: {
   }
   if (params?.status) {
     searchParams.set("status", params.status);
+  }
+  if (params?.page !== undefined && params.page !== "") {
+    searchParams.set("page", String(params.page));
+  }
+  if (params?.per_page !== undefined && params.per_page !== "") {
+    searchParams.set("per_page", String(params.per_page));
   }
   const query = searchParams.toString();
   const headers = await buildAuthHeaders();

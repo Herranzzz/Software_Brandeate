@@ -84,8 +84,8 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
 
   const [shopsResult, ordersResult, incidentsResult, integrationsResult] = await Promise.allSettled([
     fetchShops(),
-    fetchOrders({ per_page: 500 }),
-    fetchIncidents(),
+    fetchOrders({ page: 1, per_page: 250 }),
+    fetchIncidents({ page: 1, per_page: 300 }),
     fetchShopifyIntegrations(),
   ]);
 
@@ -96,12 +96,37 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
       : [];
   const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
+  const hasPartialDataError =
+    shopsResult.status === "rejected" ||
+    ordersResult.status === "rejected" ||
+    incidentsResult.status === "rejected" ||
+    integrationsResult.status === "rejected";
+  const ordersByShop = new Map<number, typeof orders>();
+  for (const order of orders) {
+    const current = ordersByShop.get(order.shop_id);
+    if (current) {
+      current.push(order);
+    } else {
+      ordersByShop.set(order.shop_id, [order]);
+    }
+  }
+  const incidentsByShop = new Map<number, typeof incidents>();
+  for (const incident of incidents) {
+    const shopId = incident.order.shop_id;
+    const current = incidentsByShop.get(shopId);
+    if (current) {
+      current.push(incident);
+    } else {
+      incidentsByShop.set(shopId, [incident]);
+    }
+  }
+  const integrationByShop = new Map(integrations.map((item) => [item.shop_id, item]));
 
   const rows = shops
     .map((shop) => {
-      const shopOrders = orders.filter((order) => order.shop_id === shop.id);
-      const shopIncidents = incidents.filter((incident) => incident.order.shop_id === shop.id);
-      const integration = integrations.find((item) => item.shop_id === shop.id) ?? null;
+      const shopOrders = ordersByShop.get(shop.id) ?? [];
+      const shopIncidents = incidentsByShop.get(shop.id) ?? [];
+      const integration = integrationByShop.get(shop.id) ?? null;
 
       const ordersToday = shopOrders.filter((order) => isToday(order.created_at)).length;
       const activeOrders = shopOrders.filter((order) => order.status !== "delivered").length;
@@ -124,7 +149,7 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
           return false;
         }
         const trackingDate =
-          order.shipment.events
+          (order.shipment.events ?? [])
             .slice()
             .sort((left, right) => new Date(right.occurred_at).getTime() - new Date(left.occurred_at).getTime())[0]
             ?.occurred_at ?? order.shipment.created_at;
@@ -264,6 +289,11 @@ export default async function CustomersPage({ searchParams }: CustomerAccountsPa
 
   return (
     <div className="stack customer-accounts-page">
+      {hasPartialDataError ? (
+        <div className="feedback feedback-info">
+          Parte de los datos no se pudieron cargar. Mostramos la información disponible para que puedas seguir operando.
+        </div>
+      ) : null}
       {/* ── Header ─────────────────────────────────────────────────── */}
       <Card className="stack customer-accounts-hero">
         <PageHeader

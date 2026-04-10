@@ -3,10 +3,10 @@ import Link from "next/link";
 
 import { SharedDashboardView } from "@/components/shared-dashboard-view";
 import type { ShipmentSegment } from "@/components/shipment-donut";
-import { fetchEmployeeAnalytics, fetchIncidents, fetchOrders, fetchShops } from "@/lib/api";
+import { fetchAnalyticsOverview, fetchEmployeeAnalytics, fetchIncidents, fetchOrders, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
-import type { EmployeeMetricsPeriod, Order } from "@/lib/types";
+import type { AnalyticsOverview, EmployeeMetricsPeriod, Order } from "@/lib/types";
 
 type DashboardPageProps = {
   searchParams: Promise<{
@@ -99,6 +99,38 @@ function buildDonutSegments(orders: Order[]): ShipmentSegment[] {
   return segments.filter((s) => s.value > 0);
 }
 
+function buildDonutSegmentsFromAnalytics(analytics: AnalyticsOverview): ShipmentSegment[] {
+  const toneByLabel: Record<string, ShipmentSegment["tone"]> = {
+    pending: "slate",
+    prepared: "indigo",
+    picked_up: "blue",
+    in_transit: "sky",
+    out_for_delivery: "orange",
+    delivered: "green",
+    exception: "red",
+    stalled: "slate",
+  };
+  const labelByKey: Record<string, string> = {
+    pending: "❌ Sin shipment",
+    prepared: "🏷️ Etiqueta creada",
+    picked_up: "🚚 Recogido",
+    in_transit: "🚚 En tránsito",
+    out_for_delivery: "🚛 En reparto",
+    delivered: "✅ Entregado",
+    exception: "🚨 Incidencia",
+    stalled: "💤 Atascado",
+  };
+
+  return (analytics.shipping_status_distribution ?? [])
+    .filter((item) => item.value > 0)
+    .map((item) => ({
+      key: item.label,
+      label: labelByKey[item.label] ?? `📦 ${item.label.replace(/_/g, " ")}`,
+      value: item.value,
+      tone: toneByLabel[item.label] ?? "slate",
+    }));
+}
+
 function resolveEmployeePeriod(value?: string): EmployeeMetricsPeriod {
   return value === "day" ? "day" : "week";
 }
@@ -121,11 +153,35 @@ function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], d
   return points;
 }
 
+function resolveRangeDates(days: number) {
+  const to = new Date();
+  const from = new Date(to);
+  from.setDate(to.getDate() - (days - 1));
+  return {
+    dateFrom: from.toISOString().slice(0, 10),
+    dateTo: to.toISOString().slice(0, 10),
+  };
+}
+
+function buildChartFromAnalytics(analytics: AnalyticsOverview, days: number) {
+  const visibleDays = Math.min(days, 7);
+  const rows = (analytics.charts.orders_by_day ?? []).slice(-visibleDays);
+  return rows.map((point) => {
+    const date = new Date(`${point.date}T12:00:00`);
+    return {
+      dayKey: point.date,
+      day: date.toLocaleDateString("es-ES", { weekday: "short" }),
+      value: point.total,
+    };
+  });
+}
+
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const params = await searchParams;
   const range = resolveRangePreset(params.range);
   const employeePeriod = resolveEmployeePeriod(params.employee_period);
   const rangeDays = getRangeDays(range);
+  const { dateFrom, dateTo } = resolveRangeDates(rangeDays);
   const incidentsLinkParams = new URLSearchParams({
     status: "open",
     period: "14d",
@@ -134,10 +190,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     incidentsLinkParams.set("shop_id", params.shop_id);
   }
   const incidentsLinkHref = `/incidencias?${incidentsLinkParams.toString()}`;
-  const [userResult, shopsResult, ordersResultSettled, incidentsResult, employeeAnalyticsResult] = await Promise.allSettled([
+  const [userResult, shopsResult, recentOrdersResult, incidentsResult, employeeAnalyticsResult, analyticsResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchShops(),
-    fetchOrders({ shop_id: params.shop_id }, { cacheSeconds: 30 }),
+    fetchOrders({ shop_id: params.shop_id, page: 1, per_page: 30 }, { cacheSeconds: 30 }),
     fetchIncidents({
       shop_id: params.shop_id,
       status: "open",
@@ -145,6 +201,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       include_historical: false,
     }),
     fetchEmployeeAnalytics({ period: employeePeriod, shop_id: params.shop_id }),
+    fetchAnalyticsOverview({
+      shop_id: params.shop_id,
+      date_from: dateFrom,
+      date_to: dateTo,
+    }),
   ]);
   // requireAdminUser redirects on failure — re-throw to trigger it
   if (userResult.status === "rejected") throw userResult.reason;
@@ -152,32 +213,57 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const firstName = currentUser.name.trim().split(/\s+/)[0] ?? "equipo";
 
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
-  const ordersResult =
-    ordersResultSettled.status === "fulfilled"
-      ? ordersResultSettled.value
+  const recentOrdersPayload =
+    recentOrdersResult.status === "fulfilled"
+      ? recentOrdersResult.value
       : { orders: [], totalCount: 0 };
   const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
   const employeeAnalytics =
     employeeAnalyticsResult.status === "fulfilled" ? employeeAnalyticsResult.value.employees : [];
+  const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : null;
+  const hasPartialDataError =
+    shopsResult.status === "rejected" ||
+    recentOrdersResult.status === "rejected" ||
+    incidentsResult.status === "rejected" ||
+    employeeAnalyticsResult.status === "rejected" ||
+    analyticsResult.status === "rejected";
 
-  const orders = ordersResult.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
+  const orders = recentOrdersPayload.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
   const openIncidentsList = incidents;
   const activeShop = shops.find((shop) => String(shop.id) === params.shop_id);
-  const chart = buildChart(orders, rangeDays);
-  const donutSegments = buildDonutSegments(orders);
+  const chart = analytics ? buildChartFromAnalytics(analytics, rangeDays) : buildChart(orders, rangeDays);
+  const donutSegments = analytics ? buildDonutSegmentsFromAnalytics(analytics) : buildDonutSegments(orders);
   const timeFilters = buildTimeFilters(range, params.shop_id, employeePeriod);
 
-  const pendingOrders     = orders.filter((o) => o.status === "pending").length;
-  const inProgressOrders  = orders.filter((o) => o.status === "in_progress").length;
-  const readyToShipOrders = orders.filter((o) => o.status === "ready_to_ship").length;
-  const shippedOrders     = orders.filter((o) => o.status === "shipped").length;
-  const deliveredOrders   = orders.filter((o) => o.status === "delivered").length;
-  const withShipment      = orders.filter((o) => o.shipment).length;
-  const openIncidents     = openIncidentsList.length;
+  const pendingOrders = analytics
+    ? (analytics.shipping.pending_orders ?? 0)
+    : orders.filter((o) => o.status === "pending").length;
+  const inProgressOrders = analytics
+    ? analytics.kpis.in_production_orders
+    : orders.filter((o) => o.status === "in_progress").length;
+  const readyToShipOrders = analytics
+    ? (analytics.flow.orders_prepared ?? 0)
+    : orders.filter((o) => o.status === "ready_to_ship").length;
+  const shippedOrders = analytics
+    ? analytics.kpis.shipped_orders
+    : orders.filter((o) => o.status === "shipped").length;
+  const deliveredOrders = analytics
+    ? analytics.kpis.delivered_orders
+    : orders.filter((o) => o.status === "delivered").length;
+  const withShipment = analytics
+    ? Math.max(analytics.kpis.total_orders - analytics.operational.orders_without_shipment, 0)
+    : orders.filter((o) => o.shipment).length;
+  const openIncidents = analytics ? analytics.kpis.open_incidents : openIncidentsList.length;
   const urgentIncidents   = openIncidentsList.filter((i) => i.priority === "urgent" || i.priority === "high").length;
 
   return (
-    <SharedDashboardView
+    <div className="stack">
+      {hasPartialDataError ? (
+        <div className="feedback feedback-info">
+          Parte de los datos no se pudieron cargar. Mostramos la información disponible.
+        </div>
+      ) : null}
+      <SharedDashboardView
       chart={chart}
       donutSegments={donutSegments}
       chartLinkHref="/orders"
@@ -274,6 +360,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       recentOrdersTitle="Últimos pedidos"
       subtitle="Sigue el volumen de pedidos, el estado operativo y los puntos de atención más urgentes desde una sola vista."
       title={activeShop ? `Hola, ${firstName} · ${activeShop.name}` : `Hola, ${firstName}`}
-    />
+      />
+    </div>
   );
 }

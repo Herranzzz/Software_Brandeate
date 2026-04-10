@@ -16,10 +16,12 @@ type TenantOrdersPageProps = {
 
 export default async function TenantOrdersPage({ params }: TenantOrdersPageProps) {
   const { shopId } = await params;
-  const [shop, orders] = await Promise.all([
+  const [shopResult, ordersResult] = await Promise.allSettled([
     fetchShopById(shopId),
-    fetchOrders({ shop_id: shopId }, { cacheSeconds: 30 }).then(({ orders }) => orders),
+    fetchOrders({ shop_id: shopId, page: 1, per_page: 100 }, { cacheSeconds: 30 }).then(({ orders }) => orders),
   ]);
+  const shop = shopResult.status === "fulfilled" ? shopResult.value : null;
+  const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
 
   if (!shop) {
     return null;

@@ -28,10 +28,20 @@ export default async function PortalReturnsPage({ searchParams }: PortalReturnsP
   const params = await searchParams;
   const shops = await fetchMyShops();
   const tenantScope = resolveTenantScope(shops, params.shop_id);
-  const [incidents, orders] = await Promise.all([
-    fetchIncidents(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined),
-    fetchOrders({ per_page: 100, ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}) }).then(({ orders }) => orders),
+  const [incidentsResult, ordersResult] = await Promise.allSettled([
+    fetchIncidents(
+      tenantScope.selectedShopId
+        ? { shop_id: tenantScope.selectedShopId, page: 1, per_page: 200 }
+        : { page: 1, per_page: 200 },
+    ),
+    fetchOrders({
+      page: 1,
+      per_page: 100,
+      ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+    }).then(({ orders }) => orders),
   ]);
+  const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
+  const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
 
   const openCases = incidents.filter((incident) => incident.status === "open");
   const inProgressCases = incidents.filter((incident) => incident.status === "in_progress");

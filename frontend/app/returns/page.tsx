@@ -37,10 +37,13 @@ export default async function AdminReturnsPage({ searchParams }: AdminReturnsPag
   await requireAdminUser();
   const params = await searchParams;
 
-  const [shops, returns] = await Promise.all([
+  const [shopsResult, returnsResult] = await Promise.allSettled([
     fetchShops(),
-    fetchReturns({ shop_id: params.shop_id, status: params.status }),
+    fetchReturns({ shop_id: params.shop_id, status: params.status, page: 1, per_page: 250 }),
   ]);
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
+  const returns = returnsResult.status === "fulfilled" ? returnsResult.value : [];
+  const hasPartialDataError = shopsResult.status === "rejected" || returnsResult.status === "rejected";
 
   const requested = returns.filter((r) => r.status === "requested").length;
   const approved = returns.filter((r) => r.status === "approved").length;
@@ -98,6 +101,11 @@ export default async function AdminReturnsPage({ searchParams }: AdminReturnsPag
       </section>
 
       <Card className="stack portal-orders-toolbar-card" style={{ gap: 0 }}>
+        {hasPartialDataError ? (
+          <div className="feedback feedback-info">
+            Parte de los datos no se pudieron cargar. Mostramos la información disponible.
+          </div>
+        ) : null}
         <div className="portal-dashboard-section-head">
           <div>
             <span className="eyebrow">🔎 Filtros</span>

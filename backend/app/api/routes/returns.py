@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from psycopg.errors import UndefinedTable
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session, joinedload
 
@@ -12,6 +12,9 @@ from app.schemas.return_ import ReturnCreate, ReturnRead, ReturnUpdate
 
 
 router = APIRouter(prefix="/returns", tags=["returns"])
+
+DEFAULT_RETURNS_PER_PAGE = 100
+MAX_RETURNS_PER_PAGE = 250
 
 
 def _return_query():
@@ -54,18 +57,29 @@ def create_return(
 
 @router.get("", response_model=list[ReturnRead])
 def list_returns(
+    response: Response,
     shop_id: int | None = None,
     status: ReturnStatus | None = None,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=DEFAULT_RETURNS_PER_PAGE, ge=1, le=MAX_RETURNS_PER_PAGE),
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> list[Return]:
     scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
     query = _return_query().order_by(Return.updated_at.desc(), Return.id.desc())
+    count_query = select(func.count()).select_from(Return)
     if status is not None:
         query = query.where(Return.status == status)
+        count_query = count_query.where(Return.status == status)
     if scoped_shop_ids is not None:
         query = query.where(Return.shop_id.in_(scoped_shop_ids))
+        count_query = count_query.where(Return.shop_id.in_(scoped_shop_ids))
     try:
+        total_count = int(db.scalar(count_query) or 0)
+        response.headers["X-Total-Count"] = str(total_count)
+        safe_per_page = max(1, min(per_page, MAX_RETURNS_PER_PAGE))
+        safe_page = max(page, 1)
+        query = query.limit(safe_per_page).offset((safe_page - 1) * safe_per_page)
         return list(db.scalars(query))
     except ProgrammingError as exc:
         if _is_missing_returns_table_error(exc):

@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload, load_only, selectinload
 
 from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, require_admin_user, resolve_shop_scope
 from app.core.config import get_settings
@@ -13,9 +13,21 @@ from app.services.automation_rules import evaluate_order_automation_rules, recon
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
+DEFAULT_INCIDENTS_PER_PAGE = 200
+MAX_INCIDENTS_PER_PAGE = 500
+
 
 def _incident_query():
-    return select(Incident).options(joinedload(Incident.order))
+    return select(Incident).options(
+        joinedload(Incident.order).load_only(
+            Order.id,
+            Order.shop_id,
+            Order.external_id,
+            Order.is_personalized,
+            Order.customer_name,
+            Order.customer_email,
+        )
+    )
 
 
 @router.post("", response_model=IncidentRead, status_code=status.HTTP_201_CREATED)
@@ -43,12 +55,15 @@ def create_incident(
 
 @router.get("", response_model=list[IncidentRead])
 def list_incidents(
+    response: Response,
     status: IncidentStatus | None = None,
     priority: IncidentPriority | None = None,
     type: IncidentType | None = None,
     shop_id: int | None = None,
     recent_days: int | None = None,
     include_historical: bool = False,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=DEFAULT_INCIDENTS_PER_PAGE, ge=1, le=MAX_INCIDENTS_PER_PAGE),
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> list[Incident]:
@@ -63,18 +78,30 @@ def list_incidents(
         effective_recent_days = max(int(settings.incidents_operational_window_days or 30), 1)
 
     query = _incident_query().order_by(Incident.updated_at.desc(), Incident.id.desc())
+    count_query = select(func.count()).select_from(Incident)
 
     if status is not None:
         query = query.where(Incident.status == status)
+        count_query = count_query.where(Incident.status == status)
     if priority is not None:
         query = query.where(Incident.priority == priority)
+        count_query = count_query.where(Incident.priority == priority)
     if type is not None:
         query = query.where(Incident.type == type)
+        count_query = count_query.where(Incident.type == type)
     if effective_recent_days is not None:
         cutoff = datetime.now(timezone.utc) - timedelta(days=max(int(effective_recent_days), 1))
         query = query.where(Incident.updated_at >= cutoff)
+        count_query = count_query.where(Incident.updated_at >= cutoff)
     if scoped_shop_ids is not None:
         query = query.join(Incident.order).where(Order.shop_id.in_(scoped_shop_ids))
+        count_query = count_query.where(Incident.order.has(Order.shop_id.in_(scoped_shop_ids)))
+
+    total_count = int(db.scalar(count_query) or 0)
+    response.headers["X-Total-Count"] = str(total_count)
+    safe_per_page = max(1, min(per_page, MAX_INCIDENTS_PER_PAGE))
+    safe_page = max(page, 1)
+    query = query.limit(safe_per_page).offset((safe_page - 1) * safe_per_page)
 
     return list(db.scalars(query))
 

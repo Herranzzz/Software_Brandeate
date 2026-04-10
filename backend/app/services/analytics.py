@@ -6,10 +6,10 @@ from datetime import date, datetime, time, timedelta, timezone
 from statistics import mean
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import false, func, select
+from sqlalchemy.orm import Session, load_only, selectinload
 
-from app.models import IncidentStatus, Order, Shipment, ShopIntegration, TrackingEvent
+from app.models import Incident, IncidentStatus, Order, OrderItem, Shipment, Shop, ShopIntegration, TrackingEvent
 
 
 UTC = timezone.utc
@@ -105,7 +105,8 @@ def _first_real_carrier_event(shipment: Shipment | None) -> TrackingEvent | None
 
 
 def _latest_status_norm(shipment: Shipment | None) -> str:
-    return _safe_text(_latest_event(shipment).status_norm if _latest_event(shipment) else "", "").lower()
+    latest = _latest_event(shipment)
+    return _safe_text(latest.status_norm if latest else "", "").lower()
 
 
 def _has_shipping_exception(order: Order) -> bool:
@@ -275,6 +276,41 @@ def _order_matches_filters(order: Order, filters: AnalyticsFilters, channel_shop
     return True
 
 
+def _apply_query_filters(
+    *,
+    base_query,
+    filters: AnalyticsFilters,
+    channel_shop_ids: set[int] | None,
+):
+    query = base_query
+    if filters.shop_id is not None:
+        query = query.where(Order.shop_id == filters.shop_id)
+    if filters.is_personalized is not None:
+        query = query.where(Order.is_personalized.is_(filters.is_personalized))
+    if filters.status is not None:
+        query = query.where(Order.status == filters.status)
+    if filters.production_status is not None:
+        query = query.where(Order.production_status == filters.production_status)
+    if filters.carrier is not None and filters.carrier.strip():
+        normalized_carrier = filters.carrier.strip().lower()
+        query = query.where(
+            Order.shipment.has(func.lower(func.trim(func.coalesce(Shipment.carrier, ""))) == normalized_carrier)
+        )
+    if filters.channel:
+        if filters.channel == "shopify":
+            if channel_shop_ids:
+                query = query.where(Order.shop_id.in_(channel_shop_ids))
+            else:
+                query = query.where(false())
+        else:
+            query = query.where(false())
+    if filters.date_from is not None:
+        query = query.where(Order.created_at >= _start_of_day(filters.date_from))
+    if filters.date_to is not None:
+        query = query.where(Order.created_at <= _end_of_day(filters.date_to))
+    return query
+
+
 def _percentage(value: int, total: int) -> float | None:
     if total <= 0:
         return None
@@ -299,10 +335,51 @@ def build_analytics_overview(
     query = (
         select(Order)
         .options(
-            selectinload(Order.shop),
-            selectinload(Order.items),
-            selectinload(Order.shipment).selectinload(Shipment.events),
-            selectinload(Order.incidents),
+            load_only(
+                Order.id,
+                Order.shop_id,
+                Order.external_id,
+                Order.status,
+                Order.production_status,
+                Order.is_personalized,
+                Order.customer_name,
+                Order.created_at,
+            ),
+            selectinload(Order.shop).load_only(Shop.id, Shop.name),
+            selectinload(Order.items).load_only(
+                OrderItem.id,
+                OrderItem.order_id,
+                OrderItem.sku,
+                OrderItem.name,
+                OrderItem.quantity,
+                OrderItem.design_link,
+                OrderItem.design_status,
+                OrderItem.personalization_assets_json,
+            ),
+            selectinload(Order.shipment)
+            .load_only(
+                Shipment.id,
+                Shipment.order_id,
+                Shipment.carrier,
+                Shipment.tracking_number,
+                Shipment.shipping_status,
+                Shipment.created_at,
+            )
+            .selectinload(Shipment.events)
+            .load_only(
+                TrackingEvent.id,
+                TrackingEvent.shipment_id,
+                TrackingEvent.status_norm,
+                TrackingEvent.status_raw,
+                TrackingEvent.occurred_at,
+            ),
+            selectinload(Order.incidents).load_only(
+                Incident.id,
+                Incident.order_id,
+                Incident.status,
+                Incident.type,
+                Incident.updated_at,
+            ),
         )
         .order_by(Order.created_at.desc(), Order.id.desc())
     )
@@ -310,7 +387,13 @@ def build_analytics_overview(
     if accessible_shop_ids is not None:
         query = query.where(Order.shop_id.in_(accessible_shop_ids))
 
-    orders = [order for order in db.scalars(query) if _order_matches_filters(order, filters, channel_shop_ids)]
+    query = _apply_query_filters(
+        base_query=query,
+        filters=filters,
+        channel_shop_ids=channel_shop_ids,
+    )
+
+    orders = list(db.scalars(query))
 
     now = datetime.now(UTC)
     today_key = now.date().isoformat()

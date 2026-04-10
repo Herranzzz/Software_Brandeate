@@ -12,9 +12,14 @@ class TrackingEventCreate(BaseModel):
     occurred_at: datetime
 
 
-class TrackingEventRead(TrackingEventCreate):
+class TrackingEventRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    status_norm: str
+    status_raw: str | None
+    source: str | None
+    location: str | None
+    occurred_at: datetime
     id: int
     shipment_id: int
     created_at: datetime
@@ -45,7 +50,7 @@ class ShipmentCreate(BaseModel):
     shopify_synced_at: datetime | None = None
 
 
-class ShipmentRead(BaseModel):
+class ShipmentSummaryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -67,7 +72,6 @@ class ShipmentRead(BaseModel):
     weight_tier_label: str | None
     shipping_weight_declared: float | None
     package_count: int | None
-    provider_payload_json: dict | list | None
     label_created_at: datetime | None
     shopify_sync_status: str | None
     shopify_sync_error: str | None
@@ -75,6 +79,9 @@ class ShipmentRead(BaseModel):
     shopify_synced_at: datetime | None
     public_token: str
     created_at: datetime
+
+
+class ShipmentRead(ShipmentSummaryRead):
     events: list[TrackingEventRead] = Field(default_factory=list)
 
 

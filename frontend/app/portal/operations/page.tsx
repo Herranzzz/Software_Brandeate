@@ -49,17 +49,18 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
     ? undefined
     : Number.parseInt(incidentPeriod.replace("d", ""), 10) || 30;
   const orderQuery = (params.order_query ?? "").trim().toLowerCase();
-  const perPageOptions = [50, 100, 250, 500];
+  const perPageOptions = [25, 50, 100, 200];
   const parsedPerPage = Number(params.per_page);
   const perPage = perPageOptions.includes(parsedPerPage) ? parsedPerPage : 50;
   const shops = await fetchMyShops();
   const tenantScope = resolveTenantScope(shops, params.shop_id);
 
-  const [orders, incidents] = await Promise.all([
+  const [ordersResult, incidentsResult] = await Promise.allSettled([
     fetchOrders(
       {
         ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
         ...(orderQuery ? { q: orderQuery } : {}),
+        page: 1,
         per_page: perPage,
       },
       { cacheSeconds: 20 },
@@ -69,8 +70,13 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
       ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
       ...(incidentRecentDays ? { recent_days: incidentRecentDays } : {}),
       include_historical: includeHistoricalIncidents,
+      page: 1,
+      per_page: 300,
     }),
   ]);
+  const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
+  const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
+  const hasPartialDataError = ordersResult.status === "rejected" || incidentsResult.status === "rejected";
 
   const shipmentRows = orders
     .filter((order) => order.shipment)
@@ -125,6 +131,11 @@ export default async function PortalOperationsPage({ searchParams }: PortalOpera
       />
 
       <Card className="stack operations-card">
+        {hasPartialDataError ? (
+          <div className="feedback feedback-info">
+            Parte de los datos no se pudieron cargar. Mostramos la información disponible sin bloquear la operativa.
+          </div>
+        ) : null}
         <form className="operations-toolbar" method="get">
           {tenantScope.selectedShopId ? <input name="shop_id" type="hidden" value={tenantScope.selectedShopId} /> : null}
           {view === "shipments" ? <input name="shipment_status" type="hidden" value={shipmentStatus} /> : null}

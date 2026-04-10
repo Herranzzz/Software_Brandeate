@@ -60,11 +60,18 @@ function matchesPersonalizable(
 export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   await requireAdminUser();
   const params = await searchParams;
-  const [shops, products, orders] = await Promise.all([
+  const [shopsResult, productsResult, ordersResult] = await Promise.allSettled([
     fetchShops(),
     fetchShopCatalogProducts(params.shop_id),
-    fetchOrders({ shop_id: params.shop_id, per_page: 500 }).then(({ orders }) => orders),
+    fetchOrders({ shop_id: params.shop_id, page: 1, per_page: 250 }).then(({ orders }) => orders),
   ]);
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
+  const products = productsResult.status === "fulfilled" ? productsResult.value : [];
+  const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
+  const hasPartialDataError =
+    shopsResult.status === "rejected" ||
+    productsResult.status === "rejected" ||
+    ordersResult.status === "rejected";
 
   const filteredProducts = products.filter(
     (product) => matchesCatalogSearch(product, params.q) && matchesPersonalizable(product, params.is_personalizable),
@@ -74,8 +81,46 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   const syncedProducts = filteredProducts.filter((product) => product.synced_at).length;
   const totalVariants = filteredProducts.reduce((sum, product) => sum + (product.variants_json?.length ?? 0), 0);
 
+  type DemandBucket = { itemIds: Set<number>; orderIds: Set<number> };
+  const byProductId = new Map<string, DemandBucket>();
+  const byVariantId = new Map<string, DemandBucket>();
+  const bySku = new Map<string, DemandBucket>();
+  const ensureBucket = (map: Map<string, DemandBucket>, rawKey: string | null | undefined) => {
+    const key = (rawKey ?? "").trim();
+    if (!key) return null;
+    const current = map.get(key);
+    if (current) return current;
+    const created: DemandBucket = { itemIds: new Set<number>(), orderIds: new Set<number>() };
+    map.set(key, created);
+    return created;
+  };
+  for (const order of orders) {
+    for (const item of order.items) {
+      const productBucket = ensureBucket(byProductId, item.product_id);
+      const variantBucket = ensureBucket(byVariantId, item.variant_id);
+      const skuBucket = ensureBucket(bySku, item.sku);
+      if (productBucket) {
+        productBucket.itemIds.add(item.id);
+        productBucket.orderIds.add(order.id);
+      }
+      if (variantBucket) {
+        variantBucket.itemIds.add(item.id);
+        variantBucket.orderIds.add(order.id);
+      }
+      if (skuBucket) {
+        skuBucket.itemIds.add(item.id);
+        skuBucket.orderIds.add(order.id);
+      }
+    }
+  }
+
   return (
     <div className="stack">
+      {hasPartialDataError ? (
+        <div className="feedback feedback-info">
+          Parte de los datos no se pudieron cargar. Mostramos el catálogo disponible sin bloquear la página.
+        </div>
+      ) : null}
       <Card className="stack panel-hero">
         <PageHeader
           eyebrow="Catálogo"
@@ -146,27 +191,25 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
                   <th>Tienda</th>
                   <th>Variantes / SKU</th>
                   <th>Tipo</th>
-                  <th>Demanda 500 pedidos</th>
+                  <th>Demanda 250 pedidos</th>
                   <th>Sync</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredProducts.map((product) => {
                   const variants = product.variants_json ?? [];
-                  const relatedItems = orders.flatMap((order) =>
-                    order.items.filter((item) =>
-                      item.product_id === product.external_product_id ||
-                      variants.some((variant) => variant.id && variant.id === item.variant_id) ||
-                      variants.some((variant) => variant.sku && variant.sku === item.sku),
-                    ),
-                  );
-                  const relatedOrders = orders.filter((order) =>
-                    order.items.some((item) =>
-                      item.product_id === product.external_product_id ||
-                      variants.some((variant) => variant.id && variant.id === item.variant_id) ||
-                      variants.some((variant) => variant.sku && variant.sku === item.sku),
-                    ),
-                  );
+                  const relatedItemIds = new Set<number>();
+                  const relatedOrderIds = new Set<number>();
+                  const mergeBucket = (bucket: DemandBucket | undefined) => {
+                    if (!bucket) return;
+                    bucket.itemIds.forEach((itemId) => relatedItemIds.add(itemId));
+                    bucket.orderIds.forEach((orderId) => relatedOrderIds.add(orderId));
+                  };
+                  mergeBucket(byProductId.get(product.external_product_id.trim()));
+                  variants.forEach((variant) => {
+                    if (variant.id) mergeBucket(byVariantId.get(variant.id));
+                    if (variant.sku) mergeBucket(bySku.get(variant.sku));
+                  });
                   const variantPreview = variants.slice(0, 3).map((variant) => variant.title || variant.sku || "Variante").join(" · ");
                   const skuPreview = variants.map((variant) => variant.sku).filter(Boolean).slice(0, 3).join(", ");
 
@@ -190,8 +233,8 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
                         </span>
                       </td>
                       <td>
-                        <div className="table-primary">{relatedOrders.length} pedidos</div>
-                        <div className="table-secondary">{relatedItems.length} líneas en los últimos 500</div>
+                        <div className="table-primary">{relatedOrderIds.size} pedidos</div>
+                        <div className="table-secondary">{relatedItemIds.size} líneas en los últimos 250</div>
                       </td>
                       <td>
                         <div className="table-primary">{product.status ?? "Sin estado"}</div>

@@ -57,7 +57,7 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
   const recentDays = includeHistorical ? undefined : Number.parseInt(periodFilter.replace("d", ""), 10) || 14;
   const statusFilter = params.status ?? "open";
   const statusParam = statusFilter === "all" ? undefined : statusFilter;
-  const [incidentsFromApi, shops] = await Promise.all([
+  const [incidentsResult, shopsResult] = await Promise.allSettled([
     fetchIncidents({
       status: statusParam,
       priority: params.priority,
@@ -65,9 +65,14 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
       shop_id: params.shop_id,
       recent_days: recentDays,
       include_historical: includeHistorical,
+      page: 1,
+      per_page: 300,
     }),
     fetchShops(),
   ]);
+  const incidentsFromApi = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
+  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
+  const hasPartialDataError = incidentsResult.status === "rejected" || shopsResult.status === "rejected";
   const incidents = incidentsFromApi.filter((incident) =>
     matchesFilters(incident, params.q, statusParam, params.priority),
   );
@@ -86,6 +91,11 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
       />
 
       <Card className="stack filter-card">
+        {hasPartialDataError ? (
+          <div className="feedback feedback-info">
+            Parte de la información no se pudo cargar. Mostramos los datos disponibles.
+          </div>
+        ) : null}
         <form className="filters filter-bar" method="get">
           <SearchInput defaultValue={params.q ?? ""} placeholder="Pedido, cliente, responsable..." />
 

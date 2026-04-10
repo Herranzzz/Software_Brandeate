@@ -5,12 +5,12 @@ import { PortalSyncButton } from "@/components/portal-sync-button";
 import { PortalTenantControl } from "@/components/portal-tenant-control";
 import { SharedDashboardView } from "@/components/shared-dashboard-view";
 import type { ShipmentSegment } from "@/components/shipment-donut";
-import { fetchEmployeeWorkspace, fetchIncidents, fetchOrders, fetchShopifyIntegrations } from "@/lib/api";
+import { fetchAnalyticsOverview, fetchEmployeeWorkspace, fetchIncidents, fetchOrders, fetchShopifyIntegrations } from "@/lib/api";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { getTenantBranding } from "@/lib/tenant-branding";
 import { resolveTenantScope } from "@/lib/tenant-scope";
-import type { Order } from "@/lib/types";
+import type { AnalyticsOverview, Order } from "@/lib/types";
 
 type PortalPageProps = {
   searchParams: Promise<{
@@ -99,6 +99,38 @@ function buildDonutSegments(orders: Order[]): ShipmentSegment[] {
   return segments.filter((s) => s.value > 0);
 }
 
+function buildDonutSegmentsFromAnalytics(analytics: AnalyticsOverview): ShipmentSegment[] {
+  const toneByLabel: Record<string, ShipmentSegment["tone"]> = {
+    pending: "slate",
+    prepared: "indigo",
+    picked_up: "blue",
+    in_transit: "sky",
+    out_for_delivery: "orange",
+    delivered: "green",
+    exception: "red",
+    stalled: "slate",
+  };
+  const labelByKey: Record<string, string> = {
+    pending: "❌ Sin shipment",
+    prepared: "🏷️ Etiqueta creada",
+    picked_up: "🚚 Recogido",
+    in_transit: "🚚 En tránsito",
+    out_for_delivery: "🚛 En reparto",
+    delivered: "✅ Entregado",
+    exception: "🚨 Incidencia",
+    stalled: "💤 Atascado",
+  };
+
+  return (analytics.shipping_status_distribution ?? [])
+    .filter((item) => item.value > 0)
+    .map((item) => ({
+      key: item.label,
+      label: labelByKey[item.label] ?? `📦 ${item.label.replace(/_/g, " ")}`,
+      value: item.value,
+      tone: toneByLabel[item.label] ?? "slate",
+    }));
+}
+
 function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], days: number) {
   const today = new Date();
   const visibleDays = Math.min(days, 7);
@@ -117,6 +149,29 @@ function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], d
   return points;
 }
 
+function resolveRangeDates(days: number) {
+  const to = new Date();
+  const from = new Date(to);
+  from.setDate(to.getDate() - (days - 1));
+  return {
+    dateFrom: from.toISOString().slice(0, 10),
+    dateTo: to.toISOString().slice(0, 10),
+  };
+}
+
+function buildChartFromAnalytics(analytics: AnalyticsOverview, days: number) {
+  const visibleDays = Math.min(days, 7);
+  const rows = (analytics.charts.orders_by_day ?? []).slice(-visibleDays);
+  return rows.map((point) => {
+    const date = new Date(`${point.date}T12:00:00`);
+    return {
+      dayKey: point.date,
+      day: date.toLocaleDateString("es-ES", { weekday: "short" }),
+      value: point.total,
+    };
+  });
+}
+
 export default async function PortalPage({ searchParams }: PortalPageProps) {
   const [userResult, shopsResult] = await Promise.allSettled([requirePortalUser(), fetchMyShops()]);
   if (userResult.status === "rejected") throw userResult.reason;
@@ -125,12 +180,13 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
   const params = await searchParams;
   const range = resolveRangePreset(params.range);
   const rangeDays = getRangeDays(range);
+  const { dateFrom, dateTo } = resolveRangeDates(rangeDays);
   const tenantScope = resolveTenantScope(shops, params.shop_id);
   const branding = getTenantBranding(tenantScope.selectedShop ?? shops[0]);
 
-  const [ordersResultSettled, incidentsResult, integrationsResult, workspaceResult] = await Promise.allSettled([
+  const [ordersResultSettled, incidentsResult, integrationsResult, workspaceResult, analyticsResult] = await Promise.allSettled([
     fetchOrders(
-      tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : undefined,
+      tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId, page: 1, per_page: 30 } : { page: 1, per_page: 30 },
       { cacheSeconds: 30 },
     ),
     fetchIncidents({
@@ -141,6 +197,11 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
     }),
     fetchShopifyIntegrations(),
     fetchEmployeeWorkspace(),
+    fetchAnalyticsOverview({
+      ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+      date_from: dateFrom,
+      date_to: dateTo,
+    }),
   ]);
 
   const ordersResult =
@@ -150,11 +211,18 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
   const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
   const workspace = workspaceResult.status === "fulfilled" ? workspaceResult.value : null;
+  const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : null;
+  const hasPartialDataError =
+    ordersResultSettled.status === "rejected" ||
+    incidentsResult.status === "rejected" ||
+    integrationsResult.status === "rejected" ||
+    workspaceResult.status === "rejected" ||
+    analyticsResult.status === "rejected";
 
   const orders = ordersResult.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
   const openIncidentsList = incidents;
-  const chart = buildChart(orders, rangeDays);
-  const donutSegments = buildDonutSegments(orders);
+  const chart = analytics ? buildChartFromAnalytics(analytics, rangeDays) : buildChart(orders, rangeDays);
+  const donutSegments = analytics ? buildDonutSegmentsFromAnalytics(analytics) : buildDonutSegments(orders);
   const timeFilters = buildTimeFilters(range, tenantScope.selectedShopId);
   const activeIntegration = tenantScope.selectedShopId
     ? integrations.find((integration) => String(integration.shop_id) === tenantScope.selectedShopId) ?? null
@@ -169,16 +237,22 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
     incidentsLinkParams.set("shop_id", tenantScope.selectedShopId);
   }
   const incidentsLinkHref = `/portal/operations?${incidentsLinkParams.toString()}`;
-  const pendingOrders = orders.filter((order) => order.status === "pending").length;
-  const inProductionOrders = orders.filter((order) => order.production_status === "in_production").length;
-  const shippedOrders = orders.filter((order) => order.status === "shipped").length;
-  const deliveredOrders = orders.filter((order) => order.status === "delivered").length;
-  const withShipment = orders.filter((order) => order.shipment).length;
-  const openIncidents = openIncidentsList.length;
+  const pendingOrders = analytics ? (analytics.shipping.pending_orders ?? 0) : orders.filter((order) => order.status === "pending").length;
+  const inProductionOrders = analytics ? analytics.kpis.in_production_orders : orders.filter((order) => order.production_status === "in_production").length;
+  const shippedOrders = analytics ? analytics.kpis.shipped_orders : orders.filter((order) => order.status === "shipped").length;
+  const deliveredOrders = analytics ? analytics.kpis.delivered_orders : orders.filter((order) => order.status === "delivered").length;
+  const withShipment = analytics ? Math.max(analytics.kpis.total_orders - analytics.operational.orders_without_shipment, 0) : orders.filter((order) => order.shipment).length;
+  const openIncidents = analytics ? analytics.kpis.open_incidents : openIncidentsList.length;
   const urgentIncidents = openIncidentsList.filter((incident) => incident.priority === "urgent" || incident.priority === "high").length;
 
   return (
-    <SharedDashboardView
+    <div className="stack">
+      {hasPartialDataError ? (
+        <div className="feedback feedback-info">
+          Parte de los datos no se pudieron cargar. Mostramos la información disponible para seguir operando.
+        </div>
+      ) : null}
+      <SharedDashboardView
       chart={chart}
       chartLinkHref={`/portal/orders${shopQuery}`}
       chartLinkLabel="Ir a pedidos"
@@ -216,7 +290,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       incidentsLinkLabel="Ver incidencias"
       incidentsTitle="Incidencias recientes"
       kpis={[
-        { label: "📦 Pedidos entrantes", value: String(orders.length), delta: `${pendingOrders} pendientes`, tone: "accent" },
+        { label: "📦 Pedidos entrantes", value: String(analytics?.kpis.total_orders ?? orders.length), delta: `${pendingOrders} pendientes`, tone: "accent" },
         { label: "⚠️ Incidencias abiertas", value: String(openIncidents), delta: `${urgentIncidents} prioritarias`, tone: "danger" },
         { label: "🚚 Enviados", value: String(shippedOrders), delta: `${withShipment} con tracking`, tone: "default" },
         { label: "🏪 Tiendas activas", value: String(tenantScope.shops.length), delta: tenantScope.shops.length > 1 ? "alcance de tu cuenta" : "cuenta actual", tone: "success" },
@@ -270,6 +344,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
           ) : null}
         </>
       }
-    />
+      />
+    </div>
   );
 }

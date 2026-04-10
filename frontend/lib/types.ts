@@ -51,7 +51,7 @@ export type Shipment = {
   weight_tier_label: string | null;
   shipping_weight_declared: number | null;
   package_count: number | null;
-  provider_payload_json: unknown;
+  provider_payload_json?: unknown;
   label_created_at: string | null;
   shopify_sync_status: string | null;
   shopify_sync_error: string | null;
@@ -59,7 +59,7 @@ export type Shipment = {
   shopify_synced_at: string | null;
   public_token: string;
   created_at: string;
-  events: TrackingEvent[];
+  events?: TrackingEvent[];
 };
 
 export type IncidentType =

@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 import sqlalchemy as sa
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, selectinload
 from starlette.background import BackgroundTask
 
 from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, resolve_shop_scope
@@ -41,12 +41,14 @@ from app.models import (
     Shipment,
     Shop,
     ShopCatalogVariant,
+    TrackingEvent,
     User,
 )
 from app.schemas.incident import IncidentRead
 from app.schemas.order import (
     OrderCreate,
     OrderDetailRead,
+    OrderListRead,
     OrderPriorityUpdate,
     OrderProductionStatusUpdate,
     OrderRead,
@@ -65,6 +67,9 @@ from app.services.orders import infer_order_is_personalized, sync_order_item_des
 
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+DEFAULT_ORDERS_PER_PAGE = 100
+MAX_ORDERS_PER_PAGE = 250
 
 
 def _prepared_order_state(order: Order) -> bool:
@@ -91,6 +96,74 @@ def _order_query():
 
 def _order_detail_query():
     return _order_query().options(selectinload(Order.automation_events))
+
+
+def _order_list_query():
+    return (
+        select(Order)
+        .options(
+            selectinload(Order.items).load_only(
+                OrderItem.id,
+                OrderItem.order_id,
+                OrderItem.product_id,
+                OrderItem.variant_id,
+                OrderItem.sku,
+                OrderItem.name,
+                OrderItem.title,
+                OrderItem.variant_title,
+                OrderItem.quantity,
+                OrderItem.design_link,
+                OrderItem.customization_provider,
+                OrderItem.design_status,
+                OrderItem.personalization_assets_json,
+                OrderItem.created_at,
+            ),
+            selectinload(Order.incidents).load_only(
+                Incident.id,
+                Incident.order_id,
+                Incident.status,
+                Incident.type,
+                Incident.updated_at,
+            ),
+            selectinload(Order.shipment)
+            .load_only(
+                Shipment.id,
+                Shipment.order_id,
+                Shipment.created_by_employee_id,
+                Shipment.fulfillment_id,
+                Shipment.carrier,
+                Shipment.tracking_number,
+                Shipment.tracking_url,
+                Shipment.shipping_status,
+                Shipment.shipping_status_detail,
+                Shipment.provider_reference,
+                Shipment.shipping_rule_id,
+                Shipment.shipping_rule_name,
+                Shipment.detected_zone,
+                Shipment.resolution_mode,
+                Shipment.shipping_type_code,
+                Shipment.weight_tier_code,
+                Shipment.weight_tier_label,
+                Shipment.shipping_weight_declared,
+                Shipment.package_count,
+                Shipment.label_created_at,
+                Shipment.shopify_sync_status,
+                Shipment.shopify_sync_error,
+                Shipment.shopify_last_sync_attempt_at,
+                Shipment.shopify_synced_at,
+                Shipment.public_token,
+                Shipment.created_at,
+            )
+            .selectinload(Shipment.events)
+            .load_only(
+                TrackingEvent.id,
+                TrackingEvent.shipment_id,
+                TrackingEvent.status_norm,
+                TrackingEvent.occurred_at,
+                TrackingEvent.created_at,
+            ),
+        )
+    )
 
 
 def _pick_batch_query():
@@ -352,7 +425,7 @@ def _build_order_filters(
     return query
 
 
-@router.get("", response_model=list[OrderRead])
+@router.get("", response_model=list[OrderListRead])
 def list_orders(
     response: Response,
     status: OrderStatus | None = None,
@@ -369,8 +442,8 @@ def list_orders(
     channel: str | None = None,
     carrier: str | None = None,
     q: str | None = None,
-    page: int | None = None,
-    per_page: int | None = None,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=DEFAULT_ORDERS_PER_PAGE, ge=1, le=MAX_ORDERS_PER_PAGE),
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> list[Order]:
@@ -404,21 +477,19 @@ def list_orders(
     total_count = db.scalar(count_query) or 0
     response.headers["X-Total-Count"] = str(total_count)
 
+    safe_per_page = max(1, min(per_page, MAX_ORDERS_PER_PAGE))
+    safe_page = max(page, 1)
     data_query = _build_order_filters(
-        _order_query().order_by(Order.created_at.desc(), Order.id.desc()),
+        _order_list_query().order_by(Order.created_at.desc(), Order.id.desc()),
         **filter_kwargs,
-    )
-    if per_page is not None:
-        safe_per_page = max(1, min(per_page, 500))
-        safe_page = max(page or 1, 1)
-        data_query = data_query.limit(safe_per_page).offset((safe_page - 1) * safe_per_page)
+    ).limit(safe_per_page).offset((safe_page - 1) * safe_per_page)
 
     orders = list(db.scalars(data_query))
     _enrich_order_variant_titles(db, orders)
     return orders
 
 
-@router.post("/bulk/production-status", response_model=list[OrderRead])
+@router.post("/bulk/production-status", response_model=list[OrderListRead])
 def bulk_update_order_production_status(
     payload: OrderBulkProductionStatusUpdate,
     db: Session = Depends(get_db),
@@ -436,11 +507,13 @@ def bulk_update_order_production_status(
         evaluate_order_automation_rules(db=db, order=order, source="bulk_production_status")
     db.commit()
     return list(
-        db.scalars(_order_query().where(Order.id.in_(payload.order_ids)).order_by(Order.created_at.desc(), Order.id.desc()))
+        db.scalars(
+            _order_list_query().where(Order.id.in_(payload.order_ids)).order_by(Order.created_at.desc(), Order.id.desc())
+        )
     )
 
 
-@router.post("/bulk/priority", response_model=list[OrderRead])
+@router.post("/bulk/priority", response_model=list[OrderListRead])
 def bulk_update_order_priority(
     payload: OrderBulkPriorityUpdate,
     db: Session = Depends(get_db),
@@ -453,7 +526,9 @@ def bulk_update_order_priority(
         _touch_order_activity(order, current_user)
     db.commit()
     return list(
-        db.scalars(_order_query().where(Order.id.in_(payload.order_ids)).order_by(Order.created_at.desc(), Order.id.desc()))
+        db.scalars(
+            _order_list_query().where(Order.id.in_(payload.order_ids)).order_by(Order.created_at.desc(), Order.id.desc())
+        )
     )
 
 
