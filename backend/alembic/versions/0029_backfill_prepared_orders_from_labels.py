@@ -1,6 +1,6 @@
 """backfill prepared orders from existing shipment labels
 
-Revision ID: 0029_backfill_prepared_orders_from_labels
+Revision ID: 0029_prepared_orders_backfill
 Revises: 0028_employee_activity
 Create Date: 2026-04-10 13:05:00.000000
 """
@@ -8,7 +8,7 @@ Create Date: 2026-04-10 13:05:00.000000
 from alembic import op
 
 
-revision = "0029_backfill_prepared_orders_from_labels"
+revision = "0029_prepared_orders_backfill"
 down_revision = "0028_employee_activity"
 branch_labels = None
 depends_on = None
@@ -55,4 +55,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Data backfill migration: no destructive rollback.
     pass
-
