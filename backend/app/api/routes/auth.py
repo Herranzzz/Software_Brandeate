@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user, get_db
 from app.core.config import get_settings
@@ -92,3 +92,29 @@ def register_tenant(payload: TenantRegistrationRequest, db: Session = Depends(ge
 @router.get("/me", response_model=MeResponse)
 def me(current_user: User = Depends(get_current_user)) -> MeResponse:
     return MeResponse(user=current_user)
+
+
+@router.post("/impersonate/{user_id}", response_model=LoginResponse)
+def impersonate_user(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LoginResponse:
+    if current_user.role not in {UserRole.super_admin, UserRole.ops_admin}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
+    target_user = db.scalar(
+        select(User)
+        .options(selectinload(User.user_shops).selectinload(UserShop.shop))
+        .where(User.id == user_id)
+    )
+    if target_user is None or not target_user.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if target_user.role not in {UserRole.shop_admin, UserRole.shop_viewer}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo puedes impersonar cuentas cliente (shop_admin/shop_viewer).",
+        )
+
+    return _login_response(target_user, get_settings().auth_secret)

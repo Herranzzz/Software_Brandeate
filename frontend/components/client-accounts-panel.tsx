@@ -254,6 +254,30 @@ export function ClientAccountsPanel({ currentUser, accounts, shops }: ClientAcco
     startTransition(() => router.refresh());
   }
 
+  async function handleImpersonate(account: AdminUser) {
+    if (!account.is_active) {
+      setMessage({ kind: "error", text: "Activa la cuenta cliente antes de entrar en su portal." });
+      return;
+    }
+    if (account.shops.length === 0) {
+      setMessage({ kind: "error", text: "La cuenta cliente no tiene tiendas asignadas." });
+      return;
+    }
+
+    setMessage(null);
+    const response = await fetch(`/api/auth/impersonate/${account.id}`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      setMessage({ kind: "error", text: await readErrorMessage(response) });
+      return;
+    }
+
+    const preferredShopId = account.shops[0]?.id;
+    const targetHref = preferredShopId ? `/portal?shop_id=${preferredShopId}` : "/portal";
+    window.location.assign(targetHref);
+  }
+
   function renderShops(account: AdminUser) {
     if (account.shops.length === 0) {
       return <span className="table-secondary">Sin tiendas</span>;
@@ -474,6 +498,9 @@ export function ClientAccountsPanel({ currentUser, accounts, shops }: ClientAcco
                   <td>{renderPortalLinks(account)}</td>
                   <td>
                     <div className="employees-actions">
+                      <button className="button-secondary table-action" onClick={() => void handleImpersonate(account)} type="button">
+                        Entrar portal
+                      </button>
                       <button className="button-secondary table-action" onClick={() => openEdit(account)} type="button">
                         Editar
                       </button>
@@ -528,4 +555,3 @@ export function ClientAccountsPanel({ currentUser, accounts, shops }: ClientAcco
     </div>
   );
 }
-
