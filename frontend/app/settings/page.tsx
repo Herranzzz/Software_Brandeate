@@ -152,13 +152,13 @@ export default async function SettingsPage() {
         <div className="settings-section-head">
           <div>
             <span className="eyebrow">Equipo</span>
-            <h3 className="section-title section-title-small">Gestión de empleados</h3>
+            <h3 className="section-title section-title-small">Cuentas cliente</h3>
             <p className="subtitle">
-              La operativa de cuentas internas ahora vive en su propio espacio para trabajar accesos, actividad y rendimiento sin mezclarlo con integraciones.
+              Administra accesos del portal cliente por tienda, define permisos y entra al portal de cada cuenta para validar su experiencia real.
             </p>
           </div>
           <Link className="button" href="/employees">
-            Ir a empleados
+            Ir a cuentas cliente
           </Link>
         </div>
       </Card>

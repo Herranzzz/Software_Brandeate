@@ -1,48 +1,31 @@
-import { EmployeesManagementPanel } from "@/components/employees-management-panel";
-import { fetchEmployeeAnalytics, fetchShops } from "@/lib/api";
+import { ClientAccountsPanel } from "@/components/client-accounts-panel";
+import { fetchAdminUsers, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
-import type { EmployeeMetricsPeriod } from "@/lib/types";
+import type { AdminUser } from "@/lib/types";
 
-
-type EmployeesPageProps = {
-  searchParams: Promise<{
-    period?: string;
-  }>;
-};
-
-
-function resolveEmployeePeriod(value?: string): EmployeeMetricsPeriod {
-  return value === "day" ? "day" : "week";
+function isClientAccount(user: AdminUser) {
+  return user.role === "shop_admin" || user.role === "shop_viewer";
 }
 
-
-export default async function EmployeesPage({ searchParams }: EmployeesPageProps) {
-  const params = await searchParams;
-  const period = resolveEmployeePeriod(params.period);
-
-  const [userResult, shopsResult, analyticsResult] = await Promise.allSettled([
+export default async function EmployeesPage() {
+  const [userResult, shopsResult, usersResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchShops(),
-    fetchEmployeeAnalytics({ period }),
+    fetchAdminUsers(),
   ]);
   if (userResult.status === "rejected") throw userResult.reason;
   const currentUser = userResult.value;
 
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
-  const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value.employees : [];
+  const accounts = usersResult.status === "fulfilled" ? usersResult.value.filter(isClientAccount) : [];
 
   return (
-    <EmployeesManagementPanel
+    <ClientAccountsPanel
       currentUser={{
         id: currentUser.id,
         role: currentUser.role,
       }}
-      employees={analytics}
-      period={period}
-      periodLinks={[
-        { label: "Día", href: "/employees?period=day", active: period === "day" },
-        { label: "Semana", href: "/employees?period=week", active: period === "week" },
-      ]}
+      accounts={accounts}
       shops={shops}
     />
   );
