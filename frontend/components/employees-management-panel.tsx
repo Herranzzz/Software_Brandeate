@@ -75,8 +75,35 @@ async function readErrorMessage(response: Response) {
   try {
     const contentType = response.headers.get("Content-Type") ?? "";
     if (contentType.includes("application/json")) {
-      const payload = (await response.json()) as { detail?: string } | null;
-      return payload?.detail ?? "No se pudo completar la operación.";
+      const payload = (await response.json()) as { detail?: unknown; message?: unknown } | null;
+      const rawDetail = payload?.detail ?? payload?.message;
+      if (typeof rawDetail === "string" && rawDetail.trim()) {
+        return rawDetail.trim();
+      }
+      if (Array.isArray(rawDetail)) {
+        const messages = rawDetail
+          .map((item) => {
+            if (typeof item === "string" && item.trim()) {
+              return item.trim();
+            }
+            if (item && typeof item === "object" && "msg" in item && typeof item.msg === "string") {
+              return item.msg.trim();
+            }
+            return null;
+          })
+          .filter((value): value is string => Boolean(value));
+        if (messages.length > 0) {
+          return messages.join(" · ");
+        }
+      }
+      if (rawDetail && typeof rawDetail === "object") {
+        try {
+          return JSON.stringify(rawDetail);
+        } catch {
+          // ignore stringify errors
+        }
+      }
+      return "No se pudo completar la operación.";
     }
 
     const text = (await response.text()).trim();
@@ -194,18 +221,49 @@ export function EmployeesManagementPanel({
       return;
     }
 
+    const normalizedName = editForm.name.trim();
+    const normalizedEmail = editForm.email.trim().toLowerCase();
+    const normalizedPassword = editForm.password.trim();
     const needsShops = editForm.role === "shop_admin" || editForm.role === "shop_viewer";
+    const currentShopIds = [...selectedEmployee.shops.map((shop) => shop.id)].sort((a, b) => a - b);
+    const nextShopIds = [...(needsShops ? editForm.shop_ids : [])].sort((a, b) => a - b);
+
+    const payload: Record<string, unknown> = {};
+    if (normalizedName !== selectedEmployee.name) {
+      payload.name = normalizedName;
+    }
+    if (normalizedEmail !== selectedEmployee.email.toLowerCase()) {
+      payload.email = normalizedEmail;
+    }
+    if (editForm.role !== selectedEmployee.role) {
+      payload.role = editForm.role;
+    }
+    if (editForm.is_active !== selectedEmployee.is_active) {
+      payload.is_active = editForm.is_active;
+    }
+    if (normalizedPassword) {
+      payload.password = normalizedPassword;
+    }
+    if (needsShops) {
+      const shopsChanged =
+        currentShopIds.length !== nextShopIds.length ||
+        currentShopIds.some((shopId, index) => shopId !== nextShopIds[index]);
+      if (shopsChanged || editForm.role !== selectedEmployee.role) {
+        payload.shop_ids = nextShopIds;
+      }
+    } else if (selectedEmployee.role === "shop_admin" || selectedEmployee.role === "shop_viewer") {
+      payload.shop_ids = [];
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setMessage({ kind: "success", text: "No hay cambios para guardar." });
+      return;
+    }
+
     const response = await fetch(`/api/users/${selectedEmployee.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: editForm.name.trim(),
-        email: editForm.email.trim().toLowerCase(),
-        role: editForm.role,
-        is_active: editForm.is_active,
-        password: editForm.password.trim() ? editForm.password : undefined,
-        shop_ids: needsShops ? editForm.shop_ids : [],
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -319,6 +377,7 @@ export function EmployeesManagementPanel({
     setter: Dispatch<SetStateAction<EmployeeFormState>>,
   ) {
     const needsShops = form.role === "shop_admin" || form.role === "shop_viewer";
+    const passwordLength = form.password.trim().length;
     const editingSuperAdmin = mode === "edit" && selectedEmployee?.role === "super_admin";
     const availableRoleOptions = editingSuperAdmin
       ? roleOptions
@@ -356,7 +415,7 @@ export function EmployeesManagementPanel({
             </label>
             <input
               id={`${mode}-employee-password`}
-              minLength={mode === "create" ? 6 : undefined}
+              minLength={6}
               onChange={(event) => updateForm(setter, { password: event.target.value })}
               placeholder={mode === "create" ? "Mínimo 6 caracteres" : "Déjalo vacío si no cambia"}
               type="password"
@@ -455,8 +514,8 @@ export function EmployeesManagementPanel({
               isPending ||
               !form.name.trim() ||
               !form.email.trim() ||
-              (mode === "create" && form.password.length < 6) ||
-              (mode === "edit" && form.password.length > 0 && form.password.length < 6) ||
+              (mode === "create" && passwordLength < 6) ||
+              (mode === "edit" && passwordLength > 0 && passwordLength < 6) ||
               (needsShops && form.shop_ids.length === 0)
             }
             type="submit"
