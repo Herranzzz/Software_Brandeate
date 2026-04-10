@@ -11,6 +11,8 @@
  */
 
 const IFRAME_CLEANUP_DELAY_MS = 3000;
+const IFRAME_LOAD_TIMEOUT_MS = 12000;
+const PDF_RENDER_DELAY_MS = 450;
 
 export type LabelPrintFormat = "PDF" | "ZPL" | "EPL";
 
@@ -52,10 +54,18 @@ export async function printLabel(
       "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;border:none;";
 
     let settled = false;
+    let loadTimeoutId = 0;
+    let printDelayId = 0;
 
     function cleanup() {
       if (settled) return;
       settled = true;
+      if (loadTimeoutId) {
+        window.clearTimeout(loadTimeoutId);
+      }
+      if (printDelayId) {
+        window.clearTimeout(printDelayId);
+      }
       setTimeout(() => {
         if (document.body.contains(iframe)) {
           document.body.removeChild(iframe);
@@ -64,27 +74,40 @@ export async function printLabel(
       }, IFRAME_CLEANUP_DELAY_MS);
     }
 
-    iframe.onload = () => {
-      try {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-      } catch {
-        if (fallback) {
-          window.open(url, "_blank", "noopener");
-        }
-      }
-      cleanup();
-    };
-
-    iframe.onerror = () => {
+    function fallbackToTab() {
       if (fallback) {
         window.open(url, "_blank", "noopener");
       }
       cleanup();
+    }
+
+    iframe.onload = () => {
+      if (settled || printDelayId) {
+        return;
+      }
+      // Delay slightly so the browser PDF viewer is fully ready before print.
+      printDelayId = window.setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+          cleanup();
+        } catch {
+          fallbackToTab();
+        }
+      }, PDF_RENDER_DELAY_MS);
     };
 
-    document.body.appendChild(iframe);
+    iframe.onerror = () => {
+      fallbackToTab();
+    };
+
+    // Assign src before appending to avoid an initial about:blank onload print.
     iframe.src = url;
+    document.body.appendChild(iframe);
+
+    loadTimeoutId = window.setTimeout(() => {
+      fallbackToTab();
+    }, IFRAME_LOAD_TIMEOUT_MS);
   });
 }
 
