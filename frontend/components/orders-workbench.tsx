@@ -514,6 +514,13 @@ export function OrdersWorkbench({
     setOrders((current) => current.map((order) => byId.get(order.id) ?? order));
   }
 
+  function handleOrderUpdated(updatedOrder: Order) {
+    setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
+    if (selectedOrderId === updatedOrder.id) {
+      setDetailOrder(updatedOrder);
+    }
+  }
+
   function handleBulkProductionStatus(productionStatus: ProductionStatus) {
     if (selectedCount === 0) {
       return;
@@ -962,7 +969,10 @@ export function OrdersWorkbench({
                             )}
                           </td>
                           <td>
-                            <CttLabelCell order={order} />
+                            <CttLabelCell
+                              onOrderUpdated={handleOrderUpdated}
+                              order={order}
+                            />
                           </td>
                           <td>
                             <Link className="button-secondary table-action" href={`/orders/${order.id}`}>

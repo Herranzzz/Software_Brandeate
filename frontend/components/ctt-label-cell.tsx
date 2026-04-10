@@ -18,11 +18,12 @@ import type { Order, ShippingRuleResolution, Shop } from "@/lib/types";
 type CttLabelCellProps = {
   order: Order;
   onShipmentCreated?: (trackingCode: string) => void;
+  onOrderUpdated?: (order: Order) => void;
 };
 
 type Status = "idle" | "loading" | "success" | "error";
 
-export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
+export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLabelCellProps) {
   const initialContact = getOrderShippingContact(order);
   const existingLabelUrl = getOrderShipmentLabelUrl(order);
   const existingDownloadUrl = getOrderShipmentLabelUrl(order, { download: true });
@@ -218,6 +219,17 @@ export function CttLabelCell({ order, onShipmentCreated }: CttLabelCellProps) {
       setIsPreviewVisible(false);
       setShopifySyncStatus(shopify_sync_status || "");
       setStatus("success");
+
+      try {
+        const freshOrderRes = await fetch(`/api/orders/${order.id}`, { cache: "no-store" });
+        if (freshOrderRes.ok) {
+          const freshOrder = (await freshOrderRes.json()) as Order;
+          onOrderUpdated?.(freshOrder);
+        }
+      } catch {
+        // Best effort: keep success state even if post-refresh fails.
+      }
+
       onShipmentCreated?.(shipping_code);
     } catch (err) {
       setStatus("error");

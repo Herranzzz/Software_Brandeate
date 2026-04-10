@@ -80,6 +80,7 @@ def create_ctt_shipment_for_order(
 
     if order.shipment is not None and (order.shipment.tracking_number or "").strip():
         if (order.shipment.carrier or "").strip().lower().startswith("ctt"):
+            _mark_order_prepared(order=order, current_user=current_user)
             shopify_sync_status = sync_shipment_tracking_to_shopify(
                 db=db,
                 order=order,
@@ -285,8 +286,7 @@ def create_ctt_shipment_for_order(
             )
         )
 
-    if order.production_status in {ProductionStatus.pending_personalization, ProductionStatus.in_production}:
-        order.production_status = ProductionStatus.packed
+    _mark_order_prepared(order=order, current_user=current_user)
     sync_order_status_from_tracking(order, "shipment_created")
 
     shopify_sync_status = sync_shipment_tracking_to_shopify(
@@ -318,6 +318,15 @@ def create_ctt_shipment_for_order(
         ctt_response=ctt_response,
         shopify_sync_status=shopify_sync_status,
     )
+
+
+def _mark_order_prepared(*, order: Order, current_user: User | None) -> None:
+    if order.production_status not in {ProductionStatus.packed, ProductionStatus.completed}:
+        order.production_status = ProductionStatus.packed
+    if order.prepared_at is None:
+        order.prepared_at = datetime.now(timezone.utc)
+    if current_user is not None and order.prepared_by_employee_id is None:
+        order.prepared_by_employee_id = current_user.id
 
 
 def resolve_weight_band(*, weight_tier_code: str | None, shipping_weight_declared: float | None) -> CTTWeightBand:
