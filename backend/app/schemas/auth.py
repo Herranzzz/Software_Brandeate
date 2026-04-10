@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -41,6 +42,49 @@ class UserUpdate(BaseModel):
     role: UserRole | None = None
     is_active: bool | None = None
     shop_ids: list[int] | None = None
+
+    @field_validator("email")
+    @classmethod
+    def normalize_optional_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip().lower()
+
+
+class UserSelfUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    password: str | None = Field(default=None, min_length=6, max_length=255)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_optional_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip().lower()
+
+
+class ClientAccountCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=6, max_length=255)
+    role: Literal["shop_admin", "shop_viewer"]
+    is_active: bool = True
+    shop_ids: list[int] = Field(default_factory=list, min_length=1)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class ClientAccountUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    password: str | None = Field(default=None, min_length=6, max_length=255)
+    role: Literal["shop_admin", "shop_viewer"] | None = None
+    is_active: bool | None = None
+    shop_ids: list[int] | None = Field(default=None, min_length=1)
 
     @field_validator("email")
     @classmethod

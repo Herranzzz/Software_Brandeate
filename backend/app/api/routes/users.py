@@ -9,10 +9,13 @@ from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, requ
 from app.core.config import get_settings
 from app.models import DesignStatus, Incident, IncidentStatus, IncidentType, Order, OrderItem, OrderStatus, ProductionStatus, Shipment, Shop, User, UserRole, UserShop
 from app.schemas.auth import (
+    ClientAccountCreate,
+    ClientAccountUpdate,
     UserAdminRead,
     UserCreate,
     UserListResponse,
     UserRead,
+    UserSelfUpdate,
     UserShopsResponse,
     UserUpdate,
 )
@@ -31,15 +34,153 @@ from app.services.auth import decode_access_token, hash_password
 
 router = APIRouter(prefix="/users", tags=["users"])
 BUSINESS_TIMEZONE = ZoneInfo("Europe/Madrid")
+CLIENT_ACCOUNT_ROLES = {UserRole.shop_admin, UserRole.shop_viewer}
+PORTAL_ACCOUNT_MANAGER_ROLES = {UserRole.super_admin, UserRole.ops_admin, UserRole.shop_admin}
 
 
-def _serialize_user(user: User) -> UserAdminRead:
+def _serialize_user(user: User, *, allowed_shop_ids: set[int] | None = None) -> UserAdminRead:
     return UserAdminRead.model_validate(
         {
             **UserRead.model_validate(user).model_dump(),
-            "shops": [assignment.shop for assignment in user.user_shops if assignment.shop is not None],
+            "shops": [
+                assignment.shop
+                for assignment in user.user_shops
+                if assignment.shop is not None and (allowed_shop_ids is None or assignment.shop_id in allowed_shop_ids)
+            ],
         }
     )
+
+
+def _load_user_with_shops(db: Session, user_id: int) -> User | None:
+    return db.scalar(
+        select(User)
+        .options(selectinload(User.user_shops).selectinload(UserShop.shop))
+        .where(User.id == user_id)
+    )
+
+
+def _user_shop_ids(user: User) -> set[int]:
+    return {assignment.shop_id for assignment in user.user_shops}
+
+
+def _resolve_client_account_role(role: str) -> UserRole:
+    resolved = UserRole(role)
+    if resolved not in CLIENT_ACCOUNT_ROLES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rol no permitido para cuenta cliente")
+    return resolved
+
+
+def _require_portal_account_manager(current_user: User) -> None:
+    if current_user.role not in PORTAL_ACCOUNT_MANAGER_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permisos para gestionar cuentas cliente")
+
+
+def _resolve_shop_assignments_for_scope(
+    db: Session,
+    *,
+    shop_ids: list[int],
+    accessible_shop_ids: set[int] | None,
+) -> tuple[list[Shop], set[int]]:
+    requested_shop_ids = {int(shop_id) for shop_id in shop_ids if int(shop_id) > 0}
+    if not requested_shop_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selecciona al menos una tienda")
+
+    if accessible_shop_ids is not None and not requested_shop_ids.issubset(accessible_shop_ids):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes asignar tiendas fuera de tu alcance")
+
+    shops = list(db.scalars(select(Shop).where(Shop.id.in_(requested_shop_ids))))
+    if len(shops) != len(requested_shop_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more shops not found")
+    return shops, requested_shop_ids
+
+
+def _load_client_accounts_for_scope(db: Session, *, accessible_shop_ids: set[int] | None) -> list[User]:
+    query = (
+        select(User)
+        .options(selectinload(User.user_shops).selectinload(UserShop.shop))
+        .where(User.role.in_(tuple(CLIENT_ACCOUNT_ROLES)))
+        .order_by(User.is_active.desc(), User.created_at.desc(), User.id.desc())
+    )
+    if accessible_shop_ids is not None:
+        query = query.join(User.user_shops).where(UserShop.shop_id.in_(accessible_shop_ids)).distinct()
+
+    users = list(db.scalars(query))
+    if accessible_shop_ids is None:
+        return users
+
+    return [user for user in users if _user_shop_ids(user).issubset(accessible_shop_ids)]
+
+
+def _ensure_manageable_client_account(
+    user: User,
+    *,
+    accessible_shop_ids: set[int] | None,
+) -> set[int]:
+    if user.role not in CLIENT_ACCOUNT_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo puedes gestionar cuentas cliente")
+
+    target_shop_ids = _user_shop_ids(user)
+    if accessible_shop_ids is not None and not target_shop_ids.issubset(accessible_shop_ids):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes gestionar una cuenta fuera de tus tiendas")
+    return target_shop_ids
+
+
+def _ensure_shop_admin_coverage(
+    db: Session,
+    *,
+    shop_ids: set[int],
+    excluded_user_id: int | None = None,
+) -> None:
+    if not shop_ids:
+        return
+
+    coverage_query = (
+        select(UserShop.shop_id, func.count(User.id))
+        .join(User, User.id == UserShop.user_id)
+        .where(
+            UserShop.shop_id.in_(shop_ids),
+            User.role == UserRole.shop_admin,
+            User.is_active.is_(True),
+        )
+        .group_by(UserShop.shop_id)
+    )
+    if excluded_user_id is not None:
+        coverage_query = coverage_query.where(User.id != excluded_user_id)
+
+    coverage = {
+        int(shop_id): int(count or 0)
+        for shop_id, count in db.execute(coverage_query).all()
+    }
+    missing = sorted(shop_id for shop_id in shop_ids if coverage.get(shop_id, 0) == 0)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cada tienda debe mantener al menos un shop_admin activo.",
+        )
+
+
+def _ensure_user_has_no_activity(db: Session, user: User) -> None:
+    shipment_count = db.scalar(
+        select(func.count(Shipment.id)).where(Shipment.created_by_employee_id == user.id)
+    )
+    order_activity_count = db.scalar(
+        select(func.count(Order.id)).where(
+            or_(
+                Order.prepared_by_employee_id == user.id,
+                Order.last_touched_by_employee_id == user.id,
+            )
+        )
+    )
+    incident_activity_count = db.scalar(
+        select(func.count(Incident.id)).where(Incident.last_touched_by_employee_id == user.id)
+    )
+    if (shipment_count and shipment_count > 0) or (order_activity_count and order_activity_count > 0) or (
+        incident_activity_count and incident_activity_count > 0
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este empleado ya tiene actividad registrada. Desactiva la cuenta para conservar la trazabilidad.",
+        )
 
 
 def _resolve_activity_windows() -> tuple[datetime, datetime]:
@@ -454,6 +595,190 @@ def get_my_shops(
     return UserShopsResponse(shops=shops)
 
 
+@router.get("/me", response_model=UserAdminRead)
+def get_my_account(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserAdminRead:
+    user = _load_user_with_shops(db, current_user.id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return _serialize_user(user)
+
+
+@router.patch("/me/account", response_model=UserAdminRead)
+def update_my_account(
+    payload: UserSelfUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserAdminRead:
+    user = _load_user_with_shops(db, current_user.id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if payload.email and payload.email != user.email:
+        existing_user = db.scalar(select(User).where(User.email == payload.email, User.id != user.id))
+        if existing_user is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+        user.email = payload.email
+
+    if payload.name is not None:
+        user.name = payload.name
+    if payload.password is not None:
+        user.password_hash = hash_password(payload.password)
+
+    db.add(user)
+    db.commit()
+    reloaded = _load_user_with_shops(db, user.id)
+    assert reloaded is not None
+    return _serialize_user(reloaded)
+
+
+@router.get("/me/client-accounts", response_model=UserListResponse)
+def list_my_client_accounts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> UserListResponse:
+    _require_portal_account_manager(current_user)
+    users = _load_client_accounts_for_scope(db, accessible_shop_ids=accessible_shop_ids)
+    allowed_shop_ids = accessible_shop_ids if current_user.role == UserRole.shop_admin else None
+    return UserListResponse(users=[_serialize_user(user, allowed_shop_ids=allowed_shop_ids) for user in users])
+
+
+@router.post("/me/client-accounts", response_model=UserAdminRead, status_code=status.HTTP_201_CREATED)
+def create_my_client_account(
+    payload: ClientAccountCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> UserAdminRead:
+    _require_portal_account_manager(current_user)
+
+    existing_user = db.scalar(select(User).where(User.email == payload.email))
+    if existing_user is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+
+    shops, _ = _resolve_shop_assignments_for_scope(
+        db,
+        shop_ids=payload.shop_ids,
+        accessible_shop_ids=accessible_shop_ids,
+    )
+    role = _resolve_client_account_role(payload.role)
+
+    user = User(
+        name=payload.name,
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        role=role,
+        is_active=payload.is_active,
+    )
+    user.user_shops = [UserShop(shop_id=shop.id) for shop in shops]
+
+    db.add(user)
+    db.commit()
+    reloaded = _load_user_with_shops(db, user.id)
+    assert reloaded is not None
+    allowed_shop_ids = accessible_shop_ids if current_user.role == UserRole.shop_admin else None
+    return _serialize_user(reloaded, allowed_shop_ids=allowed_shop_ids)
+
+
+@router.patch("/me/client-accounts/{user_id}", response_model=UserAdminRead)
+def update_my_client_account(
+    user_id: int,
+    payload: ClientAccountUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> UserAdminRead:
+    _require_portal_account_manager(current_user)
+
+    user = _load_user_with_shops(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    current_shop_ids = _ensure_manageable_client_account(user, accessible_shop_ids=accessible_shop_ids)
+    requested_role = _resolve_client_account_role(payload.role) if payload.role is not None else user.role
+    requested_is_active = payload.is_active if payload.is_active is not None else user.is_active
+
+    if current_user.id == user.id and payload.is_active is False:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No puedes desactivar tu propia cuenta")
+
+    if payload.email and payload.email != user.email:
+        existing_user = db.scalar(select(User).where(User.email == payload.email, User.id != user.id))
+        if existing_user is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+        user.email = payload.email
+
+    requested_shop_ids = set(current_shop_ids)
+    replacement_shops: list[Shop] | None = None
+    if payload.shop_ids is not None:
+        replacement_shops, requested_shop_ids = _resolve_shop_assignments_for_scope(
+            db,
+            shop_ids=payload.shop_ids,
+            accessible_shop_ids=accessible_shop_ids,
+        )
+
+    affected_shops_for_coverage: set[int] = set()
+    if user.role == UserRole.shop_admin and user.is_active:
+        if requested_role != UserRole.shop_admin or not requested_is_active:
+            affected_shops_for_coverage = set(current_shop_ids)
+        elif payload.shop_ids is not None:
+            affected_shops_for_coverage = current_shop_ids - requested_shop_ids
+    _ensure_shop_admin_coverage(
+        db,
+        shop_ids=affected_shops_for_coverage,
+        excluded_user_id=user.id,
+    )
+
+    if payload.name is not None:
+        user.name = payload.name
+    if payload.password is not None:
+        user.password_hash = hash_password(payload.password)
+    if payload.role is not None:
+        user.role = requested_role
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+    if replacement_shops is not None:
+        user.user_shops = [UserShop(shop_id=shop.id) for shop in replacement_shops]
+
+    db.add(user)
+    db.commit()
+    reloaded = _load_user_with_shops(db, user.id)
+    assert reloaded is not None
+    allowed_shop_ids = accessible_shop_ids if current_user.role == UserRole.shop_admin else None
+    return _serialize_user(reloaded, allowed_shop_ids=allowed_shop_ids)
+
+
+@router.delete("/me/client-accounts/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_client_account(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> Response:
+    _require_portal_account_manager(current_user)
+
+    user = _load_user_with_shops(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if current_user.id == user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No puedes borrar tu propia cuenta")
+
+    target_shop_ids = _ensure_manageable_client_account(user, accessible_shop_ids=accessible_shop_ids)
+    if user.role == UserRole.shop_admin and user.is_active:
+        _ensure_shop_admin_coverage(
+            db,
+            shop_ids=target_shop_ids,
+            excluded_user_id=user.id,
+        )
+    _ensure_user_has_no_activity(db, user)
+
+    db.delete(user)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/{user_id}", response_model=UserAdminRead)
 def get_user_detail(
     user_id: int,
@@ -541,11 +866,7 @@ def delete_user(
     current_user: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    user = db.scalar(
-        select(User)
-        .options(selectinload(User.user_shops).selectinload(UserShop.shop))
-        .where(User.id == user_id)
-    )
+    user = _load_user_with_shops(db, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -555,27 +876,7 @@ def delete_user(
     if current_user.id == user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No puedes borrar tu propia cuenta")
 
-    shipment_count = db.scalar(
-        select(func.count(Shipment.id)).where(Shipment.created_by_employee_id == user.id)
-    )
-    order_activity_count = db.scalar(
-        select(func.count(Order.id)).where(
-            or_(
-                Order.prepared_by_employee_id == user.id,
-                Order.last_touched_by_employee_id == user.id,
-            )
-        )
-    )
-    incident_activity_count = db.scalar(
-        select(func.count(Incident.id)).where(Incident.last_touched_by_employee_id == user.id)
-    )
-    if (shipment_count and shipment_count > 0) or (order_activity_count and order_activity_count > 0) or (
-        incident_activity_count and incident_activity_count > 0
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Este empleado ya tiene actividad registrada. Desactiva la cuenta para conservar la trazabilidad.",
-        )
+    _ensure_user_has_no_activity(db, user)
 
     db.delete(user)
     db.commit()

@@ -247,6 +247,29 @@ export async function fetchAdminUsers(params?: {
 }
 
 
+export async function fetchMyClientAccounts() {
+  const headers = await buildAuthHeaders();
+  const response = await fetch(apiUrl("/users/me/client-accounts"), {
+    cache: "no-store",
+    headers,
+  });
+
+  const payload = await parseResponse<{ users: AdminUser[] }>(response);
+  return payload.users;
+}
+
+
+export async function fetchMyAccount() {
+  const headers = await buildAuthHeaders();
+  const response = await fetch(apiUrl("/users/me"), {
+    cache: "no-store",
+    headers,
+  });
+
+  return parseResponse<AdminUser>(response);
+}
+
+
 export async function fetchEmployeeAnalytics(params?: {
   period?: "day" | "week";
   role?: string;
