@@ -58,6 +58,15 @@ function AnalyticsIcon(props: IconProps) {
   );
 }
 
+function ChartIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M3 3v18h18" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M7 14l4-5 4 3 4-6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function IncidenciasIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -128,6 +137,7 @@ const portalNavItems = [
   { href: "/portal", label: "Resumen", shortLabel: "Inicio", icon: HomeIcon },
   { href: "/portal/orders", label: "Pedidos", shortLabel: "Pedidos", icon: OrdersIcon },
   { href: "/portal/shipments", label: "Expediciones", shortLabel: "Exp.", icon: AnalyticsIcon },
+  { href: "/portal/analytics", label: "Analítica", shortLabel: "Stats", icon: ChartIcon },
   { href: "/portal/incidencias", label: "Incidencias", shortLabel: "Incid.", icon: IncidenciasIcon },
   { href: "/portal/returns", label: "Devoluciones", shortLabel: "Devol.", icon: ReturnsIcon },
   { href: "/portal/settings", label: "Ajustes", shortLabel: "Ajustes", icon: SettingsIcon },

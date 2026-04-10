@@ -21,23 +21,21 @@ function readValue(value: string | string[] | undefined) {
 
 function readBoolean(value: string | string[] | undefined) {
   const normalized = readValue(value);
-  if (normalized === "true") {
-    return true;
-  }
-  if (normalized === "false") {
-    return false;
-  }
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
   return undefined;
 }
 
 
 function formatPercent(value: number | null) {
-  return value === null ? "n/d" : `${Math.round(value)}%`;
+  return value === null ? "—" : `${Math.round(value)}%`;
 }
 
 
 function formatHours(value: number | null) {
-  return value === null ? "n/d" : `${value.toFixed(value >= 10 ? 0 : 1)}h`;
+  if (value === null) return "—";
+  if (value < 1) return `${Math.round(value * 60)}min`;
+  return `${value.toFixed(value >= 10 ? 0 : 1)}h`;
 }
 
 
@@ -46,10 +44,9 @@ function maxValue(items: { value: number }[]) {
 }
 
 function formatNumber(value: number | null) {
-  return value === null ? "n/d" : new Intl.NumberFormat("es-ES").format(value);
+  return value === null ? "—" : new Intl.NumberFormat("es-ES").format(value);
 }
 
-/** Maps raw backend status keys to Spanish display labels */
 const STATUS_DISPLAY_LABELS: Record<string, string> = {
   pending: "Pendiente",
   in_progress: "En producción",
@@ -64,19 +61,18 @@ const STATUS_DISPLAY_LABELS: Record<string, string> = {
   unknown: "Desconocido",
 };
 
-/** Semantic colors per status — consistent across light/dark */
 const STATUS_COLORS: Record<string, string> = {
-  pending: "#94A3B8",        // slate  — sin movimiento
-  in_progress: "#F59E0B",    // amber  — en producción
-  ready_to_ship: "#38BDF8",  // sky    — preparado
-  label_created: "#38BDF8",  // sky    — etiqueta creada
-  picked_up: "#0EA5E9",      // cyan   — recogido por carrier
-  shipped: "#6366F1",        // indigo — enviado genérico
-  in_transit: "#6366F1",     // indigo — en tránsito
-  out_for_delivery: "#F97316", // orange — en reparto (cerca del destinatario)
-  delivered: "#22C55E",      // green  — entregado
-  exception: "#EF4444",      // red    — excepción
-  unknown: "#94A3B8",        // slate  — fallback
+  pending: "#94A3B8",
+  in_progress: "#F59E0B",
+  ready_to_ship: "#38BDF8",
+  label_created: "#38BDF8",
+  picked_up: "#0EA5E9",
+  shipped: "#6366F1",
+  in_transit: "#6366F1",
+  out_for_delivery: "#F97316",
+  delivered: "#22C55E",
+  exception: "#EF4444",
+  unknown: "#94A3B8",
 };
 
 function resolveStatusLabel(raw: string): string {
@@ -90,44 +86,12 @@ function resolveStatusColor(raw: string, fallbackIndex: number): string {
 function buildDonutSegments(items: Array<{ label: string; value: number; color: string }>, radius: number, circumference: number) {
   const total = items.reduce((sum, item) => sum + item.value, 0) || 1;
   let offset = 0;
-
   return items.map((item) => {
     const dash = circumference * (item.value / total);
-    const segment = {
-      ...item,
-      radius,
-      dash,
-      offset,
-    };
+    const segment = { ...item, radius, dash, offset };
     offset += dash;
     return segment;
   });
-}
-
-
-function buildHighlights(analytics: AnalyticsOverview) {
-  return [
-    {
-      label: "📦 Pedidos totales",
-      value: String(analytics.kpis.total_orders),
-      meta: `${analytics.kpis.orders_today} hoy`,
-    },
-    {
-      label: "🎨 Personalización",
-      value: formatPercent(analytics.personalization.personalized_share),
-      meta: `${analytics.personalization.pending_assets_orders} con assets pendientes`,
-    },
-    {
-      label: "🎯 Envíos a tiempo",
-      value: formatPercent(analytics.operational.delivered_in_sla_rate),
-      meta: `${analytics.shipping.delivered_orders} entregados`,
-    },
-    {
-      label: "⚠️ Incidencias abiertas",
-      value: String(analytics.kpis.open_incidents),
-      meta: `${analytics.shipping.exception_orders} envíos con excepción`,
-    },
-  ];
 }
 
 
@@ -159,37 +123,28 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
   try {
     analytics = await fetchAnalyticsOverview(filters);
   } catch {
-    // Graceful degradation — rendered below
+    // graceful degradation
   }
 
   if (!analytics) {
     return (
       <div className="stack">
-        <PageHeader
-          eyebrow="Reporting"
-          title="Rendimiento de tu operativa"
-          description="No hemos podido cargar los datos de analítica en este momento. Inténtalo de nuevo más tarde."
-        />
-        <PortalTenantControl
-          action="/portal/analytics"
-          hiddenFields={{}}
-          selectedShopId={tenantScope.selectedShopId}
-          shops={tenantScope.shops}
-          submitLabel="Ver"
-        />
+        <PageHeader eyebrow="Analítica" title="Análisis logístico" description="No se pudieron cargar los datos. Inténtalo de nuevo." />
+        <PortalTenantControl action="/portal/analytics" hiddenFields={{}} selectedShopId={tenantScope.selectedShopId} shops={tenantScope.shops} submitLabel="Ver" />
         <Card className="portal-glass-card">
           <div className="empty-state">
             <div className="empty-state-icon">⚠️</div>
             <h3 className="empty-state-title">Datos no disponibles</h3>
-            <p className="empty-state-description">El servicio de analítica no respondió correctamente. Prueba a recargar la página.</p>
+            <p className="empty-state-description">El servicio no respondió. Recarga la página para intentarlo de nuevo.</p>
           </div>
         </Card>
       </div>
     );
   }
 
-  const highlights = buildHighlights(analytics);
-  const ordersByDayMax = maxValue(analytics.charts.orders_by_day.map((point) => ({ value: point.total })));
+  // ── Derived data ──────────────────────────────────────────────────
+  const ordersByDayMax = maxValue(analytics.charts.orders_by_day.map((p) => ({ value: p.total })));
+  const incidentMax = maxValue(analytics.charts.incidents_by_type);
   const carrierMax = maxValue(analytics.charts.carrier_performance);
   const statusMix = analytics.charts.status_distribution
     .map((item, index) => ({
@@ -199,42 +154,39 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
       color: resolveStatusColor(item.label, index),
     }))
     .filter((item) => item.value > 0);
-  const statusRadius = 56;
+  const statusRadius = 60;
   const statusCircumference = 2 * Math.PI * statusRadius;
   const statusSegments = buildDonutSegments(statusMix, statusRadius, statusCircumference);
-  const riskItems = [
-    { label: "🔒 Bloqueados", value: analytics.operational.blocked_orders, meta: "requieren seguimiento" },
-    { label: "❌ Sin envío", value: analytics.operational.orders_without_shipment, meta: "pendientes de etiqueta" },
-    { label: "⏸️ Tracking parado", value: analytics.operational.stalled_tracking_orders, meta: "sin movimiento reciente" },
-    { label: "⚠️ Incidencias", value: analytics.kpis.open_incidents, meta: "abiertas ahora mismo" },
-  ];
-  const serviceItems = [
-    { label: "📋 Pedido a producción", value: formatHours(analytics.operational.avg_order_to_production_hours) },
-    { label: "🏷️ Producción a envío", value: formatHours(analytics.operational.avg_production_to_shipping_hours) },
-    { label: "🚚 Envío a entrega", value: formatHours(analytics.operational.avg_shipping_to_delivery_hours) },
-    { label: "🎯 Entregado en SLA", value: formatPercent(analytics.operational.delivered_in_sla_rate) },
-  ];
-  const mixItems = [
-    { label: "🎨 Personalizados", value: analytics.kpis.personalized_orders, meta: formatPercent(analytics.personalization.personalized_share) },
-    { label: "📦 Estándar", value: analytics.kpis.standard_orders, meta: formatPercent(analytics.personalization.standard_share) },
-    { label: "⏳ Pend. assets", value: analytics.personalization.pending_assets_orders, meta: "falta material" },
-    { label: "🔍 Pend. revisión", value: analytics.personalization.pending_review_orders, meta: "requiere validación" },
-  ];
+
+  const slaRate = analytics.operational.delivered_in_sla_rate ?? 0;
+  const slaColor = slaRate >= 90 ? "#22C55E" : slaRate >= 70 ? "#F59E0B" : "#EF4444";
+  const slaRing = 2 * Math.PI * 36;
+
+  const activeShipments =
+    (analytics.shipping.in_transit_orders ?? 0) +
+    (analytics.shipping.out_for_delivery_orders ?? 0) +
+    (analytics.shipping.picked_up_orders ?? 0);
+
+  const generatedAt = new Intl.DateTimeFormat("es-ES", { dateStyle: "medium", timeStyle: "short" }).format(
+    new Date(analytics.scope.generated_at),
+  );
+
+  const dayLabels: Record<string, string> = { Mon: "L", Tue: "M", Wed: "X", Thu: "J", Fri: "V", Sat: "S", Sun: "D" };
 
   return (
-    <div className="stack">
-      <PageHeader
-        eyebrow="Reporting"
-        title="Rendimiento de tu operativa"
-        description="Un reporting claro y visual para entender volumen, cumplimiento, incidencias y tiempos de servicio sin complejidad técnica."
-        actions={
-          <div className="analytics-header-meta">
-            <span className="analytics-generated">
-              Generado {new Intl.DateTimeFormat("es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(analytics.scope.generated_at))}
-            </span>
-          </div>
-        }
-      />
+    <div className="stack portal-analytics-v2">
+
+      {/* ── Header ── */}
+      <div className="pa2-header">
+        <PageHeader
+          eyebrow="📊 Analítica"
+          title="Panel logístico avanzado"
+          description="Análisis completo de tu operativa: volumen, tiempos de servicio, estado de envíos e indicadores de riesgo en tiempo real."
+          actions={
+            <span className="pa2-generated-badge">Actualizado {generatedAt}</span>
+          }
+        />
+      </div>
 
       <PortalTenantControl
         action="/portal/analytics"
@@ -242,89 +194,108 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
           date_from: filters.date_from,
           date_to: filters.date_to,
           channel: filters.channel,
-          is_personalized:
-            filters.is_personalized === undefined ? undefined : String(filters.is_personalized),
-          status: filters.status,
-          production_status: filters.production_status,
-          carrier: filters.carrier,
+          is_personalized: filters.is_personalized === undefined ? undefined : String(filters.is_personalized),
           shipping_status: filters.shipping_status,
         }}
         selectedShopId={tenantScope.selectedShopId}
         shops={tenantScope.shops}
-        submitLabel="Ver"
+        submitLabel="Aplicar"
       />
 
-      <Card className="portal-glass-card portal-analytics-hero">
-        <div className="portal-glass-header">
-          <div>
-            <span className="eyebrow">📊 Resumen ejecutivo</span>
-            <h3 className="section-title section-title-small">Qué está pasando ahora mismo</h3>
-            <p className="subtitle">
-              Una lectura rápida de volumen, cumplimiento y excepciones. Si necesitas más detalle, usa filtros o baja a rankings y tendencias.
-            </p>
+      {/* ── Hero KPI strip ── */}
+      <section className="pa2-kpi-hero">
+        <div className="pa2-kpi-card pa2-kpi-accent">
+          <span className="pa2-kpi-emoji">📦</span>
+          <div className="pa2-kpi-body">
+            <span className="pa2-kpi-label">Pedidos totales</span>
+            <strong className="pa2-kpi-value">{formatNumber(analytics.kpis.total_orders)}</strong>
+            <span className="pa2-kpi-delta">{analytics.kpis.orders_today} nuevos hoy</span>
           </div>
-          <form action="/portal/shipments" className="portal-analytics-filter-row" method="get">
-            <div className="portal-analytics-date-field">
-              <label className="portal-analytics-date-label" htmlFor="portal-analytics-date-from">
-                Desde
-              </label>
-              <input
-                className="portal-inline-select"
-                defaultValue={filters.date_from ?? ""}
-                id="portal-analytics-date-from"
-                name="date_from"
-                type="date"
-              />
+        </div>
+        <div className="pa2-kpi-card pa2-kpi-green">
+          <span className="pa2-kpi-emoji">✅</span>
+          <div className="pa2-kpi-body">
+            <span className="pa2-kpi-label">Entregados</span>
+            <strong className="pa2-kpi-value">{formatNumber(analytics.kpis.delivered_orders)}</strong>
+            <span className="pa2-kpi-delta">de {formatNumber(analytics.kpis.shipped_orders)} enviados</span>
+          </div>
+        </div>
+        <div className="pa2-kpi-card pa2-kpi-blue">
+          <span className="pa2-kpi-emoji">🚚</span>
+          <div className="pa2-kpi-body">
+            <span className="pa2-kpi-label">En ruta ahora</span>
+            <strong className="pa2-kpi-value">{formatNumber(activeShipments)}</strong>
+            <span className="pa2-kpi-delta">{analytics.shipping.out_for_delivery_orders ?? 0} en última milla</span>
+          </div>
+        </div>
+        <div className="pa2-kpi-card" style={{ "--pa2-kpi-accent-raw": slaColor } as React.CSSProperties}>
+          <span className="pa2-kpi-emoji">🎯</span>
+          <div className="pa2-kpi-body">
+            <span className="pa2-kpi-label">Envíos en SLA</span>
+            <strong className="pa2-kpi-value" style={{ color: slaColor }}>{formatPercent(analytics.operational.delivered_in_sla_rate)}</strong>
+            <span className="pa2-kpi-delta">{analytics.shipping.delivered_orders} entregados total</span>
+          </div>
+        </div>
+        <div className="pa2-kpi-card pa2-kpi-red">
+          <span className="pa2-kpi-emoji">⚠️</span>
+          <div className="pa2-kpi-body">
+            <span className="pa2-kpi-label">Incidencias</span>
+            <strong className="pa2-kpi-value">{formatNumber(analytics.kpis.open_incidents)}</strong>
+            <span className="pa2-kpi-delta">{analytics.shipping.exception_orders} envíos con excepción</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Logistics pipeline ── */}
+      <Card className="portal-glass-card pa2-pipeline-card">
+        <div className="pa2-pipeline-header">
+          <span className="eyebrow">🔄 Flujo operativo</span>
+          <h3 className="section-title section-title-small">Dónde están tus pedidos ahora mismo</h3>
+        </div>
+        <div className="pa2-pipeline">
+          {[
+            { emoji: "📥", label: "Recibidos", value: analytics.flow.orders_received, color: "#94A3B8" },
+            { emoji: "⚙️", label: "Producción", value: analytics.kpis.in_production_orders, color: "#F59E0B" },
+            { emoji: "🏷️", label: "Preparados", value: analytics.flow.orders_prepared, color: "#38BDF8" },
+            { emoji: "🚚", label: "En tránsito", value: analytics.flow.orders_in_transit, color: "#6366F1" },
+            { emoji: "📬", label: "En reparto", value: analytics.flow.orders_out_for_delivery ?? 0, color: "#F97316" },
+            { emoji: "✅", label: "Entregados", value: analytics.flow.orders_delivered, color: "#22C55E" },
+            { emoji: "🚨", label: "Excepción", value: analytics.flow.orders_exception, color: "#EF4444" },
+          ].map((step, index, arr) => (
+            <div className="pa2-pipeline-step-wrap" key={step.label}>
+              <div className="pa2-pipeline-step" style={{ "--step-color": step.color } as React.CSSProperties}>
+                <span className="pa2-pipeline-emoji">{step.emoji}</span>
+                <strong className="pa2-pipeline-value">{formatNumber(step.value)}</strong>
+                <span className="pa2-pipeline-label">{step.label}</span>
+              </div>
+              {index < arr.length - 1 && <div className="pa2-pipeline-arrow">›</div>}
             </div>
-            <div className="portal-analytics-date-field">
-              <label className="portal-analytics-date-label" htmlFor="portal-analytics-date-to">
-                Hasta
-              </label>
-              <input
-                className="portal-inline-select"
-                defaultValue={filters.date_to ?? ""}
-                id="portal-analytics-date-to"
-                name="date_to"
-                type="date"
-              />
-            </div>
-            {tenantScope.selectedShopId ? <input name="shop_id" type="hidden" value={tenantScope.selectedShopId} /> : null}
-            <select className="portal-inline-select" defaultValue={filters.is_personalized === undefined ? "" : String(filters.is_personalized)} name="is_personalized">
-              <option value="">Todo el mix</option>
-              <option value="true">Solo personalizados</option>
-              <option value="false">Solo estándar</option>
-            </select>
-            <select className="portal-inline-select" defaultValue={filters.shipping_status ?? ""} name="shipping_status">
-              <option value="">Estado envío (todos)</option>
-              <option value="picked_up">Recogido</option>
-              <option value="in_transit">En tránsito</option>
-              <option value="out_for_delivery">En reparto</option>
-              <option value="delivered">Entregado</option>
-            </select>
-            <button className="button button-secondary" type="submit">Aplicar</button>
-            <Link className="button button-secondary" href="/portal/shipments">Limpiar</Link>
-          </form>
+          ))}
         </div>
 
-        <div className="portal-analytics-highlight-grid">
-          {highlights.map((item) => (
-            <article className="portal-analytics-highlight" key={item.label}>
-              <span className="portal-analytics-highlight-label">{item.label}</span>
-              <strong className="portal-analytics-highlight-value">{item.value}</strong>
-              <span className="portal-analytics-highlight-meta">{item.meta}</span>
-            </article>
+        {/* Service time row */}
+        <div className="pa2-service-times">
+          {[
+            { label: "📋 Pedido → Producción", value: formatHours(analytics.operational.avg_order_to_production_hours) },
+            { label: "🏷️ Producción → Envío", value: formatHours(analytics.operational.avg_production_to_shipping_hours) },
+            { label: "🚚 Envío → Entrega", value: formatHours(analytics.operational.avg_shipping_to_delivery_hours) },
+            { label: "⏱️ Ciclo completo", value: formatHours(analytics.flow.avg_total_hours) },
+          ].map((t) => (
+            <div className="pa2-service-time-pill" key={t.label}>
+              <span className="pa2-service-time-label">{t.label}</span>
+              <strong className="pa2-service-time-value">{t.value}</strong>
+            </div>
           ))}
         </div>
       </Card>
 
+      {/* ── Main 3-col grid ── */}
       <section className="portal-analytics-overview-grid">
-        <Card className="portal-glass-card stack portal-analytics-status-card">
-          <div className="section-header-inline">
-            <div>
-              <span className="eyebrow">🌍 Estado global</span>
-              <h3 className="section-title section-title-small">Dónde están tus pedidos</h3>
-            </div>
-          </div>
+
+        {/* Donut + legend */}
+        <Card className="portal-glass-card stack pa2-donut-card">
+          <span className="eyebrow">🌍 Estado global</span>
+          <h3 className="section-title section-title-small">Mix de pedidos</h3>
           <div className="portal-analytics-status-layout">
             <div className="portal-analytics-donut-wrap">
               <svg aria-hidden="true" className="portal-analytics-donut" viewBox="0 0 160 160">
@@ -353,180 +324,324 @@ export default async function PortalAnalyticsPage({ searchParams }: PortalAnalyt
                   <span className="portal-analytics-status-dot" style={{ backgroundColor: item.color }} />
                   <span className="portal-analytics-status-label">{item.label}</span>
                   <strong className="portal-analytics-status-value">{item.value}</strong>
+                  {item.percentage !== null && (
+                    <span className="pa2-status-pct">{Math.round(item.percentage ?? 0)}%</span>
+                  )}
                 </div>
               ))}
             </div>
           </div>
         </Card>
 
-        <Card className="portal-glass-card stack">
-          <div className="section-header-inline">
-            <div>
-              <span className="eyebrow">⚙️ Servicio</span>
-              <h3 className="section-title section-title-small">Ritmo operativo</h3>
+        {/* SLA ring + risk */}
+        <Card className="portal-glass-card stack pa2-sla-card">
+          <span className="eyebrow">🎯 Cumplimiento</span>
+          <h3 className="section-title section-title-small">Calidad de entrega</h3>
+          <div className="pa2-sla-layout">
+            <div className="pa2-sla-ring-wrap">
+              <svg aria-hidden="true" className="pa2-sla-ring" viewBox="0 0 100 100">
+                <circle className="pa2-sla-track" cx="50" cy="50" r="36" />
+                <circle
+                  className="pa2-sla-fill"
+                  cx="50"
+                  cy="50"
+                  r="36"
+                  stroke={slaColor}
+                  strokeDasharray={`${slaRing * (slaRate / 100)} ${slaRing}`}
+                  strokeDashoffset={slaRing * 0.25}
+                />
+              </svg>
+              <div className="pa2-sla-center">
+                <strong style={{ color: slaColor }}>{Math.round(slaRate)}%</strong>
+                <span>en SLA</span>
+              </div>
             </div>
-          </div>
-          <div className="portal-analytics-stat-grid">
-            {serviceItems.map((item) => (
-              <article className="portal-analytics-stat-tile" key={item.label}>
-                <span className="portal-analytics-stat-label">{item.label}</span>
-                <strong className="portal-analytics-stat-value">{item.value}</strong>
-              </article>
-            ))}
+            <div className="pa2-sla-breakdown">
+              {[
+                { label: "✅ Entregados en SLA", value: analytics.shipping.delivered_orders, good: true },
+                { label: "🚨 Excepción carrier", value: analytics.shipping.exception_orders, good: false },
+                { label: "⏸️ Tracking parado", value: analytics.operational.stalled_tracking_orders, good: analytics.operational.stalled_tracking_orders === 0 },
+                { label: "❌ Sin envío", value: analytics.operational.orders_without_shipment, good: analytics.operational.orders_without_shipment === 0 },
+              ].map((item) => (
+                <div className="pa2-sla-row" key={item.label}>
+                  <span className="pa2-sla-row-label">{item.label}</span>
+                  <strong className={`pa2-sla-row-value ${!item.good && item.value > 0 ? "is-bad" : "is-good"}`}>
+                    {item.value}
+                  </strong>
+                </div>
+              ))}
+            </div>
           </div>
         </Card>
 
-        <Card className="portal-glass-card stack">
-          <div className="section-header-inline">
-            <div>
-              <span className="eyebrow">🚨 Riesgo</span>
-              <h3 className="section-title section-title-small">Qué requiere atención</h3>
-            </div>
-          </div>
-          <div className="portal-analytics-risk-list">
-            {riskItems.map((item) => (
-              <article className="portal-analytics-risk-row" key={item.label}>
-                <div>
-                  <div className="portal-analytics-risk-label">{item.label}</div>
-                  <div className="table-secondary">{item.meta}</div>
+        {/* Attention / risk */}
+        <Card className="portal-glass-card stack pa2-risk-card">
+          <span className="eyebrow">🚨 Alertas activas</span>
+          <h3 className="section-title section-title-small">Qué necesita atención</h3>
+          <div className="pa2-risk-list">
+            {[
+              { emoji: "🔒", label: "Bloqueados", value: analytics.operational.blocked_orders, hint: "requieren acción", level: analytics.operational.blocked_orders > 0 ? "high" : "ok" },
+              { emoji: "⏸️", label: "Tracking parado", value: analytics.operational.stalled_tracking_orders, hint: "sin movimiento +48h", level: analytics.operational.stalled_tracking_orders > 2 ? "high" : analytics.operational.stalled_tracking_orders > 0 ? "mid" : "ok" },
+              { emoji: "⚠️", label: "Incidencias abiertas", value: analytics.kpis.open_incidents, hint: "requieren gestión", level: analytics.kpis.open_incidents > 3 ? "high" : analytics.kpis.open_incidents > 0 ? "mid" : "ok" },
+              { emoji: "🚚", label: "Excepción carrier", value: analytics.shipping.exception_orders, hint: "desvíos o retenciones", level: analytics.shipping.exception_orders > 0 ? "high" : "ok" },
+              { emoji: "📭", label: "Sin tracking", value: analytics.operational.orders_without_tracking ?? 0, hint: "sin señal carrier", level: (analytics.operational.orders_without_tracking ?? 0) > 0 ? "mid" : "ok" },
+              { emoji: "🧾", label: "Sin etiqueta", value: analytics.operational.orders_without_shipment, hint: "pendiente de generar", level: analytics.operational.orders_without_shipment > 5 ? "high" : analytics.operational.orders_without_shipment > 0 ? "mid" : "ok" },
+            ].map((item) => (
+              <div className={`pa2-risk-row pa2-risk-${item.level}`} key={item.label}>
+                <span className="pa2-risk-emoji">{item.emoji}</span>
+                <div className="pa2-risk-body">
+                  <span className="pa2-risk-label">{item.label}</span>
+                  <span className="pa2-risk-hint">{item.hint}</span>
                 </div>
-                <strong className="portal-analytics-risk-value">{item.value}</strong>
-              </article>
+                <strong className="pa2-risk-value">{item.value}</strong>
+              </div>
             ))}
           </div>
+          <Link className="button button-secondary" href="/portal/shipments" style={{ marginTop: 8 }}>
+            Ver expediciones →
+          </Link>
         </Card>
       </section>
 
+      {/* ── Orders by day + Carrier performance ── */}
       <section className="portal-analytics-grid">
         <Card className="portal-glass-card stack">
-          <div className="section-header-inline">
-            <div>
-              <span className="eyebrow">🎨 Mix</span>
-              <h3 className="section-title section-title-small">Personalización y carga</h3>
+          <span className="eyebrow">📈 Tendencia</span>
+          <h3 className="section-title section-title-small">Pedidos por día</h3>
+          {analytics.charts.orders_by_day.length > 0 ? (
+            <div className="pa2-bar-chart">
+              {analytics.charts.orders_by_day.map((point) => {
+                const date = new Date(`${point.date}T12:00:00`);
+                const dayShort = date.toLocaleDateString("es-ES", { weekday: "short" });
+                const pct = (point.total / ordersByDayMax) * 100;
+                return (
+                  <div className="pa2-bar-col" key={point.date}>
+                    <span className="pa2-bar-val">{point.total > 0 ? point.total : ""}</span>
+                    <div className="pa2-bar-track">
+                      <div
+                        className="pa2-bar-fill pa2-bar-fill-blue"
+                        style={{ height: `${Math.max(pct, 2)}%` }}
+                      />
+                    </div>
+                    <span className="pa2-bar-label">{dayLabels[dayShort] ?? dayShort}</span>
+                    <span className="pa2-bar-sublabel">{point.delivered > 0 ? `✅${point.delivered}` : ""}</span>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-          <div className="portal-analytics-stat-grid">
-            {mixItems.map((item) => (
-              <article className="portal-analytics-stat-tile" key={item.label}>
-                <span className="portal-analytics-stat-label">{item.label}</span>
-                <strong className="portal-analytics-stat-value">{formatNumber(item.value)}</strong>
-                <span className="portal-analytics-stat-meta">{item.meta}</span>
-              </article>
-            ))}
-          </div>
+          ) : (
+            <p className="table-secondary">Sin datos en el rango seleccionado.</p>
+          )}
         </Card>
 
         <Card className="portal-glass-card stack">
-          <div className="section-header-inline">
-            <div>
-              <span className="eyebrow">⚠️ Excepciones</span>
-              <h3 className="section-title section-title-small">Incidencias por tipo</h3>
-            </div>
-          </div>
-          <div className="bar-chart">
-            {analytics.charts.incidents_by_type.length > 0 ? analytics.charts.incidents_by_type.map((item) => (
-              <div className="bar-chart-row" key={item.label}>
-                <div className="bar-chart-label">{item.label}</div>
-                <div className="bar-chart-track portal-chart-track">
-                  <div className="bar-chart-fill bar-chart-fill-danger" style={{ width: `${item.percentage ?? 0}%` }} />
+          <span className="eyebrow">🚛 Carriers</span>
+          <h3 className="section-title section-title-small">Volumen por transportista</h3>
+          {analytics.charts.carrier_performance.length > 0 ? (
+            <div className="pa2-hbar-chart">
+              {analytics.charts.carrier_performance.map((item) => (
+                <div className="pa2-hbar-row" key={item.label}>
+                  <span className="pa2-hbar-label">{item.label}</span>
+                  <div className="pa2-hbar-track">
+                    <div
+                      className="pa2-hbar-fill pa2-hbar-fill-indigo"
+                      style={{ width: `${(item.value / carrierMax) * 100}%` }}
+                    />
+                  </div>
+                  <strong className="pa2-hbar-value">{item.value}</strong>
+                  {item.percentage !== null && (
+                    <span className="pa2-hbar-pct">{Math.round(item.percentage ?? 0)}%</span>
+                  )}
                 </div>
-                <div className="bar-chart-value">{item.value}</div>
-              </div>
-            )) : <div className="table-secondary">No hay incidencias suficientes en este rango.</div>}
-          </div>
+              ))}
+
+              {/* Carrier deep metrics */}
+              {analytics.shipping.carrier_performance.length > 0 && (
+                <div className="pa2-carrier-detail">
+                  <div className="pa2-carrier-detail-head">Detalle por carrier</div>
+                  {analytics.shipping.carrier_performance.map((cp) => (
+                    <div className="pa2-carrier-row" key={cp.carrier}>
+                      <span className="pa2-carrier-name">🚚 {cp.carrier}</span>
+                      <div className="pa2-carrier-stats">
+                        <span>{cp.shipments} envíos</span>
+                        <span>✅ {cp.delivered_orders} entregados</span>
+                        {cp.avg_delivery_hours !== null && (
+                          <span>⏱️ {formatHours(cp.avg_delivery_hours)}</span>
+                        )}
+                        {cp.incident_rate !== null && (
+                          <span className={cp.incident_rate > 5 ? "pa2-stat-bad" : ""}>
+                            ⚠️ {formatPercent(cp.incident_rate)} incid.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="table-secondary">No hay datos de carriers en el rango actual.</p>
+          )}
         </Card>
       </section>
 
+      {/* ── Mix + Incidents ── */}
       <section className="portal-analytics-grid">
         <Card className="portal-glass-card stack">
-          <div className="section-header-inline">
-            <div>
-              <span className="eyebrow">📈 Tendencia</span>
-              <h3 className="section-title section-title-small">Pedidos por día</h3>
-            </div>
-          </div>
-          <div className="bar-chart">
-            {analytics.charts.orders_by_day.length > 0 ? analytics.charts.orders_by_day.map((point) => (
-              <div className="bar-chart-row" key={point.date}>
-                <div className="bar-chart-label">{point.date}</div>
-                <div className="bar-chart-track portal-chart-track">
-                  <div className="bar-chart-fill portal-chart-fill" style={{ width: `${(point.total / ordersByDayMax) * 100}%` }} />
-                </div>
-                <div className="bar-chart-value">{point.total}</div>
-              </div>
-            )) : <div className="table-secondary">Sin datos suficientes en el rango actual.</div>}
-          </div>
-        </Card>
-
-        <Card className="portal-glass-card stack">
-          <div className="section-header-inline">
-            <div>
-              <span className="eyebrow">🚛 Carriers</span>
-              <h3 className="section-title section-title-small">Servicio por transportista</h3>
-            </div>
-          </div>
-          <div className="bar-chart">
-            {analytics.charts.carrier_performance.length > 0 ? analytics.charts.carrier_performance.map((item) => (
-              <div className="bar-chart-row" key={item.label}>
-                <div className="bar-chart-label">{item.label}</div>
-                <div className="bar-chart-track portal-chart-track">
-                  <div className="bar-chart-fill bar-chart-fill-soft portal-chart-fill-soft" style={{ width: `${(item.value / carrierMax) * 100}%` }} />
-                </div>
-                <div className="bar-chart-value">{item.value}</div>
-              </div>
-            )) : <div className="table-secondary">Todavía no hay carriers suficientes para comparar.</div>}
-          </div>
-        </Card>
-      </section>
-
-      <section className="portal-analytics-grid">
-        <Card className="portal-glass-card stack">
-          <div className="table-header">
-            <div>
-              <span className="eyebrow">📦 SKUs</span>
-              <h3 className="section-title section-title-small">Qué más estás moviendo</h3>
-            </div>
-          </div>
-          <div className="mini-table">
-            {analytics.rankings.top_skus.slice(0, 6).map((item) => (
-              <div className="mini-table-row" key={`${item.sku}-${item.name}`}>
-                <div>
-                  <div className="table-primary">{item.name}</div>
-                  <div className="table-secondary">{item.sku}</div>
-                </div>
-                <div className="mini-table-metrics">
-                  <span>{item.quantity} uds</span>
-                  <span>{item.orders} pedidos</span>
-                </div>
+          <span className="eyebrow">🎨 Mix</span>
+          <h3 className="section-title section-title-small">Personalización y carga</h3>
+          <div className="pa2-mix-grid">
+            {[
+              { emoji: "🎨", label: "Personalizados", value: analytics.kpis.personalized_orders, pct: formatPercent(analytics.personalization.personalized_share), color: "#6366F1" },
+              { emoji: "📦", label: "Estándar", value: analytics.kpis.standard_orders, pct: formatPercent(analytics.personalization.standard_share), color: "#0EA5E9" },
+              { emoji: "⏳", label: "Pend. assets", value: analytics.personalization.pending_assets_orders, pct: "sin material", color: "#F59E0B" },
+              { emoji: "🔍", label: "Pend. revisión", value: analytics.personalization.pending_review_orders, pct: "requiere validación", color: "#94A3B8" },
+            ].map((item) => (
+              <div className="pa2-mix-tile" key={item.label} style={{ "--mix-color": item.color } as React.CSSProperties}>
+                <span className="pa2-mix-emoji">{item.emoji}</span>
+                <strong className="pa2-mix-value">{formatNumber(item.value)}</strong>
+                <span className="pa2-mix-label">{item.label}</span>
+                <span className="pa2-mix-pct">{item.pct}</span>
               </div>
             ))}
           </div>
+
+          {/* Personalization share bar */}
+          {analytics.personalization.personalized_share !== null && (
+            <div className="pa2-share-bar-wrap">
+              <div className="pa2-share-bar">
+                <div
+                  className="pa2-share-bar-fill pa2-share-bar-personalized"
+                  style={{ width: `${analytics.personalization.personalized_share}%` }}
+                  title={`${formatPercent(analytics.personalization.personalized_share)} personalizados`}
+                />
+                <div
+                  className="pa2-share-bar-fill pa2-share-bar-standard"
+                  style={{ width: `${analytics.personalization.standard_share ?? 0}%` }}
+                  title={`${formatPercent(analytics.personalization.standard_share)} estándar`}
+                />
+              </div>
+              <div className="pa2-share-bar-legend">
+                <span>🎨 {formatPercent(analytics.personalization.personalized_share)} personalizados</span>
+                <span>📦 {formatPercent(analytics.personalization.standard_share)} estándar</span>
+              </div>
+            </div>
+          )}
         </Card>
 
         <Card className="portal-glass-card stack">
-          <div className="table-header">
-            <div>
-              <span className="eyebrow">🔔 Alertas</span>
-              <h3 className="section-title section-title-small">Pedidos más retrasados</h3>
+          <span className="eyebrow">⚠️ Excepciones</span>
+          <h3 className="section-title section-title-small">Incidencias por tipo</h3>
+          {analytics.charts.incidents_by_type.length > 0 ? (
+            <div className="pa2-hbar-chart">
+              {analytics.charts.incidents_by_type.map((item) => (
+                <div className="pa2-hbar-row" key={item.label}>
+                  <span className="pa2-hbar-label">{item.label}</span>
+                  <div className="pa2-hbar-track">
+                    <div
+                      className="pa2-hbar-fill pa2-hbar-fill-red"
+                      style={{ width: `${(item.value / incidentMax) * 100}%` }}
+                    />
+                  </div>
+                  <strong className="pa2-hbar-value">{item.value}</strong>
+                </div>
+              ))}
             </div>
-          </div>
-          <div className="mini-table">
-            {analytics.rankings.delayed_orders.length > 0 ? analytics.rankings.delayed_orders.slice(0, 6).map((order) => (
-              <Link className="mini-table-row mini-table-row-link" href={`/portal/orders/${order.order_id}`} key={order.order_id}>
-                <div>
-                  <div className="table-primary">{order.external_id}</div>
-                  <div className="table-secondary">{order.customer_name}</div>
-                  <div className="table-secondary">{order.reason}</div>
-                </div>
-                <div className="mini-table-metrics">
-                  <span>{order.age_hours.toFixed(0)}h</span>
-                  <span>{order.status}</span>
-                </div>
-              </Link>
-            )) : <div className="table-secondary">No hay pedidos especialmente retrasados ahora mismo.</div>}
-          </div>
+          ) : (
+            <div className="pa2-no-incidents">
+              <span style={{ fontSize: "2rem" }}>🎉</span>
+              <p className="table-primary">Sin incidencias en este rango</p>
+              <p className="table-secondary">Todo ha ido bien en el periodo seleccionado.</p>
+            </div>
+          )}
+
+          {/* Aging */}
+          {analytics.operational.aging_buckets && (
+            <div className="pa2-aging-wrap">
+              <div className="pa2-aging-title">⏱️ Antigüedad de pedidos activos</div>
+              <div className="pa2-aging-grid">
+                {[
+                  { label: "0–24h", value: analytics.operational.aging_buckets.bucket_0_24, color: "#22C55E" },
+                  { label: "24–48h", value: analytics.operational.aging_buckets.bucket_24_48, color: "#F59E0B" },
+                  { label: "48–72h", value: analytics.operational.aging_buckets.bucket_48_72, color: "#F97316" },
+                  { label: "+72h", value: analytics.operational.aging_buckets.bucket_72_plus, color: "#EF4444" },
+                ].map((bucket) => (
+                  <div className="pa2-aging-tile" key={bucket.label} style={{ "--aging-color": bucket.color } as React.CSSProperties}>
+                    <strong className="pa2-aging-value">{bucket.value}</strong>
+                    <span className="pa2-aging-label">{bucket.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Card>
       </section>
+
+      {/* ── Top SKUs + Delayed ── */}
+      <section className="portal-analytics-grid">
+        <Card className="portal-glass-card stack">
+          <span className="eyebrow">📦 Ranking</span>
+          <h3 className="section-title section-title-small">Tus productos más activos</h3>
+          {analytics.rankings.top_skus.length > 0 ? (
+            <div className="pa2-ranking-list">
+              {analytics.rankings.top_skus.slice(0, 8).map((item, index) => (
+                <div className="pa2-ranking-row" key={`${item.sku}-${item.name}`}>
+                  <span className="pa2-ranking-pos">{index + 1}</span>
+                  <div className="pa2-ranking-info">
+                    <div className="table-primary">{item.name}</div>
+                    <div className="table-secondary">{item.sku}</div>
+                  </div>
+                  <div className="pa2-ranking-metrics">
+                    <span className="pa2-metric-pill pa2-metric-blue">{item.quantity} uds</span>
+                    <span className="pa2-metric-pill pa2-metric-slate">{item.orders} ped.</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="table-secondary">Sin datos de SKU en el rango actual.</p>
+          )}
+        </Card>
+
+        <Card className="portal-glass-card stack">
+          <span className="eyebrow">🔔 Urgente</span>
+          <h3 className="section-title section-title-small">Pedidos más retrasados</h3>
+          {analytics.rankings.delayed_orders.length > 0 ? (
+            <div className="pa2-ranking-list">
+              {analytics.rankings.delayed_orders.slice(0, 8).map((order) => {
+                const urgency = order.age_hours > 72 ? "pa2-urgent-high" : order.age_hours > 48 ? "pa2-urgent-mid" : "pa2-urgent-low";
+                return (
+                  <Link className={`pa2-ranking-row pa2-ranking-link ${urgency}`} href={`/portal/orders/${order.order_id}`} key={order.order_id}>
+                    <span className="pa2-urgent-dot" />
+                    <div className="pa2-ranking-info">
+                      <div className="table-primary">{order.external_id}</div>
+                      <div className="table-secondary">{order.customer_name} · {order.reason}</div>
+                    </div>
+                    <div className="pa2-ranking-metrics">
+                      <span className={`pa2-metric-pill ${order.age_hours > 48 ? "pa2-metric-red" : "pa2-metric-orange"}`}>
+                        {order.age_hours.toFixed(0)}h
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="pa2-no-incidents">
+              <span style={{ fontSize: "2rem" }}>🏆</span>
+              <p className="table-primary">Sin pedidos retrasados</p>
+              <p className="table-secondary">Todo el flujo está dentro del SLA.</p>
+            </div>
+          )}
+        </Card>
+      </section>
+
+      {/* ── Quick links ── */}
+      <div className="pa2-quick-links">
+        <Link className="button" href="/portal/shipments">🚚 Ver expediciones</Link>
+        <Link className="button button-secondary" href="/portal/orders">📋 Ver pedidos</Link>
+        <Link className="button button-secondary" href="/portal/incidencias">⚠️ Ver incidencias</Link>
+      </div>
     </div>
   );
 }
