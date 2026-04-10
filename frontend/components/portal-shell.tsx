@@ -58,6 +58,15 @@ function AnalyticsIcon(props: IconProps) {
   );
 }
 
+function IncidenciasIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M12 9v4m0 3.5v.01" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+      <path d="M10.29 4.04a2 2 0 0 1 3.42 0l7.33 12.43A2 2 0 0 1 19.33 19H4.67a2 2 0 0 1-1.71-2.53z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function OperationsIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -118,8 +127,9 @@ function LogoutIcon(props: IconProps) {
 const portalNavItems = [
   { href: "/portal", label: "Resumen", shortLabel: "Inicio", icon: HomeIcon },
   { href: "/portal/orders", label: "Pedidos", shortLabel: "Pedidos", icon: OrdersIcon },
-  { href: "/portal/incidencias", label: "Incidencias", shortLabel: "Incid.", icon: ReturnsIcon },
   { href: "/portal/shipments", label: "Expediciones", shortLabel: "Exp.", icon: AnalyticsIcon },
+  { href: "/portal/incidencias", label: "Incidencias", shortLabel: "Incid.", icon: IncidenciasIcon },
+  { href: "/portal/returns", label: "Devoluciones", shortLabel: "Devol.", icon: ReturnsIcon },
   { href: "/portal/settings", label: "Ajustes", shortLabel: "Ajustes", icon: SettingsIcon },
 ];
 
