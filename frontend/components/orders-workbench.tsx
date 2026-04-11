@@ -56,12 +56,20 @@ type OrdersWorkbenchProps = {
 type QuickFilterKey =
   | "has_incident"
   | "not_prepared"
-  | "label_no_update";
+  | "label_no_update"
+  | "shipping_in_transit"
+  | "shipping_out_for_delivery"
+  | "shipping_exception"
+  | "overdue_sla";
 
 const quickFilterMeta: Array<{ key: QuickFilterKey; label: string }> = [
-  { key: "has_incident", label: "⚠️ Con incidencia" },
-  { key: "not_prepared", label: "🔧 No preparados" },
-  { key: "label_no_update", label: "📦 Etiqueta sin avances" },
+  { key: "has_incident",              label: "⚠️ Con incidencia" },
+  { key: "not_prepared",              label: "🔧 No preparados" },
+  { key: "label_no_update",           label: "📦 Etiqueta sin avances" },
+  { key: "shipping_in_transit",       label: "🚚 En tránsito" },
+  { key: "shipping_out_for_delivery", label: "🚛 En reparto" },
+  { key: "shipping_exception",        label: "🚨 Excepción carrier" },
+  { key: "overdue_sla",               label: "⏰ SLA vencido" },
 ];
 
 
@@ -224,25 +232,69 @@ function getOperationalStatusMeta(order: Order) {
   };
 }
 
+function hasRealCarrierEvent(order: Order): boolean {
+  const events = order.shipment?.events ?? [];
+  // A "real" carrier event is anything beyond label_created (i.e., carrier has actually scanned the parcel)
+  return events.some(
+    (e) => e.status_norm && e.status_norm !== "label_created" && e.status_norm !== "",
+  );
+}
+
 function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
   switch (filter) {
     case "has_incident":
       return order.has_open_incident;
+
     case "not_prepared":
-      // Aligned with the "Sin preparar" badge: no shipment and not yet shipped/delivered
+      // No shipment and not yet shipped/delivered
       return (
         !order.shipment &&
         order.status !== "shipped" &&
         order.status !== "ready_to_ship" &&
         order.status !== "delivered"
       );
+
     case "label_no_update":
-      // Has a CTT label (tracking number) but no tracking events from the carrier yet
+      // Has a tracking number but carrier hasn't scanned it yet (only label_created events or none)
       return (
         Boolean(order.shipment?.tracking_number?.trim()) &&
-        (!order.shipment?.events || order.shipment.events.length === 0) &&
-        order.status !== "delivered"
+        order.status !== "delivered" &&
+        order.shipment?.shipping_status !== "delivered" &&
+        !hasRealCarrierEvent(order)
       );
+
+    case "shipping_in_transit": {
+      const state = getShipmentState(order);
+      return (
+        state === "in_transit" ||
+        state === "picked_up" ||
+        state === "pickup_available" ||
+        state === "attempted_delivery"
+      );
+    }
+
+    case "shipping_out_for_delivery":
+      return getShipmentState(order) === "out_for_delivery";
+
+    case "shipping_exception":
+      return (
+        getShipmentState(order) === "exception" ||
+        order.shipment?.shipping_status === "exception"
+      );
+
+    case "overdue_sla": {
+      if (!order.shipment?.expected_delivery_date) return false;
+      // Compare date-only (no time component)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const deliveryDate = new Date(order.shipment.expected_delivery_date + "T00:00:00");
+      return (
+        deliveryDate < today &&
+        order.status !== "delivered" &&
+        order.shipment.shipping_status !== "delivered"
+      );
+    }
+
     default:
       return true;
   }

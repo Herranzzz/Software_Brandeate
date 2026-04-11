@@ -16,7 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE invoice_status AS ENUM ('draft', 'sent', 'paid', 'cancelled')")
+    op.execute("CREATE TYPE IF NOT EXISTS invoice_status AS ENUM ('draft', 'sent', 'paid', 'cancelled')")
 
     op.create_table(
         "invoices",
@@ -66,4 +66,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("invoice_items")
     op.drop_table("invoices")
-    op.execute("DROP TYPE invoice_status")
+    op.execute("DROP TYPE IF EXISTS invoice_status")
