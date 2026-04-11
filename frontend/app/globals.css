@@ -14728,6 +14728,49 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   color: var(--accent, #6366f1);
 }
 
+/* ── CRM page subtitle ── */
+.crm-page-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 2px 0 0;
+}
+
+/* ── CRM kpi-strip: 5 cols by default ── */
+.crm-kpi-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+/* ── CRM row: stage-colored left border ── */
+.crm-row {
+  border-left: 3px solid transparent;
+  transition: background 0.12s, border-color 0.1s;
+}
+.crm-row[data-stage="lead"]     { border-left-color: #94a3b8; }
+.crm-row[data-stage="proposal"] { border-left-color: #6366f1; }
+.crm-row[data-stage="active"]   { border-left-color: #22c55e; }
+.crm-row[data-stage="vip"]      { border-left-color: #f59e0b; }
+.crm-row[data-stage="at_risk"]  { border-left-color: #ef4444; }
+
+/* ── Last contact ── */
+.crm-last-contact {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+  min-width: 90px;
+}
+.crm-last-contact-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-right: 2px;
+}
+.crm-last-contact-empty {
+  font-style: italic;
+  color: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+
 /* ── CRM stage badge (list row) ── */
 .crm-stage-badge {
   display: inline-flex;

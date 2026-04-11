@@ -598,6 +598,19 @@ export function ClientAccountsPanel({ currentUser, accounts, shops }: ClientAcco
     [accounts, crmStore]
   );
 
+  // KPI counts
+  const kpiActiveCount = useMemo(() => accounts.filter((a) => a.is_active).length, [accounts]);
+  const kpiVipCount = useMemo(() => accounts.filter((a) => (crmStore[a.id]?.stage ?? "lead") === "vip").length, [accounts, crmStore]);
+  const kpiAtRiskCount = useMemo(() => accounts.filter((a) => (crmStore[a.id]?.stage ?? "lead") === "at_risk").length, [accounts, crmStore]);
+  const kpiNeedFollowUp = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 14);
+    return accounts.filter((a) => {
+      const lc = crmStore[a.id]?.last_contact;
+      return a.is_active && (!lc || new Date(lc) < cutoff);
+    }).length;
+  }, [accounts, crmStore]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return accounts.filter((a) => {
@@ -805,12 +818,12 @@ export function ClientAccountsPanel({ currentUser, accounts, shops }: ClientAcco
 
         {/* Header */}
         <div className="crm-page-header">
-          <div className="crm-page-title-block">
-            <h1 className="crm-page-title">CRM · Cuentas cliente</h1>
-            <span className="crm-page-count">{accounts.length} contacto{accounts.length !== 1 ? "s" : ""}</span>
-            {totalPipelineValue > 0 && (
-              <span className="crm-pipeline-total">{fmtCurrency(totalPipelineValue)} en pipeline</span>
-            )}
+          <div>
+            <div className="crm-page-title-block">
+              <h1 className="crm-page-title">Cuentas cliente</h1>
+              <span className="crm-page-count">{accounts.length} contacto{accounts.length !== 1 ? "s" : ""}</span>
+            </div>
+            <p className="crm-page-subtitle">Gestiona accesos, tiendas y pipeline de clientes.</p>
           </div>
           <div className="crm-header-right">
             {/* View toggle */}
@@ -834,6 +847,42 @@ export function ClientAccountsPanel({ currentUser, accounts, shops }: ClientAcco
               + Nueva cuenta
             </button>
           </div>
+        </div>
+
+        {/* KPI strip */}
+        <div className="crm-kpi-strip">
+          <div className="crm-kpi-card is-accent">
+            <span className="crm-kpi-label">Total</span>
+            <span className="crm-kpi-value">{accounts.length}</span>
+            <span className="crm-kpi-hint">cuentas registradas</span>
+          </div>
+          <div className="crm-kpi-card is-green">
+            <span className="crm-kpi-label">Activas</span>
+            <span className="crm-kpi-value">{kpiActiveCount}</span>
+            <span className="crm-kpi-hint">con acceso habilitado</span>
+          </div>
+          <div className="crm-kpi-card is-orange">
+            <span className="crm-kpi-label">VIP</span>
+            <span className="crm-kpi-value">{kpiVipCount}</span>
+            <span className="crm-kpi-hint">etapa VIP en CRM</span>
+          </div>
+          <div className="crm-kpi-card is-red">
+            <span className="crm-kpi-label">En riesgo</span>
+            <span className="crm-kpi-value">{kpiAtRiskCount}</span>
+            <span className="crm-kpi-hint">requieren atención</span>
+          </div>
+          <div className="crm-kpi-card is-sky">
+            <span className="crm-kpi-label">Seguimiento</span>
+            <span className="crm-kpi-value">{kpiNeedFollowUp}</span>
+            <span className="crm-kpi-hint">sin contacto en 14 días</span>
+          </div>
+          {totalPipelineValue > 0 && (
+            <div className="crm-kpi-card is-blue">
+              <span className="crm-kpi-label">Pipeline</span>
+              <span className="crm-kpi-value" style={{ fontSize: "1.3rem" }}>{fmtCurrency(totalPipelineValue)}</span>
+              <span className="crm-kpi-hint">valor estimado total</span>
+            </div>
+          )}
         </div>
 
         {message ? <div className={`feedback feedback-${message.kind}`}>{message.text}</div> : null}
@@ -877,6 +926,7 @@ export function ClientAccountsPanel({ currentUser, accounts, shops }: ClientAcco
                 return (
                   <div
                     className={`crm-row${!account.is_active ? " crm-row-inactive" : ""}${panelAccountId === account.id ? " crm-row-selected" : ""}`}
+                    data-stage={rec.stage}
                     key={account.id}
                     onClick={() => setPanelAccountId(panelAccountId === account.id ? null : account.id)}
                     role="button"
@@ -898,8 +948,18 @@ export function ClientAccountsPanel({ currentUser, accounts, shops }: ClientAcco
                     <span className="crm-stage-badge" style={{ "--stage-color": stage.color } as React.CSSProperties}>
                       {stage.label}
                     </span>
-                    {/* Deal value */}
-                    <span className="crm-row-value">{fmtCurrency(rec.deal_value)}</span>
+                    {/* Last contact */}
+                    <span className="crm-last-contact">
+                      {rec.last_contact ? (
+                        <><span className="crm-last-contact-label">Contacto</span> {fmtDate(rec.last_contact)}</>
+                      ) : (
+                        <span className="crm-last-contact-empty">Sin contacto</span>
+                      )}
+                    </span>
+                    {/* Deal value — only when set */}
+                    {rec.deal_value > 0 && (
+                      <span className="crm-row-value">{fmtCurrency(rec.deal_value)}</span>
+                    )}
                     {/* Status */}
                     <button
                       className={`crm-status-btn${account.is_active ? " crm-status-active" : " crm-status-inactive"}`}
