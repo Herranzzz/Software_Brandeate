@@ -83,6 +83,7 @@ export default async function AdminInventarioPage({
         isAdmin={true}
         items={items}
         movements={movements}
+        shopId={shopId}
       />
     </div>
   );

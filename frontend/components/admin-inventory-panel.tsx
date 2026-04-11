@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import {
   adjustInventoryStock,
   receiveInboundShipment,
+  syncInventoryFromCatalog,
   updateInboundShipment,
+  type CatalogSyncResult,
 } from "@/lib/api-client";
 import type {
   InventoryItem,
@@ -26,6 +28,8 @@ type AdminInventoryPanelProps = {
   movements: StockMovement[];
   alerts: InventoryItem[];
   isAdmin: boolean;
+  /** When set, "Sincronizar desde catálogo" uses this shop_id */
+  shopId?: number;
 };
 
 type AdjustState = {
@@ -680,12 +684,16 @@ export function AdminInventoryPanel({
   movements,
   alerts,
   isAdmin,
+  shopId,
 }: AdminInventoryPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("resumen");
   const [items, setItems] = useState<InventoryItem[]>(initialItems);
   const [shipments, setShipments] = useState<InboundShipment[]>(initialShipments);
   const [skuSearch, setSkuSearch] = useState("");
   const [adjustingId, setAdjustingId] = useState<number | null>(null);
+  const [catalogSyncResult, setCatalogSyncResult] = useState<CatalogSyncResult | null>(null);
+  const [isSyncingCatalog, startCatalogSync] = useTransition();
+  const router = useRouter();
 
   // ── KPI computations ────────────────────────────────────────────────────────
 
@@ -912,16 +920,56 @@ export function AdminInventoryPanel({
       {/* ── Tab: SKUs ────────────────────────────────────────────────────────── */}
       {activeTab === "skus" && (
         <div className="stack">
-          <div style={{ maxWidth: 320 }}>
-            <input
-              className="sga-input"
-              onChange={(e) => setSkuSearch(e.target.value)}
-              placeholder="Buscar por SKU o nombre…"
-              style={{ width: "100%" }}
-              type="search"
-              value={skuSearch}
-            />
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <input
+                className="sga-input"
+                onChange={(e) => setSkuSearch(e.target.value)}
+                placeholder="Buscar por SKU o nombre…"
+                style={{ width: "100%" }}
+                type="search"
+                value={skuSearch}
+              />
+            </div>
+            {shopId && (
+              <button
+                className="button-secondary"
+                disabled={isSyncingCatalog}
+                onClick={() => {
+                  startCatalogSync(async () => {
+                    try {
+                      const result = await syncInventoryFromCatalog(shopId);
+                      setCatalogSyncResult(result);
+                      router.refresh();
+                    } catch (e) {
+                      alert(`Error al sincronizar: ${e instanceof Error ? e.message : String(e)}`);
+                    }
+                  });
+                }}
+                type="button"
+              >
+                {isSyncingCatalog ? "Sincronizando…" : "↙ Importar SKUs de Shopify"}
+              </button>
+            )}
           </div>
+
+          {catalogSyncResult && (
+            <div className="info-banner" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>✅</span>
+              <span>
+                Sincronización completa — <strong>{catalogSyncResult.created}</strong> SKUs nuevos importados,{" "}
+                <strong>{catalogSyncResult.already_existed}</strong> ya existían.{" "}
+                {catalogSyncResult.skipped_no_sku > 0 && (
+                  <span>({catalogSyncResult.skipped_no_sku} variantes sin SKU ignoradas)</span>
+                )}
+              </span>
+              <button
+                onClick={() => setCatalogSyncResult(null)}
+                style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "var(--muted)" }}
+                type="button"
+              >✕</button>
+            </div>
+          )}
 
           {filteredItems.length === 0 ? (
             <div className="sga-empty">

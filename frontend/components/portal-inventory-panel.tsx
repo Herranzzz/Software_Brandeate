@@ -7,7 +7,9 @@ import {
   createInboundShipment,
   addInboundShipmentLine,
   deleteInboundShipmentLine,
+  syncInventoryFromCatalog,
   updateInboundShipment,
+  type CatalogSyncResult,
 } from "@/lib/api-client";
 
 type PortalInventoryPanelProps = {
@@ -83,6 +85,8 @@ export function PortalInventoryPanel({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [markingSent, setMarkingSent] = useState<number | null>(null);
+  const [catalogSyncResult, setCatalogSyncResult] = useState<CatalogSyncResult | null>(null);
+  const [isSyncingCatalog, startCatalogSync] = useTransition();
 
   // Form state
   const [reference, setReference] = useState("");
@@ -243,12 +247,52 @@ export function PortalInventoryPanel({
             </div>
           )}
 
+          {/* Sync from Shopify catalog */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <button
+              className="button-secondary"
+              disabled={isSyncingCatalog}
+              onClick={() => {
+                startCatalogSync(async () => {
+                  try {
+                    const result = await syncInventoryFromCatalog(shopId);
+                    setCatalogSyncResult(result);
+                    router.refresh();
+                  } catch (e) {
+                    setSubmitError(`Error al sincronizar: ${e instanceof Error ? e.message : String(e)}`);
+                  }
+                });
+              }}
+              type="button"
+            >
+              {isSyncingCatalog ? "Importando…" : "↙ Importar SKUs desde Shopify"}
+            </button>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>
+              Importa automáticamente todas las referencias de tu catálogo de Shopify
+            </span>
+          </div>
+
+          {catalogSyncResult && (
+            <div className="info-banner" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>✅</span>
+              <span>
+                <strong>{catalogSyncResult.created}</strong> referencias nuevas importadas
+                {catalogSyncResult.already_existed > 0 && `, ${catalogSyncResult.already_existed} ya existían`}.
+              </span>
+              <button
+                onClick={() => setCatalogSyncResult(null)}
+                style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "var(--muted)" }}
+                type="button"
+              >✕</button>
+            </div>
+          )}
+
           {items.length === 0 ? (
             <div className="sga-empty">
               <div className="sga-empty-icon">📦</div>
               <p className="sga-empty-title">Sin stock registrado</p>
               <p className="sga-empty-sub">
-                Tu inventario aparecerá aquí una vez que enviemos tu mercancía. Crea tu primer envío en la pestaña &lsquo;Enviar mercancía&rsquo;.
+                Pulsa &ldquo;Importar SKUs desde Shopify&rdquo; para cargar tus referencias, o crea tu primer envío en &ldquo;Enviar mercancía&rdquo;.
               </p>
             </div>
           ) : (

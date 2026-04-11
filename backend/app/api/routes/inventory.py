@@ -13,7 +13,7 @@ from app.api.deps import (
     require_admin_user,
     resolve_shop_scope,
 )
-from app.models import User
+from app.models import ShopCatalogVariant, User
 from app.models.inventory import (
     InboundShipment,
     InboundShipmentLine,
@@ -34,6 +34,7 @@ from app.schemas.inventory import (
     InventoryItemListResponse,
     InventoryItemRead,
     InventoryItemUpdate,
+    CatalogSyncResult,
     StockAdjustPayload,
     StockMovementListResponse,
     StockMovementRead,
@@ -719,3 +720,83 @@ def _get_shipment_read(db: Session, shipment_id: int) -> InboundShipmentRead:
     if shipment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shipment not found")
     return InboundShipmentRead.model_validate(shipment)
+
+
+# ---------------------------------------------------------------------------
+# POST /inventory/sync-from-catalog
+# ---------------------------------------------------------------------------
+
+@router.post("/sync-from-catalog", response_model=CatalogSyncResult)
+def sync_inventory_from_catalog(
+    shop_id: int = Query(..., description="Shop to sync catalog SKUs into inventory"),
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    _current_user: User = Depends(get_current_user),
+) -> CatalogSyncResult:
+    """Import all Shopify catalog variants (that have a SKU) as InventoryItem records.
+
+    Already-existing items are left untouched (stock, reorder_point, location are
+    preserved). Only new SKUs are created with stock_on_hand=0.
+    """
+    _check_shop_access(shop_id, accessible_shop_ids)
+
+    # Fetch all catalog variants with a non-empty SKU for this shop
+    variants = db.scalars(
+        select(ShopCatalogVariant).where(
+            ShopCatalogVariant.shop_id == shop_id,
+            ShopCatalogVariant.sku.is_not(None),
+            ShopCatalogVariant.sku != "",
+        )
+    ).all()
+
+    total_variants = len(variants)
+    skipped_no_sku = 0
+    created = 0
+    already_existed = 0
+
+    for variant in variants:
+        sku = (variant.sku or "").strip()
+        if not sku:
+            skipped_no_sku += 1
+            continue
+
+        existing = db.scalar(
+            select(InventoryItem).where(
+                InventoryItem.shop_id == shop_id,
+                InventoryItem.sku == sku,
+            )
+        )
+        if existing is not None:
+            # Link variant_id if not already linked
+            if existing.variant_id is None:
+                existing.variant_id = variant.id
+            already_existed += 1
+            continue
+
+        # Determine a human-readable name: prefer product title + variant title
+        product = variant.product
+        name_parts = []
+        if product and product.title:
+            name_parts.append(product.title)
+        if variant.title and variant.title.lower() not in ("default title", "default"):
+            name_parts.append(variant.title)
+        name = " · ".join(name_parts) if name_parts else sku
+
+        item = InventoryItem(
+            shop_id=shop_id,
+            sku=sku,
+            name=name,
+            variant_id=variant.id,
+            stock_on_hand=0,
+        )
+        db.add(item)
+        created += 1
+
+    db.commit()
+
+    return CatalogSyncResult(
+        created=created,
+        already_existed=already_existed,
+        skipped_no_sku=skipped_no_sku,
+        total_variants=total_variants,
+    )

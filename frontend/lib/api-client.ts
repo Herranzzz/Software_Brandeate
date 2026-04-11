@@ -12,6 +12,13 @@ import type {
   InboundShipmentLine,
 } from "@/lib/types";
 
+export type CatalogSyncResult = {
+  created: number;
+  already_existed: number;
+  skipped_no_sku: number;
+  total_variants: number;
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function clientApiUrl(path: string): string {
@@ -146,4 +153,18 @@ export async function receiveInboundShipment(
     body: JSON.stringify(data),
   });
   return parseClientResponse<InboundShipment>(res);
+}
+
+// ── Catalog → Inventory sync ──────────────────────────────────────────────────
+
+export async function syncInventoryFromCatalog(
+  shopId: number,
+): Promise<CatalogSyncResult> {
+  const headers = buildClientHeaders();
+  delete headers["Content-Type"];
+  const res = await fetch(
+    clientApiUrl(`/inventory/sync-from-catalog?shop_id=${shopId}`),
+    { method: "POST", headers },
+  );
+  return parseClientResponse<CatalogSyncResult>(res);
 }

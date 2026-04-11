@@ -259,3 +259,10 @@ class InboundShipmentListResponse(BaseModel):
 class StockMovementListResponse(BaseModel):
     movements: list[StockMovementRead]
     total: int
+
+
+class CatalogSyncResult(BaseModel):
+    created: int
+    already_existed: int
+    skipped_no_sku: int
+    total_variants: int
