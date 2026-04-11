@@ -227,7 +227,7 @@ function buildOrderActivityFeed(
       occurredAt: event.occurred_at,
       title: getTrackingNormLabel(event.status_norm),
       description: [
-        event.status_raw && event.status_raw !== event.status_norm ? event.status_raw : null,
+        event.status_raw && event.status_raw !== event.status_norm && !isInternalCode(event.status_raw) ? event.status_raw : null,
         event.location ? `📍 ${event.location}` : null,
       ].filter(Boolean).join(" — ") || "Actualización automática de tracking.",
       meta: "Tracking",
@@ -295,6 +295,27 @@ function getShipmentStatusColor(status: string | null | undefined): string {
   if (status === "in_transit" || status === "picked_up") return "blue";
   if (status === "exception" || status === "stalled") return "red";
   return "slate";
+}
+
+function isInternalCode(s: string): boolean {
+  return /^[a-z0-9_]+:[A-Z_]+$/i.test(s.trim()) || /^[A-Z_]{5,}$/.test(s.trim());
+}
+
+const SHIPPING_STATUS_LABELS: Record<string, string> = {
+  delivered: "Entregado",
+  out_for_delivery: "En reparto",
+  in_transit: "En tránsito",
+  picked_up: "Recogido",
+  pickup_available: "Disponible para recogida",
+  attempted_delivery: "Intento fallido",
+  exception: "Incidencia",
+  stalled: "Sin novedades",
+  label_created: "Etiqueta creada",
+};
+
+function translateShippingStatus(status: string | null | undefined): string {
+  if (!status) return "Sin envío";
+  return SHIPPING_STATUS_LABELS[status.toLowerCase()] ?? status;
 }
 
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
@@ -401,17 +422,19 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
               <span className="order-detail-stat-label">Carrier</span>
               <strong>{order.shipment?.carrier ?? "—"}</strong>
             </div>
-            <div className="order-detail-stat">
-              <span className="order-detail-stat-label">Tracking</span>
-              <strong>{order.shipment?.tracking_number ?? "Pendiente"}</strong>
-            </div>
             <div className={`order-detail-stat is-${shipmentStatusColor}`}>
               <span className="order-detail-stat-label">Estado envío</span>
-              <strong>{order.shipment?.shipping_status ?? "Sin envío"}</strong>
+              <strong>{translateShippingStatus(order.shipment?.shipping_status)}</strong>
             </div>
+            {order.shipment?.expected_delivery_date && (
+              <div className="order-detail-stat">
+                <span className="order-detail-stat-label">Entrega prevista</span>
+                <strong>{new Date(order.shipment.expected_delivery_date).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}</strong>
+              </div>
+            )}
             <div className="order-detail-stat">
-              <span className="order-detail-stat-label">Shopify sync</span>
-              <strong>{order.shipment?.shopify_sync_status === "synced" ? "Sincronizado" : order.shipment?.shopify_sync_status ?? "—"}</strong>
+              <span className="order-detail-stat-label">Shopify</span>
+              <strong>{order.shipment?.shopify_sync_status === "synced" ? "✓ Sync" : order.shipment?.shopify_sync_status === "failed" ? "✕ Error" : order.shipment ? "Pendiente" : "—"}</strong>
             </div>
           </div>
         </div>
@@ -582,39 +605,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             </Card>
           )}
 
-          {/* Design preview */}
-          {primaryItemSummary && designPreviewUrl && (
-            <Card className="stack">
-              <SectionTitle eyebrow="Diseño" title="Render de personalización" />
-              <div className="shipment-product-card">
-                <div className="shipment-product-copy">
-                  <span className="kv-label">Producto</span>
-                  <div className="shipment-product-name">{primaryItemSummary.productName}</div>
-                  <div className="shipment-product-variant">{primaryItemSummary.variantName}</div>
-                </div>
-                <div className="shipment-render-preview">
-                  <DesignPreviewWithValidation
-                    alt={`Render de ${primaryItemSummary.productName}`}
-                    itemId={primaryItem!.id}
-                    orderId={order.id}
-                    src={designPreviewUrl}
-                  />
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* Incidents (no open ones → show collapsed) */}
-          {openIncidents.length === 0 && (
-            <Card className="stack">
-              <SectionTitle eyebrow="Incidencias" title="Seguimiento" />
-              <OrderIncidentsPanel incidents={incidents} orderId={order.id} />
-            </Card>
-          )}
-
           {/* Shipment */}
-          <Card className="stack">
-            <SectionTitle eyebrow="Envío" title="Datos de shipment" />
+          <Card className={`stack order-shipment-card order-shipment-card-${shipmentStatusColor}`}>
+            <SectionTitle eyebrow="Envío" title="Estado del envío" />
             {order.shipment ? (
               <div className="order-kv-list">
                 <div className="order-kv-item">
@@ -631,7 +624,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 <div className="order-kv-item">
                   <span className="order-kv-label">Estado</span>
                   <span className={`order-kv-value order-kv-status is-${shipmentStatusColor}`}>
-                    {order.shipment.shipping_status_detail ?? order.shipment.shipping_status ?? "Etiqueta creada"}
+                    {translateShippingStatus(order.shipment.shipping_status)}
                   </span>
                 </div>
                 <div className="order-kv-item">
@@ -726,25 +719,6 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             )}
           </Card>
 
-          {/* Preparation */}
-          {order.prepared_by_employee_name ? (
-            <Card className="stack">
-              <SectionTitle eyebrow="Preparación" title="Responsable" />
-              <div className="order-kv-list">
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Preparado por</span>
-                  <span className="order-kv-value">{order.prepared_by_employee_name}</span>
-                </div>
-                {order.prepared_at ? (
-                  <div className="order-kv-item">
-                    <span className="order-kv-label">Fecha</span>
-                    <span className="order-kv-value">{formatDateTime(order.prepared_at)}</span>
-                  </div>
-                ) : null}
-              </div>
-            </Card>
-          ) : null}
-
           {/* Address */}
           <Card className="stack">
             <SectionTitle eyebrow="Dirección" title="Datos de entrega" />
@@ -785,6 +759,67 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             </div>
           </Card>
 
+          {/* Design preview */}
+          {primaryItemSummary && designPreviewUrl && (
+            <Card className="stack">
+              <SectionTitle eyebrow="Diseño" title="Render de personalización" />
+              <div className="shipment-product-card">
+                <div className="shipment-product-copy">
+                  <span className="kv-label">Producto</span>
+                  <div className="shipment-product-name">{primaryItemSummary.productName}</div>
+                  <div className="shipment-product-variant">{primaryItemSummary.variantName}</div>
+                </div>
+                <div className="shipment-render-preview">
+                  <DesignPreviewWithValidation
+                    alt={`Render de ${primaryItemSummary.productName}`}
+                    itemId={primaryItem!.id}
+                    orderId={order.id}
+                    src={designPreviewUrl}
+                  />
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Incidents (no open ones → show collapsed) */}
+          {openIncidents.length === 0 && (
+            <Card className="stack">
+              <SectionTitle eyebrow="Incidencias" title="Seguimiento" />
+              <OrderIncidentsPanel incidents={incidents} orderId={order.id} />
+            </Card>
+          )}
+
+          {/* Preparation */}
+          {order.prepared_by_employee_name ? (
+            <Card className="stack">
+              <SectionTitle eyebrow="Preparación" title="Responsable" />
+              <div className="order-kv-list">
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Preparado por</span>
+                  <span className="order-kv-value">{order.prepared_by_employee_name}</span>
+                </div>
+                {order.prepared_at ? (
+                  <div className="order-kv-item">
+                    <span className="order-kv-label">Fecha</span>
+                    <span className="order-kv-value">{formatDateTime(order.prepared_at)}</span>
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
+
+          {/* Internal note */}
+          <Card className="stack">
+            <SectionTitle eyebrow="Notas internas" title="Nota del equipo" />
+            <OrderInternalNote orderId={order.id} initialNote={order.internal_note ?? null} />
+          </Card>
+
+          {/* Activity log */}
+          <Card>
+            <SectionTitle eyebrow="Historial" title="Actividad" />
+            <ActivityTimelineLoader entityType="order" entityId={order.id} maxVisible={10} />
+          </Card>
+
           {/* Fulfillment orders */}
           {fulfillmentOrders.length > 0 && (
             <Card className="stack">
@@ -807,17 +842,6 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
               </div>
             </Card>
           )}
-          {/* Internal note */}
-          <Card className="stack">
-            <SectionTitle eyebrow="Notas internas" title="Nota del equipo" />
-            <OrderInternalNote orderId={order.id} initialNote={order.internal_note ?? null} />
-          </Card>
-
-          {/* Activity log */}
-          <Card>
-            <SectionTitle eyebrow="Historial" title="Actividad" />
-            <ActivityTimelineLoader entityType="order" entityId={order.id} maxVisible={10} />
-          </Card>
         </aside>
       </div>
     </div>

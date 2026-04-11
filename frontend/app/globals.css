@@ -19011,6 +19011,16 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .order-detail-stat.is-orange strong { color: #ea580c; }
 .order-detail-stat.is-red strong   { color: var(--danger); }
 
+/* Shipment card with color accent border based on status */
+.order-shipment-card {
+  border-top: 3px solid var(--border) !important;
+}
+.order-shipment-card-green  { border-top-color: #16a34a !important; }
+.order-shipment-card-blue   { border-top-color: #2563eb !important; }
+.order-shipment-card-orange { border-top-color: #ea580c !important; }
+.order-shipment-card-red    { border-top-color: var(--danger) !important; }
+.order-shipment-card-slate  { border-top-color: var(--border) !important; }
+
 /* Items grid */
 .order-items-grid {
   display: flex;
