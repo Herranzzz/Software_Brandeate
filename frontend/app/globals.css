@@ -11686,15 +11686,22 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 .dash-analytics-grid .exp-donut-card {
   grid-template-rows: auto auto auto;
+  background:
+    radial-gradient(ellipse at top left, color-mix(in srgb, #10b981 6%, transparent) 0%, transparent 50%),
+    var(--surface) !important;
 }
 
 .dash-analytics-grid .exp-donut-wrap {
-  margin-bottom: 6px;
+  margin-top: 4px;
+  margin-bottom: 0;
 }
 
 .dash-analytics-grid .exp-status-list {
   align-content: start;
-  gap: 8px;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .dash-health-row {
@@ -11932,19 +11939,25 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 .exp-status-list {
   display: grid;
-  gap: 8px;
+  gap: 2px;
 }
 
 .exp-status-row {
   display: grid;
-  grid-template-columns: 8px 1fr 80px auto;
+  grid-template-columns: 10px minmax(0, 1fr) 90px 36px;
   align-items: center;
   gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: background 0.1s;
+}
+.exp-status-row:hover {
+  background: color-mix(in srgb, var(--border) 50%, transparent);
 }
 
 .exp-status-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--border-strong);
   flex-shrink: 0;
@@ -11959,14 +11972,17 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .exp-status-row.is-slate   .exp-status-dot { background: #94a3b8; }
 
 .exp-status-name {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--text);
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .exp-status-bar-track {
-  height: 5px;
-  background: var(--surface-strong);
+  height: 7px;
+  background: color-mix(in srgb, var(--border) 80%, transparent);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -11975,23 +11991,25 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   height: 100%;
   border-radius: 999px;
   background: var(--accent);
-  transition: width 400ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: width 500ms cubic-bezier(0.22, 1, 0.36, 1);
+  min-width: 3px;
 }
 
-.exp-status-row.is-green   .exp-status-bar-fill { background: #10b981; }
-.exp-status-row.is-blue    .exp-status-bar-fill { background: #3b82f6; }
-.exp-status-row.is-sky     .exp-status-bar-fill { background: #0ea5e9; }
-.exp-status-row.is-indigo  .exp-status-bar-fill { background: #6366f1; }
-.exp-status-row.is-orange  .exp-status-bar-fill { background: #f59e0b; }
-.exp-status-row.is-red     .exp-status-bar-fill { background: #ef4444; }
-.exp-status-row.is-slate   .exp-status-bar-fill { background: #94a3b8; }
+.exp-status-row.is-green   .exp-status-bar-fill { background: linear-gradient(90deg, #059669, #10b981); }
+.exp-status-row.is-blue    .exp-status-bar-fill { background: linear-gradient(90deg, #1d4ed8, #3b82f6); }
+.exp-status-row.is-sky     .exp-status-bar-fill { background: linear-gradient(90deg, #0284c7, #0ea5e9); }
+.exp-status-row.is-indigo  .exp-status-bar-fill { background: linear-gradient(90deg, #4f46e5, #6366f1); }
+.exp-status-row.is-orange  .exp-status-bar-fill { background: linear-gradient(90deg, #d97706, #f59e0b); }
+.exp-status-row.is-red     .exp-status-bar-fill { background: linear-gradient(90deg, #dc2626, #ef4444); }
+.exp-status-row.is-slate   .exp-status-bar-fill { background: linear-gradient(90deg, #64748b, #94a3b8); }
 
 .exp-status-row strong {
-  font-size: 0.88rem;
-  font-weight: 700;
+  font-size: 0.95rem;
+  font-weight: 800;
   text-align: right;
   font-variant-numeric: tabular-nums;
-  color: var(--text);
+  color: var(--ink);
+  letter-spacing: -0.02em;
 }
 
 /* Flow card */
@@ -17411,10 +17429,14 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   flex-direction: column;
   align-items: flex-end;
   flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #10b981 10%, transparent);
+  border: 1px solid color-mix(in srgb, #10b981 25%, transparent);
 }
 
 .dash-delivery-rate-pill strong {
-  font-size: 1.9rem;
+  font-size: 1.6rem;
   font-weight: 800;
   letter-spacing: -0.05em;
   color: #059669;
@@ -17422,11 +17444,12 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 
 .dash-delivery-rate-pill span {
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: #059669;
+  opacity: 0.75;
 }
 
 /* ── Chart v2 ──────────────────────────────────────────────── */
