@@ -18,6 +18,12 @@ type DashboardPageProps = {
 
 type RangePreset = "today" | "7d" | "30d" | "90d";
 const INCIDENTS_SYNC_PERIOD_DAYS = 14;
+const BUSINESS_TZ = "Europe/Madrid";
+
+/** Returns YYYY-MM-DD in Spain's local timezone for any Date object. */
+function toBusinessDateString(d: Date): string {
+  return d.toLocaleDateString("sv-SE", { timeZone: BUSINESS_TZ });
+}
 
 function resolveRangePreset(value?: string): RangePreset {
   if (value === "today" || value === "30d" || value === "90d") return value;
@@ -38,13 +44,13 @@ function getRangeDays(range: RangePreset) {
 }
 
 function isWithinLastDays(value: string, days: number) {
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-  const start = new Date(end);
-  start.setDate(end.getDate() - (days - 1));
-  start.setHours(0, 0, 0, 0);
-  const time = new Date(value).getTime();
-  return time >= start.getTime() && time <= end.getTime();
+  const now = new Date();
+  const todayStr = toBusinessDateString(now);
+  const from = new Date(now);
+  from.setDate(from.getDate() - (days - 1));
+  const fromStr = toBusinessDateString(from);
+  const valueStr = toBusinessDateString(new Date(value));
+  return valueStr >= fromStr && valueStr <= todayStr;
 }
 
 function buildTimeFilters(range: RangePreset, shopId?: string, employeePeriod?: EmployeeMetricsPeriod) {
@@ -137,16 +143,16 @@ function resolveEmployeePeriod(value?: string): EmployeeMetricsPeriod {
 
 function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], days: number) {
   const today = new Date();
-  const visibleDays = Math.min(days, 7);
+  const visibleDays = Math.min(days, 30);
   const points = Array.from({ length: visibleDays }).map((_, index) => {
     const date = new Date(today);
     date.setDate(today.getDate() - ((visibleDays - 1) - index));
-    const dayKey = date.toISOString().slice(0, 10);
+    const dayKey = toBusinessDateString(date);
 
     return {
       dayKey,
-      day: date.toLocaleDateString("es-ES", { weekday: "short" }),
-      value: orders.filter((order) => order.created_at.slice(0, 10) === dayKey).length,
+      day: date.toLocaleDateString("es-ES", { weekday: "short", timeZone: BUSINESS_TZ }),
+      value: orders.filter((order) => toBusinessDateString(new Date(order.created_at)) === dayKey).length,
     };
   });
 
@@ -154,23 +160,25 @@ function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], d
 }
 
 function resolveRangeDates(days: number) {
-  const to = new Date();
-  const from = new Date(to);
-  from.setDate(to.getDate() - (days - 1));
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(from.getDate() - (days - 1));
   return {
-    dateFrom: from.toISOString().slice(0, 10),
-    dateTo: to.toISOString().slice(0, 10),
+    dateFrom: toBusinessDateString(from),
+    dateTo: toBusinessDateString(now),
   };
 }
 
 function buildChartFromAnalytics(analytics: AnalyticsOverview, days: number) {
-  const visibleDays = Math.min(days, 7);
+  const visibleDays = Math.min(days, 30);
   const rows = (analytics.charts.orders_by_day ?? []).slice(-visibleDays);
   return rows.map((point) => {
+    // Parse as Spain local noon to get the correct weekday label regardless of
+    // where the Next.js server is deployed.
     const date = new Date(`${point.date}T12:00:00`);
     return {
       dayKey: point.date,
-      day: date.toLocaleDateString("es-ES", { weekday: "short" }),
+      day: date.toLocaleDateString("es-ES", { weekday: "short", timeZone: BUSINESS_TZ }),
       value: point.total,
     };
   });

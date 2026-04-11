@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from statistics import mean
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session, load_only, selectinload
@@ -13,6 +14,9 @@ from app.models import Incident, IncidentStatus, Order, OrderItem, Shipment, Sho
 
 
 UTC = timezone.utc
+# All date grouping and boundary calculations use the business timezone so
+# that "yesterday" and "today" match what the Spain-based team expects.
+BUSINESS_TZ = ZoneInfo("Europe/Madrid")
 SENT_SLA_HOURS = 48
 DELIVERED_SLA_HOURS = 72
 TRACKING_STALLED_HOURS = 72
@@ -70,11 +74,19 @@ def _hours_between(start: datetime | None, end: datetime | None) -> float | None
 
 
 def _start_of_day(value: date) -> datetime:
-    return datetime.combine(value, time.min, tzinfo=UTC)
+    return datetime.combine(value, time.min, tzinfo=BUSINESS_TZ)
 
 
 def _end_of_day(value: date) -> datetime:
-    return datetime.combine(value, time.max, tzinfo=UTC)
+    return datetime.combine(value, time.max, tzinfo=BUSINESS_TZ)
+
+
+def _to_business_date(dt: datetime | None) -> date | None:
+    """Return the calendar date in the business timezone for the given datetime."""
+    utc = _as_utc(dt)
+    if utc is None:
+        return None
+    return utc.astimezone(BUSINESS_TZ).date()
 
 
 def _latest_event(shipment: Shipment | None) -> TrackingEvent | None:
@@ -400,7 +412,7 @@ def build_analytics_overview(
     if filters.shipping_status:
         orders = [order for order in orders if _shipment_stage(order) == filters.shipping_status]
 
-    now = datetime.now(UTC)
+    now = datetime.now(BUSINESS_TZ)
     today_key = now.date().isoformat()
     week_start = now.date() - timedelta(days=now.weekday())
     month_start = now.date().replace(day=1)
@@ -421,9 +433,9 @@ def build_analytics_overview(
     outside_sla_orders = [order for order in orders if _is_outside_delivery_sla(order, now)]
     stalled_tracking_orders = [order for order in orders if _is_tracking_stalled(order, now)]
 
-    created_today = [order for order in orders if (_as_utc(order.created_at) or now).date().isoformat() == today_key]
-    created_this_week = [order for order in orders if (_as_utc(order.created_at) or now).date() >= week_start]
-    created_this_month = [order for order in orders if (_as_utc(order.created_at) or now).date() >= month_start]
+    created_today = [order for order in orders if (_to_business_date(order.created_at) or now.date()).isoformat() == today_key]
+    created_this_week = [order for order in orders if (_to_business_date(order.created_at) or now.date()) >= week_start]
+    created_this_month = [order for order in orders if (_to_business_date(order.created_at) or now.date()) >= month_start]
 
     shipped_orders = [order for order in orders if _enum_value(order.status) == "shipped"]
     stage_buckets: dict[str, list[Order]] = defaultdict(list)
@@ -534,8 +546,7 @@ def build_analytics_overview(
     attention_shipments: list[dict[str, Any]] = []
 
     for order in orders:
-        created_at = _as_utc(order.created_at)
-        date_key = created_at.date().isoformat() if created_at else today_key
+        date_key = (_to_business_date(order.created_at) or now.date()).isoformat()
         orders_by_day_counter[date_key]["total"] += 1
         orders_by_day_counter[date_key]["personalized" if order.is_personalized else "standard"] += 1
 
@@ -562,15 +573,14 @@ def build_analytics_overview(
                 else:
                     aging_buckets["bucket_72_plus"] += 1
 
-        if order.shipment and (shipment_created_at := _as_utc(order.shipment.created_at)) is not None:
-            shipping_performance_by_day[shipment_created_at.date().isoformat()]["created_shipments"] += 1
+        if order.shipment and (shipment_biz_date := _to_business_date(order.shipment.created_at)) is not None:
+            shipping_performance_by_day[shipment_biz_date.isoformat()]["created_shipments"] += 1
 
         delivered_event = _delivered_event(order.shipment)
         transit_hours = _hours_between(order.shipment.created_at if order.shipment else None, delivered_event.occurred_at if delivered_event else None)
         total_delivery_hours = _hours_between(order.created_at, delivered_event.occurred_at if delivered_event else None)
         if delivered_event is not None:
-            delivery_day = _as_utc(delivered_event.occurred_at)
-            delivery_key = delivery_day.date().isoformat() if delivery_day else date_key
+            delivery_key = (_to_business_date(delivered_event.occurred_at) or now.date()).isoformat()
             shipping_performance_by_day[delivery_key]["delivered_orders"] += 1
             shipping_performance_by_day[delivery_key]["on_time_total"] += 1
             if total_delivery_hours is not None and total_delivery_hours <= DELIVERED_SLA_HOURS:
@@ -581,8 +591,8 @@ def build_analytics_overview(
                 shipping_performance_by_day[delivery_key]["avg_total_hours"].append(total_delivery_hours)
 
         if _has_shipping_exception(order):
-            reference_exception_at = _as_utc((_latest_event(order.shipment).occurred_at if _latest_event(order.shipment) else order.created_at))
-            exception_key = reference_exception_at.date().isoformat() if reference_exception_at else date_key
+            exception_ref = _latest_event(order.shipment).occurred_at if _latest_event(order.shipment) else order.created_at
+            exception_key = (_to_business_date(exception_ref) or now.date()).isoformat()
             shipping_performance_by_day[exception_key]["exception_orders"] += 1
 
         # Use fine-grained tracking status for shipped orders when available

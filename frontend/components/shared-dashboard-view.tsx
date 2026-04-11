@@ -259,13 +259,18 @@ export function SharedDashboardView({
           <div className="dash-chart-bars-v2">
             {chart.map((point) => {
               const pct = Math.max(8, (point.value / maxValue) * 100);
+              const showLabels = chart.length <= 10;
               return (
                 <div className="dash-chart-col-v2" key={point.dayKey}>
-                  <span className="dash-chart-val-label">{point.value > 0 ? point.value : ""}</span>
+                  <span className="dash-chart-val-label">{showLabels && point.value > 0 ? point.value : ""}</span>
                   <div className="dash-chart-bar-wrap-v2">
-                    <div className="dash-chart-bar-v2" style={{ height: `${pct}%` }} />
+                    <div
+                      className="dash-chart-bar-v2"
+                      style={{ height: `${pct}%` }}
+                      title={`${point.dayKey}: ${point.value} pedidos`}
+                    />
                   </div>
-                  <span className="dash-chart-day-label">{point.day}</span>
+                  <span className="dash-chart-day-label">{showLabels ? point.day : point.dayKey.slice(8)}</span>
                 </div>
               );
             })}
