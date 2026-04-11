@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -72,6 +72,9 @@ class ShipmentSummaryRead(BaseModel):
     weight_tier_label: str | None
     shipping_weight_declared: float | None
     package_count: int | None
+    expected_ship_date: date | None = None
+    expected_delivery_date: date | None = None
+    shipping_cost: float | None = None
     label_created_at: datetime | None
     shopify_sync_status: str | None
     shopify_sync_error: str | None

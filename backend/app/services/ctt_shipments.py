@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,27 @@ WEIGHT_BANDS: tuple[CTTWeightBand, ...] = (
 )
 
 WEIGHT_BANDS_BY_CODE = {band.code: band for band in WEIGHT_BANDS}
+
+
+def _add_business_days(from_date: date, days: int) -> date:
+    """Return from_date + N business days (Mon–Fri, no holidays)."""
+    result = from_date
+    added = 0
+    while added < days:
+        result += timedelta(days=1)
+        if result.weekday() < 5:  # Monday=0 .. Friday=4
+            added += 1
+    return result
+
+
+# Delivery window (business days) by CTT service code
+_CTT_DELIVERY_DAYS: dict[str, int] = {
+    "C24": 1,
+    "C48": 2,
+    "C14": 14,
+    "C10": 10,
+    "C14E": 2,  # Premium Empresas ≈ 2 days
+}
 
 
 class CTTShipmentOrchestrationError(Exception):
@@ -272,6 +293,10 @@ def create_ctt_shipment_for_order(
     shipment.package_count = item_count
     shipment.provider_payload_json = ctt_response
     shipment.label_created_at = datetime.now(timezone.utc)
+    today = shipment.label_created_at.date()
+    shipment.expected_ship_date = today
+    delivery_days = _CTT_DELIVERY_DAYS.get(shipping_type_code or "C24", 2)
+    shipment.expected_delivery_date = _add_business_days(today, delivery_days)
     if order.shipment is None:
         order.shipment = shipment
 

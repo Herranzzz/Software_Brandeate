@@ -131,6 +131,15 @@ class Order(Base):
         ForeignKey("shipping_rate_quotes.id", ondelete="SET NULL"),
         nullable=True,
     )
+    is_blocked: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        index=True,
+    )
+    block_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     prepared_by_employee_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,

@@ -1,7 +1,7 @@
 import secrets
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -47,6 +47,9 @@ class Shipment(Base):
     shipping_weight_declared: Mapped[float | None] = mapped_column(Float, nullable=True)
     package_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     provider_payload_json: Mapped[dict | list | None] = mapped_column(json_type, nullable=True)
+    expected_ship_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
+    expected_delivery_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
+    shipping_cost: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     label_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     shopify_sync_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     shopify_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)

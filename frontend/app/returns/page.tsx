@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 import { Card } from "@/components/card";
-import { EmptyState } from "@/components/empty-state";
 import { KpiCard } from "@/components/kpi-card";
+import { ReturnsWorkbench } from "@/components/returns-workbench";
 import { fetchReturns, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
@@ -59,6 +59,7 @@ export default async function AdminReturnsPage({ searchParams }: AdminReturnsPag
       .map((ret) => ret.updated_at)
       .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
   const shopMap = new Map(shops.map((shop) => [shop.id, shop.name]));
+  const shopMapObj = Object.fromEntries(shopMap) as Record<number, string>;
   const reasonRows = Object.entries(REASON_LABELS)
     .map(([key, label]) => ({
       key,
@@ -168,66 +169,11 @@ export default async function AdminReturnsPage({ searchParams }: AdminReturnsPag
             </div>
           </div>
 
-          {returns.length === 0 ? (
-            <EmptyState
-              title="Sin devoluciones"
-              description="No hay devoluciones que coincidan con los filtros seleccionados."
-            />
-          ) : (
-            <div className="returns-admin-list">
-              {returns.map((ret) => {
-                const statusMeta = STATUS_META[ret.status] ?? { label: ret.status, className: "badge badge-status" };
-                const shopName = shopMap.get(ret.shop_id) ?? `Tienda #${ret.shop_id}`;
-                return (
-                  <article className="returns-admin-case" key={ret.id}>
-                    <div className="returns-admin-case-top">
-                      <div className="returns-admin-case-head">
-                        <div className="returns-admin-case-id">#{ret.id}</div>
-                        <div>
-                          {ret.order ? (
-                            <Link className="table-link table-link-strong" href={`/orders/${ret.order.id}`}>
-                              {ret.order.external_id}
-                            </Link>
-                          ) : (
-                            <span className="table-primary">Pedido no vinculado</span>
-                          )}
-                          <div className="table-secondary">{shopName}</div>
-                        </div>
-                      </div>
-                      <div className="returns-admin-case-statuses">
-                        <span className={statusMeta.className}>{statusMeta.label}</span>
-                        {ret.tracking_number ? (
-                          <span className="badge badge-status badge-status-in-transit">Con tracking</span>
-                        ) : (
-                          <span className="badge badge-status badge-status-pending">Sin tracking</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="returns-admin-case-grid">
-                      <div>
-                        <span className="table-secondary">Cliente</span>
-                        <strong>{ret.customer_name ?? ret.order?.customer_name ?? "—"}</strong>
-                        <span className="table-secondary">{ret.customer_email ?? ret.order?.customer_email ?? "Sin email"}</span>
-                      </div>
-                      <div>
-                        <span className="table-secondary">Motivo</span>
-                        <strong>{REASON_LABELS[ret.reason] ?? ret.reason}</strong>
-                        <span className="table-secondary">Actualizado {formatDateTime(ret.updated_at)}</span>
-                      </div>
-                      <div>
-                        <span className="table-secondary">Tracking devolución</span>
-                        <strong>{ret.tracking_number ?? "Pendiente"}</strong>
-                        <span className="table-secondary">Creado {formatDateTime(ret.created_at)}</span>
-                      </div>
-                    </div>
-
-                    {ret.notes ? <p className="returns-admin-case-notes">{ret.notes}</p> : null}
-                  </article>
-                );
-              })}
-            </div>
-          )}
+          <ReturnsWorkbench
+            returns={returns}
+            shopMap={shopMapObj}
+            statusFilter={params.status ?? ""}
+          />
         </Card>
 
         <div className="returns-admin-side">

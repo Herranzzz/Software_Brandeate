@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { AutomationFlagBadge } from "@/components/automation-flag-badge";
 import { ActivityTimelineLoader } from "@/components/activity-timeline";
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { OrderBlockButton } from "@/components/order-block-button";
+import { SlaBadge } from "@/components/sla-badge";
 import { Card } from "@/components/card";
 import { CopyButton } from "@/components/copy-button";
 import { CttShipmentButton } from "@/components/ctt-shipment-button";
@@ -333,11 +335,18 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             <div className="order-detail-badges">
               <StatusBadge status={order.status} />
               <PersonalizationBadge isPersonalized={order.is_personalized} />
+              {order.is_blocked && (
+                <span className="order-detail-blocked-badge">Bloqueado</span>
+              )}
               {openIncidents.length > 0 && (
                 <span className="order-detail-incident-badge">
                   {openIncidents.length} incidencia{openIncidents.length !== 1 ? "s" : ""}
                 </span>
               )}
+              <SlaBadge
+                expectedDeliveryDate={order.shipment?.expected_delivery_date}
+                shippingStatus={order.shipment?.shipping_status}
+              />
             </div>
           </div>
 
@@ -380,10 +389,19 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
 
         <div className="order-detail-hero-actions">
           <Link className="button button-secondary" href="/orders">← Volver</Link>
+          <Link className="button button-secondary" href={`/orders/${order.id}/packing-slip`} rel="noreferrer" target="_blank">Albarán</Link>
+          <OrderBlockButton order={order} />
           <CttShipmentButton order={order} />
           <OrderActionModals orderId={order.id} shipment={order.shipment} />
         </div>
       </div>
+
+      {order.is_blocked && (
+        <div className="order-blocked-alert">
+          <strong>Pedido bloqueado</strong>
+          {order.block_reason && <span> — {order.block_reason}</span>}
+        </div>
+      )}
 
       <div className="detail-grid">
         <div className="stack">
@@ -599,6 +617,26 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                   <span className="order-kv-label">Tramo</span>
                   <span className="order-kv-value">{order.shipment.weight_tier_label ?? "No definido"}</span>
                 </div>
+                {order.shipment.expected_delivery_date && (
+                  <div className="order-kv-item">
+                    <span className="order-kv-label">Entrega prevista</span>
+                    <span className="order-kv-value order-kv-actions">
+                      {new Date(order.shipment.expected_delivery_date).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })}
+                      <SlaBadge
+                        expectedDeliveryDate={order.shipment.expected_delivery_date}
+                        shippingStatus={order.shipment.shipping_status}
+                      />
+                    </span>
+                  </div>
+                )}
+                {order.shipment.shipping_cost != null && (
+                  <div className="order-kv-item">
+                    <span className="order-kv-label">Coste envío</span>
+                    <span className="order-kv-value">
+                      {new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(order.shipment.shipping_cost)}
+                    </span>
+                  </div>
+                )}
                 <div className="order-kv-item">
                   <span className="order-kv-label">Tracking público</span>
                   <span className="order-kv-value order-kv-actions">

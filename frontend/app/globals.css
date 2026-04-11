@@ -19389,3 +19389,102 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   cursor: pointer;
 }
 .button-danger-secondary:hover { background: var(--danger-soft); }
+
+
+/* ── Sprint 2: SLA Badge ───────────────────────────────────────────────────── */
+.sla-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.sla-overdue { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.sla-today   { background: #fff7ed; color: #ea580c; border: 1px solid #fed7aa; }
+.sla-tomorrow { background: #fefce8; color: #ca8a04; border: 1px solid #fef08a; }
+.sla-ok      { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+
+
+/* ── Sprint 2: Order Blocked ───────────────────────────────────────────────── */
+.order-detail-blocked-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+.order-blocked-alert {
+  background: #fff7ed;
+  border: 1px solid #f97316;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: #c2410c;
+  margin-bottom: 4px;
+}
+.button-warning {
+  background: #ea580c;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.button-warning:hover { background: #c2410c; }
+.button-warning:disabled { opacity: 0.6; cursor: not-allowed; }
+
+
+/* ── Sprint 2: Returns Workbench bulk actions ──────────────────────────────── */
+.returns-bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.returns-bulk-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.returns-bulk-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.button-sm {
+  font-size: 12px;
+  padding: 5px 12px;
+}
+.returns-case-check {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+  cursor: pointer;
+}
+.returns-admin-case.is-selected {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+.returns-admin-case-inspection {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  background: #f1f5f9;
+  border-radius: 4px;
+}

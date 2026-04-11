@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_accessible_shop_ids, get_db, resolve_shop_scope
 from app.models.return_ import Return, ReturnStatus
-from app.schemas.return_ import ReturnCreate, ReturnRead, ReturnUpdate
+from app.schemas.return_ import ReturnBulkResult, ReturnBulkStatusUpdate, ReturnCreate, ReturnRead, ReturnUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +154,50 @@ def update_return(
         _push_return_status_tags(db=db, ret=ret, new_status=new_status)
 
     return db.scalar(_return_query().where(Return.id == return_id))
+
+
+@router.post("/bulk/status", response_model=ReturnBulkResult)
+def bulk_update_return_status(
+    payload: ReturnBulkStatusUpdate,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> ReturnBulkResult:
+    updated_ids: list[int] = []
+    not_found_ids: list[int] = []
+    now = datetime.now(timezone.utc)
+
+    for return_id in payload.ids:
+        try:
+            ret = db.get(Return, return_id)
+        except ProgrammingError as exc:
+            if _is_missing_returns_table_error(exc):
+                raise _returns_feature_unavailable() from exc
+            raise
+        if ret is None:
+            not_found_ids.append(return_id)
+            continue
+        if accessible_shop_ids is not None and ret.shop_id not in accessible_shop_ids:
+            not_found_ids.append(return_id)
+            continue
+        previous_status = ret.status
+        ret.status = payload.status
+        ret.updated_at = now
+        updated_ids.append(return_id)
+        if ret.status != previous_status and ret.order_id is not None:
+            try:
+                _push_return_status_tags(db=db, ret=ret, new_status=payload.status)
+            except Exception:  # noqa: BLE001
+                pass
+
+    try:
+        db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        if _is_missing_returns_table_error(exc):
+            raise _returns_feature_unavailable() from exc
+        raise
+
+    return ReturnBulkResult(updated=updated_ids, not_found=not_found_ids)
 
 
 def _push_return_status_tags(*, db: Session, ret: Return, new_status: ReturnStatus) -> None:

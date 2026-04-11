@@ -46,6 +46,7 @@ from app.models import (
 )
 from app.schemas.incident import IncidentRead
 from app.schemas.order import (
+    OrderBlockUpdate,
     OrderCreate,
     OrderDetailRead,
     OrderListRead,
@@ -831,6 +832,59 @@ def update_order_priority(
         action="updated", actor=current_user,
         summary=f"{current_user.name} cambió prioridad a {payload.priority.value}",
         detail={"field": "priority", "old": old_priority.value, "new": payload.priority.value},
+    )
+    db.commit()
+    return db.scalar(_order_detail_query().where(Order.id == order_id))
+
+
+@router.post("/{order_id}/block", response_model=OrderDetailRead)
+def block_order(
+    order_id: int,
+    payload: OrderBlockUpdate,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
+) -> Order:
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+
+    order.is_blocked = True
+    order.block_reason = payload.reason
+    _touch_order_activity(order, current_user)
+    log_activity(
+        db, entity_type="order", entity_id=order.id, shop_id=order.shop_id,
+        action="updated", actor=current_user,
+        summary=f"{current_user.name} bloqueó el pedido" + (f": {payload.reason}" if payload.reason else ""),
+        detail={"field": "is_blocked", "new": True, "reason": payload.reason},
+    )
+    db.commit()
+    return db.scalar(_order_detail_query().where(Order.id == order_id))
+
+
+@router.post("/{order_id}/unblock", response_model=OrderDetailRead)
+def unblock_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
+) -> Order:
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+
+    order.is_blocked = False
+    order.block_reason = None
+    _touch_order_activity(order, current_user)
+    log_activity(
+        db, entity_type="order", entity_id=order.id, shop_id=order.shop_id,
+        action="updated", actor=current_user,
+        summary=f"{current_user.name} desbloqueó el pedido",
+        detail={"field": "is_blocked", "new": False},
     )
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))

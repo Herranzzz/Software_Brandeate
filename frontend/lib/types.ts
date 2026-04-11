@@ -52,6 +52,9 @@ export type Shipment = {
   shipping_weight_declared: number | null;
   package_count: number | null;
   provider_payload_json?: unknown;
+  expected_ship_date: string | null;
+  expected_delivery_date: string | null;
+  shipping_cost: number | null;
   label_created_at: string | null;
   shopify_sync_status: string | null;
   shopify_sync_error: string | null;
@@ -174,6 +177,8 @@ export type Order = {
   shipping_rate_estimated_days_max: number | null;
   shipping_rate_quote_id: number | null;
   pickup_point_json: Record<string, unknown> | null;
+  is_blocked: boolean;
+  block_reason: string | null;
   note: string | null;
   tags_json: string[] | null;
   channel: string | null;
@@ -714,6 +719,7 @@ export type Return = {
   notes: string | null;
   status: ReturnStatus;
   tracking_number: string | null;
+  inspection_notes: string | null;
   created_at: string;
   updated_at: string;
   order: {

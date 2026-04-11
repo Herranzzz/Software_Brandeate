@@ -22,6 +22,7 @@ class ReturnRead(BaseModel):
     notes: str | None
     status: str
     tracking_number: str | None
+    inspection_notes: str | None = None
     created_at: datetime
     updated_at: datetime
     order: ReturnOrderRead | None = None
@@ -44,3 +45,14 @@ class ReturnUpdate(BaseModel):
     notes: str | None = None
     tracking_number: str | None = None
     reason: ReturnReason | None = None
+    inspection_notes: str | None = None
+
+
+class ReturnBulkStatusUpdate(BaseModel):
+    ids: list[int]
+    status: ReturnStatus
+
+
+class ReturnBulkResult(BaseModel):
+    updated: list[int]
+    not_found: list[int]

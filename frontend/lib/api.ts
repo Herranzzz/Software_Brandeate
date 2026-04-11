@@ -603,6 +603,37 @@ export async function fetchReturnById(id: string | number): Promise<Return | nul
 }
 
 
+export async function bulkUpdateReturnStatus(ids: number[], returnStatus: string): Promise<{ updated: number[]; not_found: number[] }> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl("/returns/bulk/status"), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, status: returnStatus }),
+  });
+  return parseResponse(res);
+}
+
+export async function blockOrder(orderId: number, reason?: string): Promise<Order> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/orders/${orderId}/block`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: reason || null }),
+  });
+  return parseResponse<Order>(res);
+}
+
+export async function unblockOrder(orderId: number): Promise<Order> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/orders/${orderId}/unblock`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  return parseResponse<Order>(res);
+}
+
+
 // ── SGA / Inventory ──────────────────────────────────────────────────────────
 
 export async function fetchInventoryItems(params?: {
