@@ -1,75 +1,98 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useTransition } from "react";
 
-import type { TrackingCTA } from "@/lib/tenant-branding";
-
-const CTA_STORAGE_KEY = "brandeate_tracking_cta_v1";
-type StoredCTAConfig = Record<string, TrackingCTA>;
+import { useToast } from "@/components/toast";
+import { updateShopTrackingConfig } from "@/lib/api";
+import type { TrackingConfig } from "@/lib/types";
 
 type PortalTrackingSettingsProps = {
-  shopSlug: string;
+  shopId: number;
   shopName: string;
+  initialConfig: TrackingConfig | null;
   publicTrackingExample?: string | null;
 };
 
-function loadConfig(shopSlug: string): TrackingCTA {
-  try {
-    const raw = localStorage.getItem(CTA_STORAGE_KEY);
-    if (raw) {
-      const store = JSON.parse(raw) as StoredCTAConfig;
-      return store[shopSlug] ?? {};
-    }
-  } catch { /* ignore */ }
-  return {};
-}
+export function PortalTrackingSettings({
+  shopId,
+  shopName,
+  initialConfig,
+  publicTrackingExample,
+}: PortalTrackingSettingsProps) {
+  const { toast } = useToast();
+  const [isPending, startTransition] = useTransition();
 
-function saveConfig(shopSlug: string, config: TrackingCTA) {
-  try {
-    const raw = localStorage.getItem(CTA_STORAGE_KEY);
-    const store: StoredCTAConfig = raw ? (JSON.parse(raw) as StoredCTAConfig) : {};
-    store[shopSlug] = config;
-    localStorage.setItem(CTA_STORAGE_KEY, JSON.stringify(store));
-  } catch { /* ignore */ }
-}
-
-export function PortalTrackingSettings({ shopSlug, shopName, publicTrackingExample }: PortalTrackingSettingsProps) {
-  const [ctaUrl, setCtaUrl] = useState("");
-  const [ctaLabel, setCtaLabel] = useState("");
-  const [discountCode, setDiscountCode] = useState("");
-  const [discountText, setDiscountText] = useState("");
-  const [message, setMessage] = useState("");
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    const cfg = loadConfig(shopSlug);
-    setCtaUrl(cfg.ctaUrl ?? "");
-    setCtaLabel(cfg.ctaLabel ?? "");
-    setDiscountCode(cfg.discountCode ?? "");
-    setDiscountText(cfg.discountText ?? "");
-    setMessage(cfg.message ?? "");
-  }, [shopSlug]);
+  const [accentColor, setAccentColor] = useState(initialConfig?.accent_color ?? "");
+  const [logoUrl, setLogoUrl] = useState(initialConfig?.logo_url ?? "");
+  const [ctaUrl, setCtaUrl] = useState(initialConfig?.cta_url ?? "");
+  const [ctaLabel, setCtaLabel] = useState(initialConfig?.cta_label ?? "");
+  const [discountCode, setDiscountCode] = useState(initialConfig?.discount_code ?? "");
+  const [discountText, setDiscountText] = useState(initialConfig?.discount_text ?? "");
+  const [message, setMessage] = useState(initialConfig?.message ?? "");
+  const [displayName, setDisplayName] = useState(initialConfig?.display_name ?? "");
 
   function handleSave() {
-    const config: TrackingCTA = {
-      ctaUrl: ctaUrl.trim() || undefined,
-      ctaLabel: ctaLabel.trim() || undefined,
-      discountCode: discountCode.trim() || undefined,
-      discountText: discountText.trim() || undefined,
-      message: message.trim() || undefined,
-    };
-    saveConfig(shopSlug, config);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    startTransition(async () => {
+      try {
+        const config: TrackingConfig = {
+          accent_color: accentColor.trim() || undefined,
+          logo_url: logoUrl.trim() || undefined,
+          cta_url: ctaUrl.trim() || undefined,
+          cta_label: ctaLabel.trim() || undefined,
+          discount_code: discountCode.trim() || undefined,
+          discount_text: discountText.trim() || undefined,
+          message: message.trim() || undefined,
+          display_name: displayName.trim() || undefined,
+        };
+        await updateShopTrackingConfig(shopId, config);
+        toast("Configuración de tracking guardada", "success");
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "Error al guardar", "error");
+      }
+    });
   }
 
   return (
     <div className="stack">
-      <div className="info-banner">
-        Personaliza lo que ve tu cliente cuando consulta el estado de su envío. Esta configuración se almacena en tu navegador para previsualización — escríbenos a <strong>hola@brandeate.com</strong> para activarla en producción.
-      </div>
-
       <div className="crm-form-grid">
+        <div className="field">
+          <label htmlFor="trk-display-name">Nombre de marca</label>
+          <input
+            id="trk-display-name"
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder={shopName}
+            value={displayName}
+          />
+          <small className="table-secondary">Se muestra en la cabecera del tracking en lugar del nombre de tienda.</small>
+        </div>
+        <div className="field">
+          <label htmlFor="trk-accent-color">Color principal</label>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              id="trk-accent-color"
+              type="color"
+              value={accentColor || "#ef4444"}
+              onChange={(e) => setAccentColor(e.target.value)}
+              style={{ width: 40, height: 34, padding: 2, border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer" }}
+            />
+            <input
+              onChange={(e) => setAccentColor(e.target.value)}
+              placeholder="#ef4444"
+              value={accentColor}
+              style={{ flex: 1 }}
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="trk-logo-url">URL del logo</label>
+          <input
+            id="trk-logo-url"
+            onChange={(e) => setLogoUrl(e.target.value)}
+            placeholder="https://mi-tienda.com/logo.png"
+            type="url"
+            value={logoUrl}
+          />
+        </div>
         <div className="field">
           <label htmlFor="trk-cta-url">URL de tu tienda</label>
           <input
@@ -79,7 +102,7 @@ export function PortalTrackingSettings({ shopSlug, shopName, publicTrackingExamp
             type="url"
             value={ctaUrl}
           />
-          <small className="table-secondary">Botón "Volver a la tienda" al final del tracking.</small>
+          <small className="table-secondary">Botón &quot;Volver a la tienda&quot; al final del tracking.</small>
         </div>
         <div className="field">
           <label htmlFor="trk-cta-label">Texto del botón CTA</label>
@@ -123,8 +146,8 @@ export function PortalTrackingSettings({ shopSlug, shopName, publicTrackingExamp
       </div>
 
       <div className="actions-row">
-        <button className="button" onClick={handleSave} type="button">
-          {saved ? "✓ Guardado" : "Guardar configuración"}
+        <button className="button" onClick={handleSave} type="button" disabled={isPending}>
+          {isPending ? "Guardando…" : "Guardar configuración"}
         </button>
         {publicTrackingExample && (
           <a
@@ -137,12 +160,6 @@ export function PortalTrackingSettings({ shopSlug, shopName, publicTrackingExamp
           </a>
         )}
       </div>
-
-      {saved && (
-        <div className="feedback feedback-success">
-          Configuración guardada. Abre la página de tracking en este dispositivo para ver los cambios en tiempo real.
-        </div>
-      )}
     </div>
   );
 }

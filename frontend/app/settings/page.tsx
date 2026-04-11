@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { ShopShippingSettingsForm } from "@/components/shop-shipping-settings-form";
 import { ShippingRulesManager } from "@/components/shipping-rules-manager";
 import { ShopifySyncPanel } from "@/components/shopify-sync-panel";
+import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 import { fetchShops, fetchShopifyIntegrations } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
@@ -218,6 +219,29 @@ export default async function SettingsPage() {
           })}
         </div>
       </Card>
+
+      {/* Webhooks */}
+      {shops.length > 0 && (
+        <Card>
+          <div className="card-header">
+            <span className="eyebrow">Integraciones</span>
+            <h3 className="section-title section-title-small">Webhooks salientes</h3>
+            <p className="subtitle">
+              Configura endpoints para recibir notificaciones cuando ocurran eventos (cambios de estado, envíos, incidencias).
+            </p>
+          </div>
+          <div className="stack">
+            {shops.map((shop) => (
+              <div key={shop.id}>
+                {shops.length > 1 && (
+                  <span className="eyebrow" style={{ marginBottom: 8, display: "block" }}>{shop.name}</span>
+                )}
+                <WebhookSettingsPanel shopId={shop.id} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

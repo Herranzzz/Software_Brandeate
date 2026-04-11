@@ -11,7 +11,8 @@ from app.schemas.ctt import (
     CTTCreateShippingRequest,
     CTTCreateShippingResponse,
 )
-from app.services.ctt import CTTError, get_label
+from app.core.config import get_settings
+from app.services.ctt import CTTError, get_label, get_pod
 from app.services.ctt_shipments import (
     CTTShipmentDuplicateError,
     CTTShipmentOrchestrationError,
@@ -194,4 +195,43 @@ def get_ctt_label(
         content=file_bytes,
         media_type=media_type,
         headers={"Content-Disposition": f'inline; filename="label-{tracking_code}.{extension}"'},
+    )
+
+
+@router.get("/shippings/{tracking_code}/pod")
+def get_ctt_pod(
+    tracking_code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+) -> Response:
+    """Return the Proof of Delivery (POD) PDF for a delivered shipment."""
+    shipment = db.scalar(
+        select(Shipment)
+        .options(selectinload(Shipment.order))
+        .where(Shipment.tracking_number == tracking_code)
+    )
+    if shipment is None or shipment.order is None:
+        raise HTTPException(status_code=404, detail="Envío no encontrado")
+
+    destination_postal_code = (shipment.order.shipping_postal_code or "").strip()
+    if not destination_postal_code:
+        raise HTTPException(status_code=400, detail="Código postal de destino no disponible")
+
+    settings = get_settings()
+    client_center_code = (settings.ctt_client_center_code or "").strip()
+    if not client_center_code:
+        raise HTTPException(status_code=400, detail="client_center_code no configurado")
+
+    try:
+        pdf_bytes = get_pod(tracking_code, client_center_code, destination_postal_code)
+    except CTTError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if pdf_bytes is None:
+        raise HTTPException(status_code=404, detail="POD no disponible todavía")
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="pod-{tracking_code}.pdf"'},
     )

@@ -192,8 +192,9 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
               </div>
             </div>
             <PortalTrackingSettings
-              shopSlug={primaryShop.slug}
+              shopId={primaryShop.id}
               shopName={primaryShop.name}
+              initialConfig={primaryShop.tracking_config ?? null}
               publicTrackingExample={null}
             />
           </Card>

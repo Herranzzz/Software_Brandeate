@@ -1,4 +1,4 @@
-import type { Shop } from "@/lib/types";
+import type { Shop, TrackingConfig } from "@/lib/types";
 
 export type TrackingCTA = {
   message?: string;
@@ -49,9 +49,19 @@ function getShopKey(shop?: Pick<Shop, "slug" | "name" | "id"> | null) {
   return String(shop.id);
 }
 
-export function getTenantBranding(shop?: Pick<Shop, "slug" | "name" | "id"> | null): TenantBranding {
+export function getTenantBranding(
+  shop?: Pick<Shop, "slug" | "name" | "id"> | null,
+  trackingConfig?: TrackingConfig | null,
+): TenantBranding {
   const overrides = brandingBySlug[getShopKey(shop)] ?? {};
-  const displayName = overrides.displayName ?? shop?.name ?? defaultBranding.displayName;
+
+  // DB config takes priority over hardcoded slug overrides
+  const displayName =
+    trackingConfig?.display_name || overrides.displayName || shop?.name || defaultBranding.displayName;
+  const accentColor =
+    trackingConfig?.accent_color || overrides.accentColor || defaultBranding.accentColor;
+  const logoUrl = trackingConfig?.logo_url || overrides.logoUrl;
+
   const inferredLogoMark =
     displayName
       .split(/\s+/)
@@ -62,10 +72,23 @@ export function getTenantBranding(shop?: Pick<Shop, "slug" | "name" | "id"> | nu
 
   const logoMark = overrides.logoMark ?? inferredLogoMark;
 
+  const tracking: TrackingCTA | undefined = trackingConfig
+    ? {
+        ctaUrl: trackingConfig.cta_url,
+        ctaLabel: trackingConfig.cta_label,
+        discountCode: trackingConfig.discount_code,
+        discountText: trackingConfig.discount_text,
+        message: trackingConfig.message,
+      }
+    : overrides.tracking;
+
   return {
     ...defaultBranding,
     ...overrides,
     displayName,
+    accentColor,
+    logoUrl,
     logoMark,
+    tracking,
   };
 }

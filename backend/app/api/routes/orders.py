@@ -62,7 +62,9 @@ from app.schemas.pick_batch import (
     PickBatchCreate,
     PickBatchRead,
 )
+from app.services.activity import log_activity
 from app.services.automation_rules import evaluate_order_automation_rules, reconcile_incident_lifecycle
+from app.services.webhooks import dispatch_webhook
 from app.services.orders import infer_order_is_personalized, sync_order_item_design_statuses
 
 
@@ -756,10 +758,22 @@ def update_order_status(
     if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
+    old_status = order.status
     order.status = payload.status
     _touch_order_activity(order, current_user, mark_prepared=payload.status == OrderStatus.ready_to_ship)
     evaluate_order_automation_rules(db=db, order=order, source="order_status_update")
+    log_activity(
+        db, entity_type="order", entity_id=order.id, shop_id=order.shop_id,
+        action="status_changed", actor=current_user,
+        summary=f"{current_user.name} cambió estado de {old_status.value} a {payload.status.value}",
+        detail={"old": old_status.value, "new": payload.status.value},
+    )
     db.commit()
+    if order.shop_id:
+        dispatch_webhook(db, shop_id=order.shop_id, event="order.status_changed", payload={
+            "order_id": order.id, "external_id": order.external_id,
+            "old_status": old_status.value, "new_status": payload.status.value,
+        })
     return db.scalar(_order_detail_query().where(Order.id == order_id))
 
 
@@ -777,6 +791,7 @@ def update_order_production_status(
     if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
+    old_prod = order.production_status
     order.production_status = payload.production_status
     _touch_order_activity(
         order,
@@ -784,6 +799,12 @@ def update_order_production_status(
         mark_prepared=payload.production_status in {ProductionStatus.packed, ProductionStatus.completed},
     )
     evaluate_order_automation_rules(db=db, order=order, source="order_production_update")
+    log_activity(
+        db, entity_type="order", entity_id=order.id, shop_id=order.shop_id,
+        action="status_changed", actor=current_user,
+        summary=f"{current_user.name} cambió producción de {old_prod.value} a {payload.production_status.value}",
+        detail={"field": "production_status", "old": old_prod.value, "new": payload.production_status.value},
+    )
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))
 
@@ -802,8 +823,15 @@ def update_order_priority(
     if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
+    old_priority = order.priority
     order.priority = payload.priority
     _touch_order_activity(order, current_user)
+    log_activity(
+        db, entity_type="order", entity_id=order.id, shop_id=order.shop_id,
+        action="updated", actor=current_user,
+        summary=f"{current_user.name} cambió prioridad a {payload.priority.value}",
+        detail={"field": "priority", "old": old_priority.value, "new": payload.priority.value},
+    )
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))
 

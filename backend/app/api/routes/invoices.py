@@ -12,6 +12,7 @@ from app.schemas.invoice import (
     InvoiceSendRequest,
     InvoiceUpdate,
 )
+from app.services.activity import log_activity
 from app.services.email import send_invoice_email
 
 
@@ -113,6 +114,11 @@ def create_invoice(
             sort_order=item_data.sort_order,
         ))
 
+    log_activity(
+        db, entity_type="invoice", entity_id=invoice.id, shop_id=invoice.shop_id,
+        action="created", actor=_user,
+        summary=f"Factura {invoice_number} creada como borrador",
+    )
     db.commit()
     db.refresh(invoice)
     return invoice
@@ -212,6 +218,11 @@ def send_invoice(
 
     invoice.status = InvoiceStatus.sent
     invoice.sent_at = datetime.now(timezone.utc)
+    log_activity(
+        db, entity_type="invoice", entity_id=invoice.id, shop_id=invoice.shop_id,
+        action="sent", actor=_user,
+        summary=f"Factura {invoice.invoice_number} enviada a {recipient}",
+    )
     db.commit()
     db.refresh(invoice)
     return invoice
@@ -229,6 +240,11 @@ def mark_invoice_paid(
 
     invoice.status = InvoiceStatus.paid
     invoice.paid_at = datetime.now(timezone.utc)
+    log_activity(
+        db, entity_type="invoice", entity_id=invoice.id, shop_id=invoice.shop_id,
+        action="paid", actor=_user,
+        summary=f"Factura {invoice.invoice_number} marcada como pagada",
+    )
     db.commit()
     db.refresh(invoice)
     return invoice
@@ -245,6 +261,11 @@ def cancel_invoice(
         raise HTTPException(status_code=400, detail="No se puede cancelar una factura pagada.")
 
     invoice.status = InvoiceStatus.cancelled
+    log_activity(
+        db, entity_type="invoice", entity_id=invoice.id, shop_id=invoice.shop_id,
+        action="cancelled", actor=_user,
+        summary=f"Factura {invoice.invoice_number} cancelada",
+    )
     db.commit()
     db.refresh(invoice)
     return invoice

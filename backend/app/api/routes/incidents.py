@@ -8,6 +8,7 @@ from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, requ
 from app.core.config import get_settings
 from app.models import Incident, IncidentPriority, IncidentStatus, IncidentType, Order, Shipment, User
 from app.schemas.incident import IncidentCreate, IncidentRead, IncidentUpdate
+from app.services.activity import log_activity
 from app.services.automation_rules import evaluate_order_automation_rules, reconcile_incident_lifecycle
 
 
@@ -49,6 +50,12 @@ def create_incident(
         last_touched_at=datetime.now(timezone.utc),
     )
     db.add(incident)
+    db.flush()
+    log_activity(
+        db, entity_type="order", entity_id=payload.order_id, shop_id=order.shop_id,
+        action="escalated", actor=current_user,
+        summary=f"{current_user.name} creó incidencia: {payload.title}",
+    )
     db.commit()
     return db.scalar(_incident_query().where(Incident.id == incident.id))
 
@@ -198,5 +205,10 @@ def update_incident(
     incident.last_touched_by_employee_id = current_user.id
     incident.last_touched_at = datetime.now(timezone.utc)
     incident.updated_at = datetime.now(timezone.utc)
+    log_activity(
+        db, entity_type="incident", entity_id=incident.id, shop_id=incident.order.shop_id,
+        action="updated", actor=current_user,
+        summary=f"{current_user.name} actualizó incidencia #{incident.id}",
+    )
     db.commit()
     return db.scalar(_incident_query().where(Incident.id == incident_id))

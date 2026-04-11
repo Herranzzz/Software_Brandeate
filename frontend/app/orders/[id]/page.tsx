@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AutomationFlagBadge } from "@/components/automation-flag-badge";
+import { ActivityTimelineLoader } from "@/components/activity-timeline";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Card } from "@/components/card";
 import { CopyButton } from "@/components/copy-button";
 import { CttShipmentButton } from "@/components/ctt-shipment-button";
@@ -16,7 +18,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { ShippingOptionsPanel } from "@/components/shipping-options-panel";
 import { fetchOrderById, fetchOrderIncidents, fetchShopCatalogProducts } from "@/lib/api";
 import { getAuthToken, requireAdminUser } from "@/lib/auth";
-import { getOrderShipmentLabelUrl } from "@/lib/ctt";
+import { getOrderShipmentLabelUrl, getShipmentPodUrl } from "@/lib/ctt";
 import { formatDateTime, getDesignStatusLabel, sortTrackingEvents } from "@/lib/format";
 import { getVisibleAssets, getPrimaryDesignPreview } from "@/lib/personalization";
 import type { OrderItem, ShopCatalogProduct } from "@/lib/types";
@@ -296,6 +298,8 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
   const shipmentLabelUrl = getOrderShipmentLabelUrl(order);
   const shipmentLabelDownloadUrl = getOrderShipmentLabelUrl(order, { download: true });
   const shipmentLabelThermalUrl = getOrderShipmentLabelUrl(order, { download: true, labelType: "ZPL" });
+  const shipmentPodUrl = getShipmentPodUrl(order.shipment);
+  const isDelivered = order.shipment?.shipping_status === "delivered";
   const shippingSnapshot = getShippingSnapshot(order);
   const shopifyAddressLines = buildAddressLines([
     shippingSnapshot?.company,
@@ -316,6 +320,10 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
 
   return (
     <div className="stack">
+      <Breadcrumbs items={[
+        { label: "Pedidos", href: "/orders" },
+        { label: `#${order.external_id}` },
+      ]} />
 
       {/* ── Hero ──────────────────────────────────────────────────────── */}
       <div className="order-detail-hero">
@@ -612,6 +620,15 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                     ) : "No disponible"}
                   </span>
                 </div>
+                {isDelivered && shipmentPodUrl ? (
+                  <div className="order-kv-item">
+                    <span className="order-kv-label">Justificante de entrega</span>
+                    <span className="order-kv-value order-kv-actions">
+                      <a className="table-link" href={shipmentPodUrl} rel="noreferrer" target="_blank">Ver PDF</a>
+                      <a className="table-link" download href={shipmentPodUrl} rel="noreferrer" target="_blank">Descargar</a>
+                    </span>
+                  </div>
+                ) : null}
                 <div className="order-kv-item">
                   <span className="order-kv-label">Shopify</span>
                   <span className="order-kv-value">
@@ -723,6 +740,11 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
               </div>
             </Card>
           )}
+          {/* Activity log */}
+          <Card>
+            <SectionTitle eyebrow="Historial" title="Actividad" />
+            <ActivityTimelineLoader entityType="order" entityId={order.id} maxVisible={10} />
+          </Card>
         </aside>
       </div>
     </div>

@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PriorityBadge } from "@/components/priority-badge";
 import { DesignPreviewWithValidation } from "@/components/design-preview-with-validation";
 import { StatusBadge } from "@/components/status-badge";
+import { useToast } from "@/components/toast";
 import { getOrderShipmentLabelUrl } from "@/lib/ctt";
 import {
   formatDateTime,
@@ -332,6 +333,7 @@ export function OrdersWorkbench({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { toast } = useToast();
   const [orders, setOrders] = useState(initialOrders);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
@@ -544,6 +546,7 @@ export function OrdersWorkbench({
       production_status: productionStatus,
     }, (updated) => {
       updateOrdersFromBulk(updated);
+      toast(`Producción actualizada (${updated.length})`, "success");
     });
   }
 
@@ -556,6 +559,7 @@ export function OrdersWorkbench({
       priority,
     }, (updated) => {
       updateOrdersFromBulk(updated);
+      toast(`Prioridad actualizada (${updated.length})`, "success");
     });
   }
 

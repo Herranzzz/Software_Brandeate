@@ -10,6 +10,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { ToastProvider } from "@/components/toast";
+
 type ThemeMode = "light" | "dark";
 
 type LayoutStateValue = {
@@ -79,7 +81,11 @@ export function LayoutStateProvider({ children }: { children: ReactNode }) {
     [isSidebarCollapsed, isReady, theme, toggleSidebar, toggleTheme],
   );
 
-  return <LayoutStateContext.Provider value={value}>{children}</LayoutStateContext.Provider>;
+  return (
+    <LayoutStateContext.Provider value={value}>
+      <ToastProvider>{children}</ToastProvider>
+    </LayoutStateContext.Provider>
+  );
 }
 
 export function useLayoutState() {

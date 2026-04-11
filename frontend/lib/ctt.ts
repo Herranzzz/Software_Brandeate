@@ -63,6 +63,15 @@ export function getShipmentLabelUrl(
   return `${baseUrl}?${params.toString()}`;
 }
 
+export function getShipmentPodUrl(
+  shipment: Shipment | null | undefined,
+): string | null {
+  if (!shipment || !isCttShipment(shipment) || !shipment.tracking_number) {
+    return null;
+  }
+  return `/api/ctt/shippings/${shipment.tracking_number}/pod`;
+}
+
 export function getOrderShipmentLabelUrl(
   order: Order,
   options?: { download?: boolean; labelType?: CttLabelFormat; modelType?: "SINGLE" | "MULTI4" },

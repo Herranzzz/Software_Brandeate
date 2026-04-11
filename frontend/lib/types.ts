@@ -265,14 +265,32 @@ export type PublicTracking = {
     occurred_at: string;
     created_at: string;
   }>;
+  shop?: {
+    id: number;
+    name: string;
+    slug: string;
+    tracking_config?: TrackingConfig | null;
+  } | null;
 };
 
 export type Shop = {
   shipping_settings: ShopShippingSettings | null;
+  tracking_config: TrackingConfig | null;
   id: number;
   name: string;
   slug: string;
   created_at: string;
+};
+
+export type TrackingConfig = {
+  accent_color?: string;
+  logo_url?: string;
+  cta_url?: string;
+  cta_label?: string;
+  discount_code?: string;
+  discount_text?: string;
+  message?: string;
+  display_name?: string;
 };
 
 export type ShopShippingSettings = {
@@ -879,4 +897,42 @@ export type InvoiceSendPayload = {
   recipient_email?: string | null;
   subject?: string | null;
   message?: string | null;
+};
+
+/* ─── Webhook Endpoints ─────────────────────────────────────────────────── */
+
+export type WebhookEndpoint = {
+  id: number;
+  shop_id: number;
+  url: string;
+  secret: string | null;
+  events: string[];
+  is_active: boolean;
+  last_triggered_at: string | null;
+  last_status_code: number | null;
+  last_error: string | null;
+  created_at: string;
+};
+
+export type WebhookEndpointCreate = {
+  shop_id: number;
+  url: string;
+  secret?: string | null;
+  events: string[];
+  is_active?: boolean;
+};
+
+/* ─── Activity Log ──────────────────────────────────────────────────────── */
+
+export type ActivityLog = {
+  id: number;
+  shop_id: number | null;
+  entity_type: string;
+  entity_id: number;
+  action: string;
+  actor_id: number | null;
+  actor_name: string | null;
+  summary: string;
+  detail_json: Record<string, unknown> | null;
+  created_at: string;
 };

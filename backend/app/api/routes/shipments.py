@@ -13,7 +13,9 @@ from app.schemas.shipment import (
     TrackingEventCreate,
     TrackingEventRead,
 )
+from app.services.activity import log_activity
 from app.services.automation_rules import evaluate_order_automation_rules
+from app.services.webhooks import dispatch_webhook
 from app.services.ctt_tracking import sync_ctt_tracking_for_active_shipments, sync_shipment_tracking
 from app.services.orders import sync_order_status_from_tracking
 
@@ -75,8 +77,17 @@ def create_shipment(
     db.add(shipment)
     db.flush()
     evaluate_order_automation_rules(db=db, order=order, source="shipment_create")
-
+    log_activity(
+        db, entity_type="order", entity_id=order.id, shop_id=order.shop_id,
+        action="label_created", actor=current_user,
+        summary=f"{current_user.name} creó envío {shipment.carrier or ''} {shipment.tracking_number or ''}".strip(),
+    )
     db.commit()
+    if order.shop_id:
+        dispatch_webhook(db, shop_id=order.shop_id, event="shipment.created", payload={
+            "order_id": order.id, "shipment_id": shipment.id,
+            "carrier": shipment.carrier, "tracking_number": shipment.tracking_number,
+        })
     db.refresh(shipment)
     return db.scalar(
         select(Shipment)

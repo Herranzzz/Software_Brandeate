@@ -9,6 +9,7 @@ class PublicTrackingShopRead(BaseModel):
     id: int
     name: str
     slug: str
+    tracking_config: dict | None = None
 
 
 class PublicTrackingOrderRead(BaseModel):
@@ -60,6 +61,7 @@ class PublicTrackingRead(BaseModel):
                 id=shop.id,
                 name=shop.name,
                 slug=shop.slug,
+                tracking_config=shop.tracking_config_json,
             )
         return cls(
             order=PublicTrackingOrderRead(

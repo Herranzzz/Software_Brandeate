@@ -1,3 +1,4 @@
+from app.models.activity_log import ActivityLog
 from app.models.automation_event import AutomationActionType, AutomationEntityType, AutomationEvent
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus
 from app.models.inventory import InventoryItem, InboundShipment, InboundShipmentLine, StockMovement
@@ -14,8 +15,10 @@ from app.models.shop_customer import ShopCustomer
 from app.models.shop_integration import ShopIntegration
 from app.models.shop_sync_event import ShopSyncEvent
 from app.models.user import User, UserRole, UserShop
+from app.models.webhook_endpoint import WebhookEndpoint
 
 __all__ = [
+    "ActivityLog",
     "InventoryItem",
     "InboundShipment",
     "InboundShipmentLine",
@@ -57,4 +60,5 @@ __all__ = [
     "Invoice",
     "InvoiceItem",
     "InvoiceStatus",
+    "WebhookEndpoint",
 ]

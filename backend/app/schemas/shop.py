@@ -101,4 +101,9 @@ class ShopRead(BaseModel):
         validation_alias="shipping_settings_json",
         serialization_alias="shipping_settings",
     )
+    tracking_config: dict | None = Field(
+        default=None,
+        validation_alias="tracking_config_json",
+        serialization_alias="tracking_config",
+    )
     created_at: datetime

@@ -1,7 +1,10 @@
 import { cookies } from "next/headers";
 
 import type {
+  ActivityLog,
   AdminUser,
+  WebhookEndpoint,
+  WebhookEndpointCreate,
   AnalyticsOverview,
   EmployeeAnalyticsResponse,
   EmployeeWorkspace,
@@ -450,6 +453,21 @@ export async function fetchShopById(id: string | number) {
 }
 
 
+export async function updateShopTrackingConfig(
+  shopId: number,
+  config: Record<string, unknown>,
+): Promise<Shop> {
+  const headers = await buildAuthHeaders();
+  headers["Content-Type"] = "application/json";
+  const res = await fetch(apiUrl(`/shops/${shopId}/tracking-config`), {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(config),
+  });
+  return parseResponse<Shop>(res);
+}
+
+
 export async function fetchShopifyIntegrations() {
   const headers = await buildAuthHeaders();
   const response = await fetch(apiUrl("/integrations/shopify"), {
@@ -853,4 +871,63 @@ export async function cancelInvoice(id: number): Promise<Invoice> {
   const headers = await buildAuthHeaders();
   const res = await fetch(apiUrl(`/invoices/${id}/cancel`), { method: "POST", headers });
   return parseResponse<Invoice>(res);
+}
+
+
+/* ─── Activity Log ──────────────────────────────────────────────────────── */
+
+export async function fetchActivityLog(
+  entityType: string,
+  entityId: number | string,
+  limit = 50,
+): Promise<ActivityLog[]> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(
+    apiUrl(`/activity?entity_type=${entityType}&entity_id=${entityId}&limit=${limit}`),
+    { headers, cache: "no-store" },
+  );
+  return parseResponse<ActivityLog[]>(res);
+}
+
+
+/* ─── Webhook Endpoints ─────────────────────────────────────────────────── */
+
+export async function fetchWebhookEndpoints(shopId?: number): Promise<WebhookEndpoint[]> {
+  const headers = await buildAuthHeaders();
+  const qs = shopId ? `?shop_id=${shopId}` : "";
+  const res = await fetch(apiUrl(`/webhook-endpoints${qs}`), { headers, cache: "no-store" });
+  return parseResponse<WebhookEndpoint[]>(res);
+}
+
+export async function createWebhookEndpoint(body: WebhookEndpointCreate): Promise<WebhookEndpoint> {
+  const headers = await buildAuthHeaders();
+  headers["Content-Type"] = "application/json";
+  const res = await fetch(apiUrl("/webhook-endpoints"), {
+    method: "POST", headers, body: JSON.stringify(body),
+  });
+  return parseResponse<WebhookEndpoint>(res);
+}
+
+export async function updateWebhookEndpoint(
+  id: number,
+  body: Partial<WebhookEndpointCreate>,
+): Promise<WebhookEndpoint> {
+  const headers = await buildAuthHeaders();
+  headers["Content-Type"] = "application/json";
+  const res = await fetch(apiUrl(`/webhook-endpoints/${id}`), {
+    method: "PATCH", headers, body: JSON.stringify(body),
+  });
+  return parseResponse<WebhookEndpoint>(res);
+}
+
+export async function deleteWebhookEndpoint(id: number): Promise<void> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/webhook-endpoints/${id}`), { method: "DELETE", headers });
+  if (!res.ok) throw new Error("Error al eliminar webhook endpoint");
+}
+
+export async function testWebhookEndpoint(id: number): Promise<{ success: boolean; status_code?: number; error?: string }> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/webhook-endpoints/${id}/test`), { method: "POST", headers });
+  return parseResponse(res);
 }

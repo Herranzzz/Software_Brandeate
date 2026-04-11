@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
 import { AppModal } from "@/components/app-modal";
+import { useToast } from "@/components/toast";
 import {
   CTT_SERVICE_OPTIONS,
   CTT_WEIGHT_BANDS,
@@ -28,6 +29,7 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
   const existingDownloadUrl = getOrderShipmentLabelUrl(order, { download: true });
   const existingThermalUrl = getOrderShipmentLabelUrl(order, { download: true, labelType: "ZPL" });
   const router = useRouter();
+  const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [cttStatus, setCttStatus] = useState<CttStatus>("idle");
@@ -231,6 +233,7 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
       setIsPreviewVisible(false);
 
       setCttStatus("success");
+      toast("Etiqueta creada correctamente", "success");
       startTransition(() => { router.refresh(); });
     } catch (err) {
       setCttStatus("error");

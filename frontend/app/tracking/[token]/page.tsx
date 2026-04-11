@@ -96,18 +96,14 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
       ? tracking.shipment.tracking_number
       : null;
 
-  // Extract shop from API response (not in type but backend sends it)
-  const raw = tracking as Record<string, unknown>;
-  const shopRecord = typeof raw.shop === "object" && raw.shop !== null ? (raw.shop as Record<string, unknown>) : null;
-  const shopName = typeof shopRecord?.name === "string" ? shopRecord.name : null;
-  const shopSlug = typeof shopRecord?.slug === "string" ? shopRecord.slug : null;
-
-  // Branding
+  // Branding from DB config
+  const shopData = tracking.shop ?? null;
+  const trackingConfig = shopData?.tracking_config ?? null;
   const branding = getTenantBranding(
-    shopSlug || shopName
-      ? { id: 0, name: shopName ?? "", slug: shopSlug ?? "" }
-      : null,
+    shopData ? { id: shopData.id, name: shopData.name, slug: shopData.slug } : null,
+    trackingConfig,
   );
+  const shopSlug = shopData?.slug ?? "";
 
   const style: CSSProperties & Record<string, string> = {
     "--tracking-accent": branding.accentColor,

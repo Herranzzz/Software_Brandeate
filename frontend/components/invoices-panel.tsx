@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition } from "react";
 
 import { AppModal } from "@/components/app-modal";
 import { Card } from "@/components/card";
+import { useToast } from "@/components/toast";
 import {
   cancelInvoice,
   createInvoice,
@@ -140,7 +141,7 @@ function SendModal({
   }
 
   return (
-    <AppModal title={`Enviar ${invoice.invoice_number}`} onClose={onClose}>
+    <AppModal open title={`Enviar ${invoice.invoice_number}`} onClose={onClose}>
       <div className="stack" style={{ gap: 16 }}>
         <div className="form-field">
           <label className="form-label">Destinatario</label>
@@ -247,7 +248,7 @@ function InvoiceFormModal({
   }
 
   return (
-    <AppModal title={isEditing ? `Editar ${editingInvoice.invoice_number}` : "Nueva factura"} onClose={onClose} width="wide">
+    <AppModal open title={isEditing ? `Editar ${editingInvoice.invoice_number}` : "Nueva factura"} onClose={onClose} width="wide">
       <div className="invoice-form-body">
         {/* Client */}
         <div className="invoice-form-section">
@@ -414,6 +415,7 @@ export function InvoicesPanel({
   initialQ,
 }: InvoicesPanelProps) {
   const router = useRouter();
+  const { toast } = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
   const [showForm, setShowForm] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
@@ -461,17 +463,20 @@ export function InvoicesPanel({
     });
     setShowForm(false);
     setEditingInvoice(null);
+    toast(editingInvoice ? "Factura actualizada" : "Factura creada", "success");
   }
 
   function handleSent(updated: Invoice) {
     setInvoices((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
     setSendingInvoice(null);
+    toast("Factura enviada", "success");
   }
 
   function handleMarkPaid(invoice: Invoice) {
     startTransition(async () => {
       const updated = await markInvoicePaid(invoice.id);
       setInvoices((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      toast("Marcada como pagada", "success");
     });
   }
 
@@ -480,6 +485,7 @@ export function InvoicesPanel({
     startTransition(async () => {
       const updated = await cancelInvoice(invoice.id);
       setInvoices((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      toast("Factura cancelada", "info");
     });
   }
 
@@ -488,6 +494,7 @@ export function InvoicesPanel({
     startTransition(async () => {
       await deleteInvoice(invoice.id);
       setInvoices((prev) => prev.filter((i) => i.id !== invoice.id));
+      toast("Factura eliminada", "info");
     });
   }
 

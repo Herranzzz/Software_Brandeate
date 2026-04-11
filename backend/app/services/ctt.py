@@ -206,3 +206,40 @@ def get_label(
     except (KeyError, IndexError, ValueError):
         # If it's already binary PDF, return as-is
         return raw
+
+
+def get_pod(
+    tracking_code: str,
+    client_center_code: str,
+    destination_postal_code: str,
+) -> bytes | None:
+    """Get Proof of Delivery (POD) PDF for a delivered shipment.
+
+    CTT POD API: GET /cls/pods/{shipping_code}?client_center_code=...&hash=...
+    Hash = MD5(shipping_code + client_center_code + destination_postal_code)
+
+    Returns the PDF bytes, or None if no POD is available yet.
+    """
+    import hashlib as _hashlib
+
+    hash_input = f"{tracking_code}{client_center_code}{destination_postal_code}"
+    pod_hash = _hashlib.md5(hash_input.encode()).hexdigest()
+
+    token = get_token()
+    params = urlencode({
+        "client_center_code": client_center_code,
+        "hash": pod_hash,
+    })
+    url = f"{_base_url()}/cls/pods/{tracking_code}?{params}"
+    req = request.Request(
+        url,
+        headers=_api_headers(token=token),
+        method="GET",
+    )
+    try:
+        with request.urlopen(req, context=_ssl_context()) as resp:
+            return resp.read()
+    except error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise CTTError(f"Get POD failed ({exc.code}): {exc.read().decode()}") from exc
