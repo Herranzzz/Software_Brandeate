@@ -173,18 +173,38 @@ function LogoutIcon(props: IconProps) {
   );
 }
 
-const portalNavItems = [
-  { href: "/portal", label: "Resumen", shortLabel: "Inicio", icon: HomeIcon },
-  { href: "/portal/orders", label: "Pedidos", shortLabel: "Pedidos", icon: OrdersIcon },
-  { href: "/portal/shipments", label: "Expediciones", shortLabel: "Exp.", icon: AnalyticsIcon },
-  { href: "/portal/analytics", label: "Analítica", shortLabel: "Stats", icon: ChartIcon },
-  { href: "/portal/incidencias", label: "Incidencias", shortLabel: "Incid.", icon: IncidenciasIcon },
-  { href: "/portal/returns", label: "Devoluciones", shortLabel: "Devol.", icon: ReturnsIcon },
-  { href: "/portal/inventory", label: "Inventario", shortLabel: "Stock", icon: InventoryIcon },
-  { href: "/portal/reports", label: "Informes", shortLabel: "Report.", icon: ReportsIcon },
-  { href: "/portal/sustainability", label: "Sostenibilidad", shortLabel: "CO₂", icon: SustainabilityIcon },
-  { href: "/portal/integrations", label: "Integraciones", shortLabel: "Integ.", icon: IntegrationsIcon },
-  { href: "/portal/settings", label: "Ajustes", shortLabel: "Ajustes", icon: SettingsIcon },
+const portalNavGroups = [
+  {
+    label: "Mi tienda",
+    items: [
+      { href: "/portal", label: "Resumen", shortLabel: "Inicio", icon: HomeIcon },
+      { href: "/portal/orders", label: "Pedidos", shortLabel: "Pedidos", icon: OrdersIcon },
+      { href: "/portal/shipments", label: "Expediciones", shortLabel: "Exp.", icon: AnalyticsIcon },
+    ],
+  },
+  {
+    label: "Postventa",
+    items: [
+      { href: "/portal/incidencias", label: "Incidencias", shortLabel: "Incid.", icon: IncidenciasIcon },
+      { href: "/portal/returns", label: "Devoluciones", shortLabel: "Devol.", icon: ReturnsIcon },
+    ],
+  },
+  {
+    label: "Análisis",
+    items: [
+      { href: "/portal/inventory", label: "Inventario", shortLabel: "Stock", icon: InventoryIcon },
+      { href: "/portal/analytics", label: "Analítica", shortLabel: "Stats", icon: ChartIcon },
+      { href: "/portal/reports", label: "Informes", shortLabel: "Report.", icon: ReportsIcon },
+      { href: "/portal/sustainability", label: "Sostenibilidad", shortLabel: "CO₂", icon: SustainabilityIcon },
+    ],
+  },
+  {
+    label: "Configuración",
+    items: [
+      { href: "/portal/integrations", label: "Integraciones", shortLabel: "Integ.", icon: IntegrationsIcon },
+      { href: "/portal/settings", label: "Ajustes", shortLabel: "Ajustes", icon: SettingsIcon },
+    ],
+  },
 ];
 
 
@@ -242,22 +262,26 @@ export function PortalShell({ children, user, shops }: PortalShellProps) {
         </div>
 
         <nav className="tenant-nav">
-          <div className="tenant-nav-section">Navegación</div>
-          {portalNavItems.map((item) => (
-            <Link
-              className={`tenant-nav-link ${isActive(pathname, item.href) ? "tenant-nav-link-active" : ""}`}
-              href={
-                tenantScope.selectedShopId
-                  ? { pathname: item.href, query: { shop_id: tenantScope.selectedShopId } }
-                  : item.href
-              }
-              key={item.href}
-              prefetch={false}
-              title={isSidebarCollapsed ? item.label : undefined}
-            >
-              <item.icon className="tenant-nav-icon" />
-              <span className="tenant-nav-link-label">{item.label}</span>
-            </Link>
+          {portalNavGroups.map((group) => (
+            <div className="tenant-nav-group" key={group.label}>
+              <div className="tenant-nav-section">{group.label}</div>
+              {group.items.map((item) => (
+                <Link
+                  className={`tenant-nav-link ${isActive(pathname, item.href) ? "tenant-nav-link-active" : ""}`}
+                  href={
+                    tenantScope.selectedShopId
+                      ? { pathname: item.href, query: { shop_id: tenantScope.selectedShopId } }
+                      : item.href
+                  }
+                  key={item.href}
+                  prefetch={false}
+                  title={isSidebarCollapsed ? item.label : undefined}
+                >
+                  <item.icon className="tenant-nav-icon" />
+                  <span className="tenant-nav-link-label">{item.label}</span>
+                </Link>
+              ))}
+            </div>
           ))}
         </nav>
 

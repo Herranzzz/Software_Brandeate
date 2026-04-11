@@ -169,16 +169,21 @@ const navGroups = [
     ],
   },
   {
-    label: "Gestión",
+    label: "Postventa",
     items: [
-      { href: "/client-accounts", label: "Cuentas cliente", icon: ClientAccountsIcon },
-      { href: "/employees", label: "Empleados", icon: EmployeesIcon },
       { href: "/returns", label: "Devoluciones", icon: ReturnsAdminIcon },
       { href: "/incidencias", label: "Incidencias", icon: IncidenciasIcon },
     ],
   },
   {
-    label: "Datos",
+    label: "Clientes",
+    items: [
+      { href: "/client-accounts", label: "Cuentas cliente", icon: ClientAccountsIcon },
+      { href: "/employees", label: "Empleados", icon: EmployeesIcon },
+    ],
+  },
+  {
+    label: "Análisis",
     items: [
       { href: "/inventario", label: "Inventario", icon: InventarioIcon },
       { href: "/reporting", label: "Informes", icon: ReportingIcon },
