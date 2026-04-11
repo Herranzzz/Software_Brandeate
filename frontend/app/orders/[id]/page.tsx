@@ -533,6 +533,106 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             </div>
           </Card>
 
+          {/* ── Shipment ───────────────────────────────────────────── */}
+          <Card className={`stack order-shipment-card order-shipment-card-${shipmentStatusColor}`}>
+            <SectionTitle eyebrow="Envío" title="Estado del envío" />
+            {order.shipment ? (
+              <div className="order-shipment-body">
+                {/* Top row: carrier + status + tracking */}
+                <div className="order-shipment-top">
+                  <div className="order-shipment-carrier-block">
+                    <span className="order-shipment-carrier-name">{order.shipment.carrier}</span>
+                    <span className={`order-shipment-status-pill is-${shipmentStatusColor}`}>
+                      {translateShippingStatus(order.shipment.shipping_status)}
+                    </span>
+                  </div>
+                  <div className="order-shipment-tracking-block">
+                    <span className="order-kv-label">Nº seguimiento</span>
+                    <span className="order-kv-value order-kv-actions">
+                      <span className="order-shipment-tracking-num">{order.shipment.tracking_number}</span>
+                      <CopyButton value={order.shipment.tracking_number} />
+                    </span>
+                  </div>
+                </div>
+
+                {/* KV grid */}
+                <div className="order-kv-list order-kv-list-cols">
+                  <div className="order-kv-item">
+                    <span className="order-kv-label">Servicio</span>
+                    <span className="order-kv-value">{order.shipment.shipping_type_code ?? "C24"}</span>
+                  </div>
+                  <div className="order-kv-item">
+                    <span className="order-kv-label">Tramo de peso</span>
+                    <span className="order-kv-value">{order.shipment.weight_tier_label ?? "No definido"}</span>
+                  </div>
+                  <div className="order-kv-item">
+                    <span className="order-kv-label">Etiqueta creada</span>
+                    <span className="order-kv-value">{formatDateTime(order.shipment.label_created_at ?? order.shipment.created_at)}</span>
+                  </div>
+                  {order.shipment.expected_delivery_date && (
+                    <div className="order-kv-item">
+                      <span className="order-kv-label">Entrega prevista</span>
+                      <span className="order-kv-value order-kv-actions">
+                        {new Date(order.shipment.expected_delivery_date).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })}
+                        <SlaBadge
+                          expectedDeliveryDate={order.shipment.expected_delivery_date}
+                          shippingStatus={order.shipment.shipping_status}
+                        />
+                      </span>
+                    </div>
+                  )}
+                  {order.shipment.shipping_cost != null && (
+                    <div className="order-kv-item">
+                      <span className="order-kv-label">Coste envío</span>
+                      <span className="order-kv-value">
+                        {new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(order.shipment.shipping_cost)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="order-kv-item">
+                    <span className="order-kv-label">Shopify sync</span>
+                    <span className="order-kv-value">
+                      {order.shipment.shopify_sync_status === "synced"
+                        ? "✓ Sincronizado"
+                        : order.shipment.shopify_sync_status === "failed"
+                          ? `✕ ${order.shipment.shopify_sync_error ?? "Error"}`
+                          : order.shipment.shopify_sync_status === "not_configured"
+                            ? "Sin integración"
+                            : "Pendiente"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action links */}
+                <div className="order-shipment-actions">
+                  {order.shipment.tracking_url && (
+                    <a className="order-shipment-action-link" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">
+                      Tracking carrier ↗
+                    </a>
+                  )}
+                  <Link className="order-shipment-action-link" href={`/tracking/${order.shipment.public_token}`}>
+                    Tracking cliente ↗
+                  </Link>
+                  {shipmentLabelUrl && (
+                    <>
+                      <a className="order-shipment-action-link" href={shipmentLabelUrl} rel="noreferrer" target="_blank">Etiqueta PDF</a>
+                      <a className="order-shipment-action-link" download href={shipmentLabelDownloadUrl ?? shipmentLabelUrl} rel="noreferrer" target="_blank">Descargar etiqueta</a>
+                      <a className="order-shipment-action-link" download href={shipmentLabelThermalUrl ?? "#"} rel="noreferrer" target="_blank">ZPL</a>
+                    </>
+                  )}
+                  {isDelivered && shipmentPodUrl && (
+                    <a className="order-shipment-action-link" href={shipmentPodUrl} rel="noreferrer" target="_blank">Justificante entrega ↗</a>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                title="Sin shipment"
+                description="Aún no hay carrier ni tracking asignado."
+              />
+            )}
+          </Card>
+
           {/* ── Timeline ───────────────────────────────────────────── */}
           <Card className="stack">
             <SectionTitle eyebrow="Actividad" title="Timeline del pedido" />
@@ -592,132 +692,63 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
 
           {/* ── CTT Pickup ─────────────────────────────────────────── */}
           <ShippingOptionsPanel order={order} token={token} />
+
+          {/* ── Fulfillment orders (technical, bottom of main col) ─── */}
+          {fulfillmentOrders.length > 0 && (
+            <Card className="stack">
+              <SectionTitle eyebrow="Shopify" title="Fulfillment orders" />
+              <div className="mini-table">
+                {fulfillmentOrders.map((fo) => (
+                  <div className="mini-table-row" key={fo.id}>
+                    <div>
+                      <div className="table-primary">{fo.locationName}</div>
+                      <div className="table-secondary">
+                        {fo.status}{fo.requestStatus ? ` · ${fo.requestStatus}` : ""}
+                      </div>
+                    </div>
+                    <div className="mini-table-metrics">
+                      <span>{fo.lineItems} líneas</span>
+                      <span>{fo.fulfillments} fulfillments</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* ── Aside ──────────────────────────────────────────────── */}
         <aside className="stack">
 
-          {/* Incidents */}
+          {/* Design preview */}
+          {primaryItemSummary && designPreviewUrl && (
+            <Card className="stack">
+              <SectionTitle eyebrow="Diseño" title="Render de personalización" />
+              <div className="shipment-product-card">
+                <div className="shipment-product-copy">
+                  <span className="kv-label">Producto</span>
+                  <div className="shipment-product-name">{primaryItemSummary.productName}</div>
+                  <div className="shipment-product-variant">{primaryItemSummary.variantName}</div>
+                </div>
+                <div className="shipment-render-preview">
+                  <DesignPreviewWithValidation
+                    alt={`Render de ${primaryItemSummary.productName}`}
+                    itemId={primaryItem!.id}
+                    orderId={order.id}
+                    src={designPreviewUrl}
+                  />
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Incidents alert */}
           {openIncidents.length > 0 && (
             <Card className="stack order-aside-card-alert">
               <SectionTitle eyebrow="Incidencias" title="Atención requerida" />
               <OrderIncidentsPanel incidents={incidents} orderId={order.id} />
             </Card>
           )}
-
-          {/* Shipment */}
-          <Card className={`stack order-shipment-card order-shipment-card-${shipmentStatusColor}`}>
-            <SectionTitle eyebrow="Envío" title="Estado del envío" />
-            {order.shipment ? (
-              <div className="order-kv-list">
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Carrier</span>
-                  <span className="order-kv-value">{order.shipment.carrier}</span>
-                </div>
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Tracking</span>
-                  <span className="order-kv-value order-kv-actions">
-                    <span>{order.shipment.tracking_number}</span>
-                    <CopyButton value={order.shipment.tracking_number} />
-                  </span>
-                </div>
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Estado</span>
-                  <span className={`order-kv-value order-kv-status is-${shipmentStatusColor}`}>
-                    {translateShippingStatus(order.shipment.shipping_status)}
-                  </span>
-                </div>
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Creado</span>
-                  <span className="order-kv-value">{formatDateTime(order.shipment.label_created_at ?? order.shipment.created_at)}</span>
-                </div>
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Servicio</span>
-                  <span className="order-kv-value">{order.shipment.shipping_type_code ?? "C24"}</span>
-                </div>
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Tramo</span>
-                  <span className="order-kv-value">{order.shipment.weight_tier_label ?? "No definido"}</span>
-                </div>
-                {order.shipment.expected_delivery_date && (
-                  <div className="order-kv-item">
-                    <span className="order-kv-label">Entrega prevista</span>
-                    <span className="order-kv-value order-kv-actions">
-                      {new Date(order.shipment.expected_delivery_date).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })}
-                      <SlaBadge
-                        expectedDeliveryDate={order.shipment.expected_delivery_date}
-                        shippingStatus={order.shipment.shipping_status}
-                      />
-                    </span>
-                  </div>
-                )}
-                {order.shipment.shipping_cost != null && (
-                  <div className="order-kv-item">
-                    <span className="order-kv-label">Coste envío</span>
-                    <span className="order-kv-value">
-                      {new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(order.shipment.shipping_cost)}
-                    </span>
-                  </div>
-                )}
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Tracking público</span>
-                  <span className="order-kv-value order-kv-actions">
-                    {order.shipment.tracking_url
-                      ? <a className="table-link" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">Abrir →</a>
-                      : "Pendiente"
-                    }
-                  </span>
-                </div>
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Etiqueta</span>
-                  <span className="order-kv-value order-kv-actions">
-                    {shipmentLabelUrl ? (
-                      <>
-                        <a className="table-link" href={shipmentLabelUrl} rel="noreferrer" target="_blank">PDF</a>
-                        <a className="table-link" download href={shipmentLabelDownloadUrl ?? shipmentLabelUrl} rel="noreferrer" target="_blank">Descargar</a>
-                        <a className="table-link" download href={shipmentLabelThermalUrl ?? "#"} rel="noreferrer" target="_blank">ZPL</a>
-                      </>
-                    ) : "No disponible"}
-                  </span>
-                </div>
-                {isDelivered && shipmentPodUrl ? (
-                  <div className="order-kv-item">
-                    <span className="order-kv-label">Justificante de entrega</span>
-                    <span className="order-kv-value order-kv-actions">
-                      <a className="table-link" href={shipmentPodUrl} rel="noreferrer" target="_blank">Ver PDF</a>
-                      <a className="table-link" download href={shipmentPodUrl} rel="noreferrer" target="_blank">Descargar</a>
-                    </span>
-                  </div>
-                ) : null}
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Shopify</span>
-                  <span className="order-kv-value">
-                    {order.shipment.shopify_sync_status === "synced"
-                      ? "✓ Sincronizado"
-                      : order.shipment.shopify_sync_status === "failed"
-                        ? `✕ ${order.shipment.shopify_sync_error ?? "Error"}`
-                        : order.shipment.shopify_sync_status === "not_configured"
-                          ? "Sin integración"
-                          : "Pendiente"}
-                  </span>
-                </div>
-                <div className="order-kv-item">
-                  <span className="order-kv-label">Tracking cliente</span>
-                  <span className="order-kv-value order-kv-actions">
-                    <Link className="table-link" href={`/tracking/${order.shipment.public_token}`}>
-                      /tracking/{order.shipment.public_token}
-                    </Link>
-                    <CopyButton value={`/tracking/${order.shipment.public_token}`} />
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <EmptyState
-                title="Sin shipment"
-                description="Aún no hay carrier ni tracking asignado."
-              />
-            )}
-          </Card>
 
           {/* Address */}
           <Card className="stack">
@@ -759,29 +790,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             </div>
           </Card>
 
-          {/* Design preview */}
-          {primaryItemSummary && designPreviewUrl && (
-            <Card className="stack">
-              <SectionTitle eyebrow="Diseño" title="Render de personalización" />
-              <div className="shipment-product-card">
-                <div className="shipment-product-copy">
-                  <span className="kv-label">Producto</span>
-                  <div className="shipment-product-name">{primaryItemSummary.productName}</div>
-                  <div className="shipment-product-variant">{primaryItemSummary.variantName}</div>
-                </div>
-                <div className="shipment-render-preview">
-                  <DesignPreviewWithValidation
-                    alt={`Render de ${primaryItemSummary.productName}`}
-                    itemId={primaryItem!.id}
-                    orderId={order.id}
-                    src={designPreviewUrl}
-                  />
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* Incidents (no open ones → show collapsed) */}
+          {/* Incidents collapsed */}
           {openIncidents.length === 0 && (
             <Card className="stack">
               <SectionTitle eyebrow="Incidencias" title="Seguimiento" />
@@ -820,28 +829,6 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             <ActivityTimelineLoader entityType="order" entityId={order.id} maxVisible={10} />
           </Card>
 
-          {/* Fulfillment orders */}
-          {fulfillmentOrders.length > 0 && (
-            <Card className="stack">
-              <SectionTitle eyebrow="Shopify" title="Fulfillment orders" />
-              <div className="mini-table">
-                {fulfillmentOrders.map((fo) => (
-                  <div className="mini-table-row" key={fo.id}>
-                    <div>
-                      <div className="table-primary">{fo.locationName}</div>
-                      <div className="table-secondary">
-                        {fo.status}{fo.requestStatus ? ` · ${fo.requestStatus}` : ""}
-                      </div>
-                    </div>
-                    <div className="mini-table-metrics">
-                      <span>{fo.lineItems} líneas</span>
-                      <span>{fo.fulfillments} fulfillments</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
         </aside>
       </div>
     </div>
