@@ -445,9 +445,41 @@ export function SharedShipmentsView({
 
   const totalAttentionCount = Object.values(attention).reduce((a, b) => a + b, 0);
 
+  /* ── Derived metrics ── */
+  const criticalCount =
+    (attention.carrier_exception ?? 0) +
+    (attention.outside_sla ?? 0) +
+    (attention.tracking_stalled ?? 0);
+
+  const lastMileTotal = Math.max(
+    1,
+    (shipping.in_transit_orders ?? 0) +
+    (shipping.out_for_delivery_orders ?? 0) +
+    (shipping.delivered_orders ?? 0) +
+    (shipping.exception_orders ?? 0),
+  );
+
+  const carrierData = analytics.shipping.carrier_performance ?? [];
+
   /* ── Render ── */
   return (
     <div className="exp-page">
+
+      {/* ── Critical alert banner ───────────────────────────────── */}
+      {criticalCount > 0 && (
+        <div className={`exp-alert-banner${criticalCount >= 10 ? " is-critical" : " is-warning"}`}>
+          <span className="exp-alert-banner-icon">{criticalCount >= 10 ? "🚨" : "⚠️"}</span>
+          <div className="exp-alert-banner-content">
+            <strong>{criticalCount} expedición{criticalCount !== 1 ? "es" : ""} requieren acción inmediata</strong>
+            <span>
+              {attention.carrier_exception > 0 && `${attention.carrier_exception} excepciones carrier`}
+              {attention.outside_sla > 0 && `${attention.carrier_exception > 0 ? " · " : ""}${attention.outside_sla} fuera de SLA`}
+              {attention.tracking_stalled > 0 && `${(attention.carrier_exception > 0 || attention.outside_sla > 0) ? " · " : ""}${attention.tracking_stalled} tracking parado`}
+            </span>
+          </div>
+          <a className="exp-alert-banner-cta" href="#attention-table">Ver cola operativa →</a>
+        </div>
+      )}
 
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="exp-header card">
@@ -728,6 +760,33 @@ export function SharedShipmentsView({
         </div>
       </div>
 
+      {/* ── Last-mile funnel ───────────────────────────────────── */}
+      <div className="exp-lastmile-strip">
+        <div className="exp-lastmile-label-col">
+          <span className="eyebrow">Última milla</span>
+          <span className="exp-lastmile-subtitle">Estado en tiempo real</span>
+        </div>
+        {([
+          { key: "in_transit",       icon: "🛣️",  label: "En tránsito",  value: shipping.in_transit_orders       ?? 0, tone: "blue"   },
+          { key: "out_for_delivery", icon: "📬",  label: "En reparto",   value: shipping.out_for_delivery_orders ?? 0, tone: "orange" },
+          { key: "delivered",        icon: "🎯",  label: "Entregado",    value: shipping.delivered_orders        ?? 0, tone: "green"  },
+          { key: "exception",        icon: "⚠️",  label: "Excepción",    value: shipping.exception_orders        ?? 0, tone: "red"    },
+        ] as const).map((stage, idx, arr) => {
+          const pct = Math.round((stage.value / lastMileTotal) * 100);
+          return (
+            <div className="exp-lastmile-funnel-item" key={stage.key}>
+              <div className={`exp-lastmile-stage is-${stage.tone}`}>
+                <span className="exp-lastmile-icon">{stage.icon}</span>
+                <strong className="exp-lastmile-count">{stage.value}</strong>
+                <span className="exp-lastmile-stage-name">{stage.label}</span>
+                <span className="exp-lastmile-pct">{pct}%</span>
+              </div>
+              {idx < arr.length - 1 && <div className="exp-lastmile-arrow">›</div>}
+            </div>
+          );
+        })}
+      </div>
+
       {/* ── Charts strip ───────────────────────────────────────── */}
       <div className="exp-charts-strip">
         <DailyBarsChart points={performancePoints} />
@@ -761,8 +820,96 @@ export function SharedShipmentsView({
         />
       </div>
 
+      {/* ── Carrier performance ────────────────────────────────── */}
+      {carrierData.length > 0 && (
+        <div className="card exp-carrier-section">
+          <div className="exp-section-head">
+            <div>
+              <span className="eyebrow">Transportistas</span>
+              <h2 className="exp-card-title">Rendimiento por carrier</h2>
+            </div>
+            <span className="exp-table-count">
+              <strong>{carrierData.length}</strong> carrier{carrierData.length !== 1 ? "s" : ""} activos
+            </span>
+          </div>
+          <div className="exp-carrier-table-wrap">
+            <table className="exp-carrier-table">
+              <thead>
+                <tr>
+                  <th>Carrier</th>
+                  <th className="exp-th-num">Envíos</th>
+                  <th className="exp-th-num">Entregados</th>
+                  <th>Tasa entrega</th>
+                  <th className="exp-th-num">Transit medio</th>
+                  <th>Incidencias</th>
+                  <th>Valoración</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...carrierData]
+                  .sort((a, b) => b.shipments - a.shipments)
+                  .map((carrier) => {
+                    const deliveryRate =
+                      carrier.shipments > 0
+                        ? (carrier.delivered_orders / carrier.shipments) * 100
+                        : 0;
+                    const incidentRate = carrier.incident_rate ?? 0;
+                    const scoreClass =
+                      incidentRate < 1 && deliveryRate >= 95 ? "is-green" :
+                      incidentRate > 4 || deliveryRate < 82 ? "is-red"   : "is-orange";
+                    const scoreLabel =
+                      scoreClass === "is-green" ? "Excelente" :
+                      scoreClass === "is-red"   ? "Revisar"   : "Normal";
+                    return (
+                      <tr className="exp-carrier-row" key={carrier.carrier}>
+                        <td>
+                          <div className="exp-carrier-name-cell">
+                            <span className="exp-carrier-badge">
+                              {carrier.carrier.slice(0, 2).toUpperCase()}
+                            </span>
+                            <span className="exp-carrier-name">{carrier.carrier}</span>
+                          </div>
+                        </td>
+                        <td className="exp-td-num">{formatCount(carrier.shipments)}</td>
+                        <td className="exp-td-num">{formatCount(carrier.delivered_orders)}</td>
+                        <td>
+                          <div className="exp-carrier-rate-wrap">
+                            <div className="exp-carrier-rate-bar">
+                              <div
+                                className={`exp-carrier-rate-fill ${scoreClass}`}
+                                style={{ width: `${deliveryRate}%` }}
+                              />
+                            </div>
+                            <span className={`exp-carrier-rate-pct ${scoreClass}`}>
+                              {deliveryRate.toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="exp-td-num">
+                          {formatHoursAsShort(carrier.avg_delivery_hours)}
+                        </td>
+                        <td>
+                          <span className={`exp-carrier-incident-pill ${
+                            incidentRate > 4 ? "is-red" :
+                            incidentRate > 1 ? "is-orange" : "is-green"
+                          }`}>
+                            {incidentRate.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`exp-carrier-score-pill ${scoreClass}`}>{scoreLabel}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ── Attention table ────────────────────────────────────── */}
-      <div className="card exp-table-card">
+      <div className="card exp-table-card" id="attention-table">
         <div className="exp-section-head">
           <div>
             <span className="eyebrow">Cola operativa</span>

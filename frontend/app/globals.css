@@ -17148,3 +17148,611 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   border-radius: 4px;
   transition: width 0.4s ease;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   DASHBOARD V2 — fresh visual hierarchy
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Hero health badge ──────────────────────────────────────── */
+.dash-hero-eyebrow-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dash-health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px 4px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1.5px solid transparent;
+}
+
+.dash-health-badge.dash-health-nominal {
+  background: color-mix(in srgb, #22c55e 12%, transparent);
+  border-color: color-mix(in srgb, #22c55e 30%, transparent);
+  color: #15803d;
+}
+:root[data-theme="dark"] .dash-health-badge.dash-health-nominal {
+  background: color-mix(in srgb, #22c55e 15%, transparent);
+  color: #4ade80;
+}
+
+.dash-health-badge.dash-health-warning {
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+  border-color: color-mix(in srgb, #f59e0b 30%, transparent);
+  color: #b45309;
+}
+:root[data-theme="dark"] .dash-health-badge.dash-health-warning {
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+  color: #fbbf24;
+}
+
+.dash-health-badge.dash-health-critical {
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  border-color: color-mix(in srgb, #ef4444 30%, transparent);
+  color: #b91c1c;
+}
+:root[data-theme="dark"] .dash-health-badge.dash-health-critical {
+  background: color-mix(in srgb, #ef4444 15%, transparent);
+  color: #f87171;
+}
+
+.dash-health-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+  animation: dash-pulse 2s ease-in-out infinite;
+}
+
+@keyframes dash-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Donut card delivery rate pill ────────────────────────── */
+.dash-donut-card-v2 .exp-section-head {
+  align-items: flex-start;
+}
+
+.dash-delivery-rate-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.dash-delivery-rate-pill strong {
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  color: #059669;
+  line-height: 1;
+}
+
+.dash-delivery-rate-pill span {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/* ── Chart v2 ──────────────────────────────────────────────── */
+.dash-chart-card-v2 {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dash-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dash-chart-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.dash-chart-total-num {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.dash-chart-total-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.dash-chart-bars-v2 {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 160px;
+  flex: 1;
+}
+
+.dash-chart-col-v2 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.dash-chart-val-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--muted);
+  min-height: 14px;
+  line-height: 1;
+}
+
+.dash-chart-bar-wrap-v2 {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.dash-chart-bar-v2 {
+  width: 100%;
+  min-height: 4px;
+  border-radius: 6px 6px 3px 3px;
+  background: var(--accent);
+  opacity: 0.85;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.dash-chart-col-v2:hover .dash-chart-bar-v2 {
+  opacity: 1;
+  transform: scaleX(1.05);
+}
+
+.dash-chart-day-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dash-chart-footer-v2 {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── Health pipeline rows ──────────────────────────────────── */
+.dash-health-pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.dash-health-row-v2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-health-row-v2.is-last {
+  border-bottom: none;
+}
+
+.dash-health-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dash-health-row-label {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.dash-health-row-hint {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.dash-health-row-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.dash-health-row-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  min-width: 40px;
+  text-align: right;
+}
+
+.dash-health-bar-track {
+  width: 80px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  overflow: hidden;
+}
+
+.dash-health-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+  min-width: 3px;
+}
+
+/* ── Incident pills ────────────────────────────────────────── */
+.dash-incident-summary {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.dash-incident-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.dash-incident-pill.is-urgent {
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #b91c1c;
+  border: 1px solid color-mix(in srgb, #ef4444 25%, transparent);
+}
+
+.dash-incident-pill.is-high {
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+  color: #b45309;
+  border: 1px solid color-mix(in srgb, #f59e0b 25%, transparent);
+}
+
+/* ── Quick actions card ────────────────────────────────────── */
+.dash-quick-actions-card {
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface)) !important;
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border)) !important;
+}
+
+.dash-quick-actions-body {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.dash-quick-actions-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SHIPMENTS — alert banner + carrier section + last-mile funnel
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Alert banner ──────────────────────────────────────────── */
+.exp-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  border-radius: var(--radius-card);
+  border: 1.5px solid;
+  animation: exp-banner-in 0.25s ease;
+}
+
+@keyframes exp-banner-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.exp-alert-banner.is-critical {
+  background: color-mix(in srgb, #ef4444 8%, var(--surface));
+  border-color: color-mix(in srgb, #ef4444 30%, transparent);
+}
+
+.exp-alert-banner.is-warning {
+  background: color-mix(in srgb, #f59e0b 8%, var(--surface));
+  border-color: color-mix(in srgb, #f59e0b 30%, transparent);
+}
+
+.exp-alert-banner-icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.exp-alert-banner-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.exp-alert-banner-content strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.exp-alert-banner-content span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.exp-alert-banner-cta {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  text-decoration: none;
+  padding: 6px 14px;
+  border-radius: var(--radius-control);
+  border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background: var(--surface);
+  transition: background 150ms ease;
+}
+
+.exp-alert-banner-cta:hover {
+  background: var(--accent-soft);
+}
+
+/* ── Last-mile funnel strip ────────────────────────────────── */
+.exp-lastmile-strip {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 18px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+.exp-lastmile-label-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 24px;
+  border-right: 1px solid var(--border);
+  margin-right: 24px;
+  flex-shrink: 0;
+}
+
+.exp-lastmile-subtitle {
+  font-size: 0.73rem;
+  color: var(--muted);
+}
+
+.exp-lastmile-funnel-item {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.exp-lastmile-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  padding: 12px 8px;
+  border-radius: 10px;
+  transition: background 150ms ease;
+}
+
+.exp-lastmile-stage:hover {
+  background: var(--surface-soft);
+}
+
+.exp-lastmile-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.exp-lastmile-count {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.exp-lastmile-stage.is-blue .exp-lastmile-count  { color: #2563eb; }
+.exp-lastmile-stage.is-orange .exp-lastmile-count { color: #d97706; }
+.exp-lastmile-stage.is-green .exp-lastmile-count  { color: #059669; }
+.exp-lastmile-stage.is-red .exp-lastmile-count    { color: #dc2626; }
+
+.exp-lastmile-stage-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+}
+
+.exp-lastmile-pct {
+  font-size: 0.68rem;
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.exp-lastmile-arrow {
+  font-size: 1.4rem;
+  color: var(--border-strong);
+  flex-shrink: 0;
+  padding: 0 4px;
+  user-select: none;
+}
+
+@media (max-width: 700px) {
+  .exp-lastmile-strip { overflow-x: auto; }
+  .exp-lastmile-label-col { display: none; }
+}
+
+/* ── Carrier performance section ───────────────────────────── */
+.exp-carrier-section {
+  overflow: hidden;
+}
+
+.exp-carrier-table-wrap {
+  overflow-x: auto;
+  margin: 0 -2px;
+}
+
+.exp-carrier-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.exp-carrier-table th {
+  padding: 10px 16px;
+  text-align: left;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1.5px solid var(--border);
+  white-space: nowrap;
+}
+
+.exp-th-num { text-align: right; }
+.exp-td-num { text-align: right; font-variant-numeric: tabular-nums; padding: 13px 16px; color: var(--ink); font-weight: 600; }
+
+.exp-carrier-row {
+  border-bottom: 1px solid var(--border);
+  transition: background 120ms ease;
+}
+
+.exp-carrier-row:last-child { border-bottom: none; }
+
+.exp-carrier-row:hover {
+  background: var(--surface-soft);
+}
+
+.exp-carrier-row td {
+  padding: 13px 16px;
+  vertical-align: middle;
+}
+
+.exp-carrier-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.exp-carrier-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.exp-carrier-name {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.exp-carrier-rate-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.exp-carrier-rate-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--surface-strong);
+  border-radius: 999px;
+  overflow: hidden;
+  min-width: 80px;
+}
+
+.exp-carrier-rate-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+
+.exp-carrier-rate-fill.is-green { background: #10b981; }
+.exp-carrier-rate-fill.is-orange { background: #f59e0b; }
+.exp-carrier-rate-fill.is-red { background: #ef4444; }
+
+.exp-carrier-rate-pct {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 38px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.exp-carrier-rate-pct.is-green  { color: #059669; }
+.exp-carrier-rate-pct.is-orange { color: #d97706; }
+.exp-carrier-rate-pct.is-red    { color: #dc2626; }
+
+.exp-carrier-incident-pill {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.exp-carrier-incident-pill.is-green  { background: color-mix(in srgb, #10b981 12%, transparent); color: #059669; }
+.exp-carrier-incident-pill.is-orange { background: color-mix(in srgb, #f59e0b 12%, transparent); color: #b45309; }
+.exp-carrier-incident-pill.is-red    { background: color-mix(in srgb, #ef4444 12%, transparent); color: #b91c1c; }
+
+.exp-carrier-score-pill {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.exp-carrier-score-pill.is-green  { background: color-mix(in srgb, #10b981 12%, transparent); color: #059669; border: 1px solid color-mix(in srgb, #10b981 25%, transparent); }
+.exp-carrier-score-pill.is-orange { background: color-mix(in srgb, #f59e0b 12%, transparent); color: #b45309; border: 1px solid color-mix(in srgb, #f59e0b 25%, transparent); }
+.exp-carrier-score-pill.is-red    { background: color-mix(in srgb, #ef4444 12%, transparent); color: #b91c1c; border: 1px solid color-mix(in srgb, #ef4444 25%, transparent); }

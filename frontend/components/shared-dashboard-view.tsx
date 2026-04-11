@@ -76,6 +76,14 @@ type SharedDashboardViewProps = {
   noteActions: ReactNode;
 };
 
+const KPI_COLOR_MAP: Record<DashboardTone, string> = {
+  accent:  "is-accent",
+  danger:  "is-red",
+  success: "is-green",
+  warning: "is-orange",
+  default: "is-slate",
+};
+
 export function SharedDashboardView({
   topContent,
   supplementaryContent,
@@ -105,21 +113,46 @@ export function SharedDashboardView({
   noteBody,
   noteActions,
 }: SharedDashboardViewProps) {
-  const maxValue = Math.max(1, ...chart.map((item) => item.value));
-  const donutTotal = donutSegments?.reduce((sum, segment) => sum + segment.value, 0) ?? 0;
+  const maxValue = Math.max(1, ...chart.map((p) => p.value));
+  const chartTotal = chart.reduce((s, p) => s + p.value, 0);
+  const donutTotal = donutSegments?.reduce((sum, seg) => sum + seg.value, 0) ?? 0;
   const highPriorityIncidents = incidents.filter(
-    (incident) => incident.priority === "urgent" || incident.priority === "high",
+    (i) => i.priority === "urgent" || i.priority === "high",
   ).length;
-  const incidentsPreview = incidents.slice(0, 3);
-  const incidentSummaryText = highPriorityIncidents > 0 ? `${highPriorityIncidents} urgentes` : "abiertas";
+  const urgentIncidents = incidents.filter((i) => i.priority === "urgent").length;
+  const incidentsPreview = incidents.slice(0, 4);
+
+  /* ── Operational health ──────────────────────────────────────── */
+  const healthStatus =
+    urgentIncidents > 0        ? "critical" :
+    highPriorityIncidents > 2  ? "warning"  : "nominal";
+  const healthLabel =
+    healthStatus === "critical" ? "Estado crítico" :
+    healthStatus === "warning"  ? "Atención requerida" : "Operativa normal";
+
+  /* ── Delivery rate ───────────────────────────────────────────── */
+  const deliveredSeg = donutSegments?.find((s) => s.key === "delivered");
+  const deliveryRate = donutTotal > 0 && deliveredSeg
+    ? Math.round((deliveredSeg.value / donutTotal) * 100)
+    : null;
+
+  /* ── Health max for progress bars ───────────────────────────── */
+  const healthMax = Math.max(1, ...healthItems.map((h) => h.value));
 
   return (
     <div className="stack admin-dashboard">
       {topContent}
 
+      {/* ── Hero ──────────────────────────────────────────────── */}
       <section className="admin-dashboard-hero">
         <div className="admin-dashboard-hero-copy">
-          <span className="eyebrow">{eyebrow}</span>
+          <div className="dash-hero-eyebrow-row">
+            <span className="eyebrow">{eyebrow}</span>
+            <span className={`dash-health-badge dash-health-${healthStatus}`}>
+              <span className="dash-health-dot" />
+              {healthLabel}
+            </span>
+          </div>
           <h1 className="admin-dashboard-title">{title}</h1>
           <p className="admin-dashboard-subtitle">{subtitle}</p>
         </div>
@@ -130,6 +163,7 @@ export function SharedDashboardView({
         </div>
       </section>
 
+      {/* ── Time filters ─────────────────────────────────────── */}
       {timeFilters.length > 0 ? (
         <section className="admin-dashboard-timebar">
           <span className="admin-dashboard-timebar-label">Periodo</span>
@@ -147,33 +181,34 @@ export function SharedDashboardView({
         </section>
       ) : null}
 
-      {/* ── KPI pipeline strip (6 tarjetas) ───────────────── */}
+      {/* ── KPI strip ────────────────────────────────────────── */}
       <section className="dash-kpi-strip">
-        {kpis.map((item) => {
-          const colorClass =
-            item.tone === "accent"  ? "is-accent"  :
-            item.tone === "danger"  ? "is-red"     :
-            item.tone === "success" ? "is-green"   :
-            item.tone === "warning" ? "is-orange"  : "is-slate";
-          return (
-            <article className={`exp-kpi-card ${colorClass}`} key={item.label}>
-              <span className="exp-kpi-label">{item.label}</span>
-              <strong className="exp-kpi-value">{item.value}</strong>
-              <small className="exp-kpi-hint">{item.delta}</small>
-            </article>
-          );
-        })}
+        {kpis.map((item) => (
+          <article className={`exp-kpi-card ${KPI_COLOR_MAP[item.tone]}`} key={item.label}>
+            <span className="exp-kpi-label">{item.label}</span>
+            <strong className="exp-kpi-value">{item.value}</strong>
+            <small className="exp-kpi-hint">{item.delta}</small>
+          </article>
+        ))}
       </section>
 
-      {/* ── 2-col grid: donut · chart hero (50/50) ─────────── */}
+      {/* ── 2-col: donut + chart ─────────────────────────────── */}
       <section className="dash-analytics-grid">
 
-        {/* Col 1: Status donut */}
+        {/* Status donut with delivery rate headline */}
         {donutSegments && donutSegments.length > 0 && (
-          <Card className="exp-donut-card">
+          <Card className="exp-donut-card dash-donut-card-v2">
             <div className="exp-section-head">
-              <span className="eyebrow">Estado envíos</span>
-              <h3 className="exp-card-title">Distribución activa</h3>
+              <div>
+                <span className="eyebrow">Estado de envíos</span>
+                <h3 className="exp-card-title">Distribución activa</h3>
+              </div>
+              {deliveryRate !== null && (
+                <div className="dash-delivery-rate-pill">
+                  <strong>{deliveryRate}%</strong>
+                  <span>entregado</span>
+                </div>
+              )}
             </div>
             <div className="exp-donut-wrap">
               <ShipmentDonut
@@ -206,31 +241,37 @@ export function SharedDashboardView({
           </Card>
         )}
 
-        {/* Col 2: Daily chart with hero number */}
-        <Card className="dash-chart-card">
-          <div className="exp-section-head">
-            <span className="eyebrow">Volumen</span>
-            <h3 className="exp-card-title">Pedidos por día</h3>
-          </div>
-          <div className="dash-chart-hero">
-            <strong>{chart.reduce((s, p) => s + p.value, 0)}</strong>
-            <span>pedidos en el periodo</span>
-          </div>
-          <div className="dash-chart-bars">
-            {chart.map((point) => (
-              <div className="dash-chart-col" key={point.dayKey}>
-                <div className="dash-chart-bar-wrap">
-                  <div
-                    className="dash-chart-bar"
-                    style={{ height: `${Math.max(8, (point.value / maxValue) * 100)}%` }}
-                  />
-                </div>
-                <span className="dash-chart-value">{point.value}</span>
-                <span className="dash-chart-label">{point.day}</span>
+        {/* Daily orders chart – improved */}
+        <Card className="dash-chart-card dash-chart-card-v2">
+          <div className="dash-chart-header">
+            <div className="exp-section-head" style={{ marginBottom: 0 }}>
+              <div>
+                <span className="eyebrow">Volumen</span>
+                <h3 className="exp-card-title">Pedidos por día</h3>
               </div>
-            ))}
+            </div>
+            <div className="dash-chart-total">
+              <strong className="dash-chart-total-num">{chartTotal}</strong>
+              <span className="dash-chart-total-label">en el periodo</span>
+            </div>
           </div>
-          <div className="dash-chart-footer">
+
+          <div className="dash-chart-bars-v2">
+            {chart.map((point) => {
+              const pct = Math.max(8, (point.value / maxValue) * 100);
+              return (
+                <div className="dash-chart-col-v2" key={point.dayKey}>
+                  <span className="dash-chart-val-label">{point.value > 0 ? point.value : ""}</span>
+                  <div className="dash-chart-bar-wrap-v2">
+                    <div className="dash-chart-bar-v2" style={{ height: `${pct}%` }} />
+                  </div>
+                  <span className="dash-chart-day-label">{point.day}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="dash-chart-footer-v2">
             <Link className="exp-period-pill" href={chartLinkHref}>
               {chartLinkLabel} →
             </Link>
@@ -241,7 +282,10 @@ export function SharedDashboardView({
 
       {supplementaryContent}
 
+      {/* ── Bottom grid ───────────────────────────────────────── */}
       <section className="admin-dashboard-columns">
+
+        {/* Recent orders */}
         <div className="stack admin-dashboard-column">
           <Card className="stack admin-dashboard-panel">
             <div className="admin-dashboard-panel-head">
@@ -267,66 +311,91 @@ export function SharedDashboardView({
                   </div>
                 </article>
               ))}
+              {recentOrders.length === 0 && (
+                <p className="table-secondary" style={{ padding: "12px 0" }}>Sin pedidos en el periodo.</p>
+              )}
             </div>
           </Card>
         </div>
 
+        {/* Right column: health + incidents + quick actions */}
         <div className="stack admin-dashboard-column">
+
+          {/* Operational health with visual bars */}
           <Card className="stack admin-dashboard-panel">
             <div className="admin-dashboard-panel-head">
               <div>
-                <span className="eyebrow">💚 Salud operativa</span>
+                <span className="eyebrow">💚 Estado operativo</span>
                 <h3 className="section-title section-title-small">{healthTitle}</h3>
               </div>
             </div>
 
-            <div className="admin-health-grid">
-              {healthItems.map((item) => (
-                <article className="admin-health-card" key={item.label}>
-                  <span className="admin-health-label">{item.label}</span>
-                  <strong className="admin-health-value">{item.value}</strong>
-                  <span className="admin-health-hint">{item.hint}</span>
-                </article>
-              ))}
+            <div className="dash-health-pipeline">
+              {healthItems.map((item, idx) => {
+                const pct = Math.round((item.value / healthMax) * 100);
+                const isLast = idx === healthItems.length - 1;
+                return (
+                  <div className={`dash-health-row-v2${isLast ? " is-last" : ""}`} key={item.label}>
+                    <div className="dash-health-row-meta">
+                      <span className="dash-health-row-label">{item.label}</span>
+                      <span className="dash-health-row-hint">{item.hint}</span>
+                    </div>
+                    <div className="dash-health-row-right">
+                      <strong className="dash-health-row-value">{item.value}</strong>
+                      <div className="dash-health-bar-track">
+                        <div className="dash-health-bar-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </Card>
 
+          {/* Incidents */}
           <Card className="stack admin-dashboard-panel exp-alert-card">
             <div className="admin-dashboard-panel-head">
               <div>
-                <span className="eyebrow">Atención</span>
+                <span className="eyebrow">⚡ Atención</span>
                 <h3 className="section-title section-title-small">{incidentsTitle}</h3>
               </div>
+              {incidents.length > 0 && (
+                <div className="dash-incident-summary">
+                  {urgentIncidents > 0 && (
+                    <span className="dash-incident-pill is-urgent">{urgentIncidents} urgente{urgentIncidents !== 1 ? "s" : ""}</span>
+                  )}
+                  {highPriorityIncidents - urgentIncidents > 0 && (
+                    <span className="dash-incident-pill is-high">{highPriorityIncidents - urgentIncidents} altas</span>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div className="exp-alert-total">
-              <strong>{incidents.length}</strong>
-              <span>{incidentSummaryText}</span>
-            </div>
             <div className="exp-alert-list">
               {incidentsPreview.map((incident) => {
                 const isHot = incident.priority === "urgent" || incident.priority === "high";
                 return (
                   <div className={`exp-alert-row${isHot ? " is-hot" : ""}`} key={incident.id}>
-                    <span className="exp-alert-icon">{isHot ? "🔴" : "🟡"}</span>
+                    <span className="exp-alert-icon">{incident.priority === "urgent" ? "🔴" : isHot ? "🟠" : "🟡"}</span>
                     <div className="exp-alert-body">
                       <strong>{incident.title}</strong>
                       <span>{incident.secondary}</span>
                     </div>
-                    <span className={`exp-alert-count is-${isHot ? "red" : "orange"}`}>
+                    <span className={`exp-alert-count is-${isHot ? (incident.priority === "urgent" ? "red" : "orange") : "orange"}`}>
                       {incident.priority}
                     </span>
                   </div>
                 );
               })}
 
-              {incidents.length === 0 ? (
-                <div className="exp-table-empty" style={{ padding: "20px 0" }}>
+              {incidents.length === 0 && (
+                <div className="exp-table-empty" style={{ padding: "16px 0" }}>
                   <span>✅</span>
                   <p>{incidentsEmptyMessage}</p>
                 </div>
-              ) : null}
+              )}
             </div>
+
             {incidents.length > 0 && (
               <Link className="exp-period-pill" href={incidentsLinkHref} style={{ marginTop: 4, justifySelf: "start" }}>
                 {incidentsLinkLabel} →
@@ -334,19 +403,17 @@ export function SharedDashboardView({
             )}
           </Card>
 
-          <Card className="stack admin-dashboard-panel admin-dashboard-panel-note">
+          {/* Quick actions */}
+          <Card className="stack admin-dashboard-panel dash-quick-actions-card">
             <div className="admin-dashboard-panel-head">
               <div>
-                <span className="eyebrow">🚀 Siguiente paso</span>
-                <h3 className="section-title section-title-small">{noteTitle}</h3>
+                <span className="eyebrow">🚀 {noteTitle}</span>
               </div>
             </div>
-
-            <div className="admin-dashboard-note">
-              <p>{noteBody}</p>
-              <div className="admin-dashboard-note-actions">{noteActions}</div>
-            </div>
+            <p className="dash-quick-actions-body">{noteBody}</p>
+            <div className="dash-quick-actions-row">{noteActions}</div>
           </Card>
+
         </div>
       </section>
     </div>
