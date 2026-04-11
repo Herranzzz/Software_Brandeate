@@ -12,7 +12,6 @@ import { CttLabelCell } from "@/components/ctt-label-cell";
 import { DesignAvailabilityBadge } from "@/components/design-availability-badge";
 import { EmptyState } from "@/components/empty-state";
 import { PriorityBadge } from "@/components/priority-badge";
-import { ProductionBadge } from "@/components/production-badge";
 import { DesignPreviewWithValidation } from "@/components/design-preview-with-validation";
 import { StatusBadge } from "@/components/status-badge";
 import { getOrderShipmentLabelUrl } from "@/lib/ctt";
@@ -1084,7 +1083,6 @@ export function OrdersWorkbench({
                 </div>
                 <div className="orders-drawer-badges">
                   <StatusBadge status={quickDetail.status} />
-                  <ProductionBadge status={quickDetail.production_status} />
                   <PriorityBadge priority={quickDetail.priority} />
                   <DesignAvailabilityBadge order={quickDetail} />
                 </div>

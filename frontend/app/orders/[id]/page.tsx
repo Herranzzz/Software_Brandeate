@@ -10,7 +10,6 @@ import { EmptyState } from "@/components/empty-state";
 import { OrderActionModals } from "@/components/order-action-modals";
 import { OrderIncidentsPanel } from "@/components/order-incidents-panel";
 import { PersonalizationBadge } from "@/components/personalization-badge";
-import { ProductionBadge } from "@/components/production-badge";
 import { DesignPreviewWithValidation } from "@/components/design-preview-with-validation";
 import { SectionTitle } from "@/components/section-title";
 import { StatusBadge } from "@/components/status-badge";
@@ -151,7 +150,7 @@ function buildOrderActivityFeed(
       title: "Pedido creado",
       description: `Pedido ${order.external_id} registrado para ${order.customer_name}.`,
       meta: "Inicio",
-      icon: "○",
+      icon: "●",
       tone: "neutral",
     },
   ];
@@ -160,10 +159,10 @@ function buildOrderActivityFeed(
     activities.push({
       id: `shipment-${order.shipment.id}`,
       occurredAt: order.shipment.label_created_at ?? order.shipment.created_at,
-      title: "Envío creado",
+      title: "Etiqueta de envío creada",
       description: `${order.shipment.carrier} · ${order.shipment.tracking_number}`,
-      meta: "Shipment",
-      icon: "□",
+      meta: "Envío",
+      icon: "▶",
       tone: "accent",
     });
 
@@ -186,7 +185,7 @@ function buildOrderActivityFeed(
         title: "Sync con Shopify fallida",
         description: order.shipment.shopify_sync_error ?? "No se pudo actualizar fulfillment en Shopify.",
         meta: "Shopify",
-        icon: "!",
+        icon: "✕",
         tone: "warning",
       });
     }
@@ -199,7 +198,7 @@ function buildOrderActivityFeed(
       title: event.status_norm,
       description: event.status_raw ?? "Actualización automática de tracking.",
       meta: "Tracking",
-      icon: "➜",
+      icon: "→",
       tone: "accent" as const,
     })),
   );
@@ -220,10 +219,7 @@ function buildOrderActivityFeed(
 
   return [...activities].sort((left, right) => {
     const dateDiff = new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime();
-    if (dateDiff !== 0) {
-      return dateDiff;
-    }
-
+    if (dateDiff !== 0) return dateDiff;
     return left.id.localeCompare(right.id);
   });
 }
@@ -232,28 +228,40 @@ function getItemDesignStatus(item: OrderItem) {
   if (item.design_status === "design_available") {
     return { label: getDesignStatusLabel("design_available"), tone: "success" as const };
   }
-
   if (item.design_status === "pending_asset") {
     return { label: getDesignStatusLabel("pending_asset"), tone: "warning" as const };
   }
-
   if (item.design_status === "missing_asset") {
     return { label: getDesignStatusLabel("missing_asset"), tone: "danger" as const };
   }
-
   return { label: "Sin diseño", tone: "default" as const };
 }
 
 function getShippingSnapshot(order: Awaited<ReturnType<typeof fetchOrderById>>): ShippingSnapshot | null {
   const snapshot = order?.shopify_shipping_snapshot_json;
-  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-    return null;
-  }
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return null;
   return snapshot as ShippingSnapshot;
 }
 
 function buildAddressLines(parts: Array<string | null | undefined>) {
   return parts.map((part) => (part ?? "").trim()).filter(Boolean);
+}
+
+function getOrderAge(createdAt: string): string {
+  const diff = Date.now() - new Date(createdAt).getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return "Hoy";
+  if (days === 1) return "Ayer";
+  return `Hace ${days} días`;
+}
+
+function getShipmentStatusColor(status: string | null | undefined): string {
+  if (!status) return "slate";
+  if (status === "delivered") return "green";
+  if (status === "out_for_delivery") return "orange";
+  if (status === "in_transit" || status === "picked_up") return "blue";
+  if (status === "exception" || status === "stalled") return "red";
+  return "slate";
 }
 
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
@@ -271,16 +279,15 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
     notFound();
   }
 
-  if (!order || incidents === null) {
-    notFound();
-  }
+  if (!order || incidents === null) notFound();
 
   let catalogProducts: ShopCatalogProduct[] = [];
   try {
     catalogProducts = await fetchShopCatalogProducts(order.shop_id);
   } catch {
-    // Non-critical — continue without catalog data
+    // Non-critical
   }
+
   const primaryItem = order.items[0] ?? null;
   const designPreviewUrl = getPrimaryDesignPreview(order.items);
   const primaryItemSummary = primaryItem ? getProductSummary(primaryItem, catalogProducts) : null;
@@ -304,85 +311,137 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
     [order.shipping_postal_code, order.shipping_town].filter(Boolean).join(" "),
     order.shipping_country_code,
   ]);
+  const openIncidents = incidents.filter((i) => i.status !== "resolved");
+  const shipmentStatusColor = getShipmentStatusColor(order.shipment?.shipping_status);
 
   return (
     <div className="stack">
-      <div className="detail-grid">
-        <div className="stack">
 
-          {/* ── Hero ─────────────────────────────────────────────── */}
-          <div className="order-hero-v2">
-            <div className="order-hero-v2-top">
-              <div>
-                <div className="order-hero-v2-id">{order.external_id}</div>
-                <div className="order-hero-v2-badges">
-                  <StatusBadge status={order.status} />
-                  <ProductionBadge status={order.production_status} />
-                  <PersonalizationBadge isPersonalized={order.is_personalized} />
-                </div>
-                <div className="order-hero-v2-sub">
-                  <span>{order.customer_name}</span>
-                  <span className="order-hero-v2-dot">·</span>
-                  <span>{order.customer_email}</span>
-                  <span className="order-hero-v2-dot">·</span>
-                  <span>Shop #{order.shop_id}</span>
-                  <span className="order-hero-v2-dot">·</span>
-                  <span>{formatDateTime(order.created_at)}</span>
-                </div>
-              </div>
-              <div className="order-hero-v2-actions">
-                <Link className="button-secondary" href="/orders">
-                  ← Volver
-                </Link>
-                <CttShipmentButton order={order} />
-                <OrderActionModals orderId={order.id} shipment={order.shipment} />
-              </div>
+      {/* ── Hero ──────────────────────────────────────────────────────── */}
+      <div className="order-detail-hero">
+        <div className="order-detail-hero-main">
+          <div className="order-detail-hero-id-row">
+            <h1 className="order-detail-id">{order.external_id}</h1>
+            <div className="order-detail-badges">
+              <StatusBadge status={order.status} />
+              <PersonalizationBadge isPersonalized={order.is_personalized} />
+              {openIncidents.length > 0 && (
+                <span className="order-detail-incident-badge">
+                  {openIncidents.length} incidencia{openIncidents.length !== 1 ? "s" : ""}
+                </span>
+              )}
             </div>
           </div>
 
-          {/* ── Items ────────────────────────────────────────────── */}
+          <div className="order-detail-customer-row">
+            <span className="order-detail-customer-name">{order.customer_name}</span>
+            <span className="order-detail-sep">·</span>
+            <a className="order-detail-customer-email" href={`mailto:${order.customer_email}`}>
+              {order.customer_email}
+            </a>
+            <span className="order-detail-sep">·</span>
+            <span className="order-detail-meta">{getOrderAge(order.created_at)}</span>
+            <span className="order-detail-sep">·</span>
+            <span className="order-detail-meta">{formatDateTime(order.created_at)}</span>
+          </div>
+
+          {/* Quick stats strip */}
+          <div className="order-detail-stats">
+            <div className="order-detail-stat">
+              <span className="order-detail-stat-label">Items</span>
+              <strong>{order.items.length}</strong>
+            </div>
+            <div className="order-detail-stat">
+              <span className="order-detail-stat-label">Carrier</span>
+              <strong>{order.shipment?.carrier ?? "—"}</strong>
+            </div>
+            <div className="order-detail-stat">
+              <span className="order-detail-stat-label">Tracking</span>
+              <strong>{order.shipment?.tracking_number ?? "Pendiente"}</strong>
+            </div>
+            <div className={`order-detail-stat is-${shipmentStatusColor}`}>
+              <span className="order-detail-stat-label">Estado envío</span>
+              <strong>{order.shipment?.shipping_status ?? "Sin envío"}</strong>
+            </div>
+            <div className="order-detail-stat">
+              <span className="order-detail-stat-label">Shopify sync</span>
+              <strong>{order.shipment?.shopify_sync_status === "synced" ? "Sincronizado" : order.shipment?.shopify_sync_status ?? "—"}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="order-detail-hero-actions">
+          <Link className="button button-secondary" href="/orders">← Volver</Link>
+          <CttShipmentButton order={order} />
+          <OrderActionModals orderId={order.id} shipment={order.shipment} />
+        </div>
+      </div>
+
+      <div className="detail-grid">
+        <div className="stack">
+
+          {/* ── Items ──────────────────────────────────────────────── */}
           <Card className="stack">
-            <SectionTitle eyebrow="📦 Producto" title="Contenido del pedido" />
-            <div className="items-list">
+            <SectionTitle eyebrow="Contenido" title="Productos del pedido" />
+            <div className="order-items-grid">
               {order.items.map((item) => {
                 const itemSummary = getProductSummary(item, catalogProducts);
                 const designStatus = getItemDesignStatus(item);
+                const assets = getVisibleAssets(item);
+                const previewUrl = assets[0]?.url ?? null;
 
                 return (
-                  <article className="order-item-card-v2" key={item.id}>
-                    <div className="order-item-v2-head">
-                      <div>
-                        <div className="order-item-v2-name">{itemSummary.productName}</div>
-                        <div className="order-item-v2-variant">{itemSummary.variantName}</div>
-                      </div>
-                      <span className="badge">×{item.quantity}</span>
-                    </div>
-                    <div className="order-item-v2-pills">
-                      <div className="order-item-v2-pill">
-                        <span className="kv-label">Unidades</span>
-                        <strong>{item.quantity}</strong>
-                      </div>
-                      <div className="order-item-v2-pill">
-                        <span className="kv-label">SKU</span>
-                        <strong>{item.sku || "Sin SKU"}</strong>
-                      </div>
-                      <div className="order-item-v2-pill">
-                        <span className="kv-label">Diseño</span>
-                        {item.design_status
-                          ? <DesignStatusBadge status={item.design_status} />
-                          : <span className="badge badge-design badge-design-default">{designStatus.label}</span>
-                        }
-                      </div>
-                      <div className="order-item-v2-pill">
-                        <span className="kv-label">Assets</span>
-                        <strong>{getVisibleAssets(item).length}</strong>
-                      </div>
-                    </div>
-                    {item.personalization_notes && (
-                      <div className="table-secondary" style={{ fontSize: "0.82rem" }}>
-                        {item.personalization_notes}
+                  <article className="order-item-ficha" key={item.id}>
+                    {previewUrl && (
+                      <div className="order-item-ficha-thumb">
+                        <DesignPreviewWithValidation
+                          alt={`Preview ${itemSummary.productName}`}
+                          itemId={item.id}
+                          orderId={order.id}
+                          src={previewUrl}
+                        />
                       </div>
                     )}
+                    <div className="order-item-ficha-body">
+                      <div className="order-item-ficha-title">{itemSummary.productName}</div>
+                      <div className="order-item-ficha-variant">{itemSummary.variantName}</div>
+                      {item.personalization_notes && (
+                        <div className="order-item-ficha-notes">{item.personalization_notes}</div>
+                      )}
+                      <div className="order-item-ficha-pills">
+                        <div className="order-item-ficha-pill">
+                          <span>×{item.quantity}</span>
+                        </div>
+                        {item.sku && (
+                          <div className="order-item-ficha-pill">
+                            <span className="order-item-ficha-pill-label">SKU</span>
+                            <strong>{item.sku}</strong>
+                          </div>
+                        )}
+                        <div className="order-item-ficha-pill">
+                          {item.design_status
+                            ? <DesignStatusBadge status={item.design_status} />
+                            : <span className="badge badge-design badge-design-default">{designStatus.label}</span>
+                          }
+                        </div>
+                        {assets.length > 0 && (
+                          <div className="order-item-ficha-pill">
+                            <span className="order-item-ficha-pill-label">Assets</span>
+                            <strong>{assets.length}</strong>
+                          </div>
+                        )}
+                        {item.design_link && (
+                          <a
+                            className="order-item-ficha-pill order-item-ficha-link"
+                            href={item.design_link}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            Abrir diseño →
+                          </a>
+                        )}
+                      </div>
+                    </div>
                   </article>
                 );
               })}
@@ -396,20 +455,15 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             </div>
           </Card>
 
-          {/* ── Activity timeline ─────────────────────────────────── */}
+          {/* ── Timeline ───────────────────────────────────────────── */}
           <Card className="stack">
-            <SectionTitle eyebrow="📋 Actividad" title="Timeline del pedido" />
+            <SectionTitle eyebrow="Actividad" title="Timeline del pedido" />
             <div className="order-timeline-v">
               {activityFeed.map((activity, index) => (
-                <div
-                  className={`order-timeline-item is-${activity.tone}`}
-                  key={activity.id}
-                >
+                <div className={`order-timeline-item is-${activity.tone}`} key={activity.id}>
                   <div className="order-timeline-rail">
                     <div className="order-timeline-node">{activity.icon}</div>
-                    {index < activityFeed.length - 1 && (
-                      <div className="order-timeline-spine" />
-                    )}
+                    {index < activityFeed.length - 1 && <div className="order-timeline-spine" />}
                   </div>
                   <div className="order-timeline-content">
                     <div className="order-timeline-topline">
@@ -421,13 +475,16 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                   </div>
                 </div>
               ))}
+              {activityFeed.length === 0 && (
+                <EmptyState title="Sin actividad" description="Aún no hay eventos registrados para este pedido." />
+              )}
             </div>
           </Card>
 
-          {/* ── Automation ────────────────────────────────────────── */}
-          <Card className="stack">
-            <SectionTitle eyebrow="⚡ Automatización" title="Reglas aplicadas" />
-            {(order.automation_flags ?? []).length > 0 || (order.automation_events?.length ?? 0) > 0 ? (
+          {/* ── Automation ─────────────────────────────────────────── */}
+          {((order.automation_flags ?? []).length > 0 || (order.automation_events?.length ?? 0) > 0) && (
+            <Card className="stack">
+              <SectionTitle eyebrow="Automatización" title="Reglas aplicadas" />
               <div className="stack">
                 {(order.automation_flags ?? []).length > 0 && (
                   <div className="automation-flag-row">
@@ -442,9 +499,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                       <div className="mini-table-row" key={event.id}>
                         <div>
                           <div className="table-primary">{event.summary}</div>
-                          <div className="table-secondary">
-                            {event.rule_name} · {event.action_type}
-                          </div>
+                          <div className="table-secondary">{event.rule_name} · {event.action_type}</div>
                         </div>
                         <div className="mini-table-metrics">
                           <span>{formatDateTime(event.created_at)}</span>
@@ -454,25 +509,28 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                   </div>
                 )}
               </div>
-            ) : (
-              <EmptyState
-                title="Sin automatizaciones activas"
-                description="Este pedido no ha disparado reglas automáticas visibles por ahora."
-              />
-            )}
-          </Card>
+            </Card>
+          )}
 
-          {/* ── CTT Pickup selector ───────────────────────────────── */}
+          {/* ── CTT Pickup ─────────────────────────────────────────── */}
           <ShippingOptionsPanel order={order} token={token} />
         </div>
 
         {/* ── Aside ──────────────────────────────────────────────── */}
         <aside className="stack">
 
+          {/* Incidents */}
+          {openIncidents.length > 0 && (
+            <Card className="stack order-aside-card-alert">
+              <SectionTitle eyebrow="Incidencias" title="Atención requerida" />
+              <OrderIncidentsPanel incidents={incidents} orderId={order.id} />
+            </Card>
+          )}
+
           {/* Design preview */}
-          <Card className="stack">
-            <SectionTitle eyebrow="🎨 Diseño" title="Render de personalización" />
-            {primaryItemSummary && designPreviewUrl ? (
+          {primaryItemSummary && designPreviewUrl && (
+            <Card className="stack">
+              <SectionTitle eyebrow="Diseño" title="Render de personalización" />
               <div className="shipment-product-card">
                 <div className="shipment-product-copy">
                   <span className="kv-label">Producto</span>
@@ -482,147 +540,144 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 <div className="shipment-render-preview">
                   <DesignPreviewWithValidation
                     alt={`Render de ${primaryItemSummary.productName}`}
-                    itemId={primaryItem.id}
+                    itemId={primaryItem!.id}
                     orderId={order.id}
                     src={designPreviewUrl}
                   />
                 </div>
               </div>
-            ) : (
-              <EmptyState
-                title="Sin render disponible"
-                description="Todavía no hay una imagen renderizada o preview asociada a este pedido."
-              />
-            )}
-          </Card>
+            </Card>
+          )}
 
-          {/* Incidents */}
-          <Card className="stack">
-            <SectionTitle eyebrow="⚠️ Incidencias" title="Seguimiento del pedido" />
-            <OrderIncidentsPanel incidents={incidents} orderId={order.id} />
-          </Card>
+          {/* Incidents (no open ones → show collapsed) */}
+          {openIncidents.length === 0 && (
+            <Card className="stack">
+              <SectionTitle eyebrow="Incidencias" title="Seguimiento" />
+              <OrderIncidentsPanel incidents={incidents} orderId={order.id} />
+            </Card>
+          )}
 
-          {/* Shipment details */}
+          {/* Shipment */}
           <Card className="stack">
-            <SectionTitle eyebrow="🚚 Envío" title="Shipment" />
+            <SectionTitle eyebrow="Envío" title="Datos de shipment" />
             {order.shipment ? (
-              <div className="kv">
-                <div className="kv-row">
-                  <span className="kv-label">Carrier</span>
-                  <div>{order.shipment.carrier}</div>
+              <div className="order-kv-list">
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Carrier</span>
+                  <span className="order-kv-value">{order.shipment.carrier}</span>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Tracking</span>
-                  <div className="order-inline-actions">
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Tracking</span>
+                  <span className="order-kv-value order-kv-actions">
                     <span>{order.shipment.tracking_number}</span>
                     <CopyButton value={order.shipment.tracking_number} />
-                  </div>
+                  </span>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Creado</span>
-                  <div>{formatDateTime(order.shipment.label_created_at ?? order.shipment.created_at)}</div>
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Estado</span>
+                  <span className={`order-kv-value order-kv-status is-${shipmentStatusColor}`}>
+                    {order.shipment.shipping_status_detail ?? order.shipment.shipping_status ?? "Etiqueta creada"}
+                  </span>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Estado</span>
-                  <div>{order.shipment.shipping_status_detail ?? order.shipment.shipping_status ?? "Etiqueta creada"}</div>
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Creado</span>
+                  <span className="order-kv-value">{formatDateTime(order.shipment.label_created_at ?? order.shipment.created_at)}</span>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Servicio CTT</span>
-                  <div>{order.shipment.shipping_type_code ?? "C24"}</div>
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Servicio</span>
+                  <span className="order-kv-value">{order.shipment.shipping_type_code ?? "C24"}</span>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Tramo</span>
-                  <div>{order.shipment.weight_tier_label ?? "No definido"}</div>
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Tramo</span>
+                  <span className="order-kv-value">{order.shipment.weight_tier_label ?? "No definido"}</span>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Tracking oficial</span>
-                  <div>
-                    {order.shipment.tracking_url ? (
-                      <a className="table-link table-link-strong" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">
-                        Abrir tracking →
-                      </a>
-                    ) : "Pendiente"}
-                  </div>
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Tracking público</span>
+                  <span className="order-kv-value order-kv-actions">
+                    {order.shipment.tracking_url
+                      ? <a className="table-link" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">Abrir →</a>
+                      : "Pendiente"
+                    }
+                  </span>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Etiqueta</span>
-                  <div className="order-inline-actions">
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Etiqueta</span>
+                  <span className="order-kv-value order-kv-actions">
                     {shipmentLabelUrl ? (
                       <>
-                        <a className="table-link table-link-strong" href={shipmentLabelUrl} rel="noreferrer" target="_blank">Ver PDF</a>
+                        <a className="table-link" href={shipmentLabelUrl} rel="noreferrer" target="_blank">PDF</a>
                         <a className="table-link" download href={shipmentLabelDownloadUrl ?? shipmentLabelUrl} rel="noreferrer" target="_blank">Descargar</a>
                         <a className="table-link" download href={shipmentLabelThermalUrl ?? "#"} rel="noreferrer" target="_blank">ZPL</a>
                       </>
                     ) : "No disponible"}
-                  </div>
+                  </span>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Shopify</span>
-                  <div>
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Shopify</span>
+                  <span className="order-kv-value">
                     {order.shipment.shopify_sync_status === "synced"
-                      ? "Sincronizado"
+                      ? "✓ Sincronizado"
                       : order.shipment.shopify_sync_status === "failed"
-                        ? order.shipment.shopify_sync_error ?? "Sync fallida"
+                        ? `✕ ${order.shipment.shopify_sync_error ?? "Error"}`
                         : order.shipment.shopify_sync_status === "not_configured"
                           ? "Sin integración"
                           : "Pendiente"}
-                  </div>
+                  </span>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Tracking público</span>
-                  <div className="order-inline-actions">
-                    <Link className="table-link table-link-strong" href={`/tracking/${order.shipment.public_token}`}>
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Tracking cliente</span>
+                  <span className="order-kv-value order-kv-actions">
+                    <Link className="table-link" href={`/tracking/${order.shipment.public_token}`}>
                       /tracking/{order.shipment.public_token}
                     </Link>
                     <CopyButton value={`/tracking/${order.shipment.public_token}`} />
-                  </div>
+                  </span>
                 </div>
               </div>
             ) : (
               <EmptyState
-                title="Sin shipment asociado"
-                description="Este pedido todavía no tiene shipment, carrier ni tracking asignado."
+                title="Sin shipment"
+                description="Aún no hay carrier ni tracking asignado."
               />
             )}
           </Card>
 
           {/* Address */}
           <Card className="stack">
-            <SectionTitle eyebrow="📍 Dirección" title="Snapshot y dirección operativa" />
-            <div className="kv">
-              <div className="kv-row">
-                <span className="kv-label">Contacto Shopify</span>
-                <div>
+            <SectionTitle eyebrow="Dirección" title="Datos de entrega" />
+            <div className="order-kv-list">
+              <div className="order-kv-item">
+                <span className="order-kv-label">Destinatario</span>
+                <span className="order-kv-value">
                   {shippingSnapshot?.name || order.customer_name}
-                  {shippingSnapshot?.email ? ` · ${shippingSnapshot.email}` : ""}
                   {shippingSnapshot?.phone ? ` · ${shippingSnapshot.phone}` : ""}
-                </div>
+                </span>
               </div>
-              <div className="kv-row">
-                <span className="kv-label">Dirección Shopify</span>
-                <div className="stack" style={{ gap: "4px" }}>
+              <div className="order-kv-item order-kv-item-stack">
+                <span className="order-kv-label">Dirección Shopify</span>
+                <div className="order-kv-address">
                   {shopifyAddressLines.length > 0
                     ? shopifyAddressLines.map((line) => <span key={line}>{line}</span>)
-                    : <span>Sin snapshot todavía</span>
+                    : <span className="order-kv-empty">Sin snapshot</span>
                   }
                 </div>
               </div>
-              <div className="kv-row">
-                <span className="kv-label">Dirección CTT</span>
-                <div className="stack" style={{ gap: "4px" }}>
+              <div className="order-kv-item order-kv-item-stack">
+                <span className="order-kv-label">Dirección CTT</span>
+                <div className="order-kv-address">
                   {operationalAddressLines.length > 0
                     ? operationalAddressLines.map((line) => <span key={line}>{line}</span>)
-                    : <span>Sin dirección operativa</span>
+                    : <span className="order-kv-empty">Sin dirección operativa</span>
                   }
                 </div>
               </div>
-              <div className="kv-row">
-                <span className="kv-label">Validación</span>
-                <div>
+              <div className="order-kv-item">
+                <span className="order-kv-label">Validación</span>
+                <span className="order-kv-value">
                   {order.shipping_address_line1 && order.shipping_postal_code && order.shipping_town
-                    ? "Dirección lista para etiquetar."
-                    : "Faltan datos — resincroniza Shopify antes de etiquetar."}
-                </div>
+                    ? "✓ Lista para etiquetar"
+                    : "⚠ Faltan datos — resincroniza"}
+                </span>
               </div>
             </div>
           </Card>
@@ -630,20 +685,19 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           {/* Fulfillment orders */}
           {fulfillmentOrders.length > 0 && (
             <Card className="stack">
-              <SectionTitle eyebrow="🛒 Shopify" title="Fulfillment orders" />
+              <SectionTitle eyebrow="Shopify" title="Fulfillment orders" />
               <div className="mini-table">
-                {fulfillmentOrders.map((fulfillmentOrder) => (
-                  <div className="mini-table-row" key={fulfillmentOrder.id}>
+                {fulfillmentOrders.map((fo) => (
+                  <div className="mini-table-row" key={fo.id}>
                     <div>
-                      <div className="table-primary">{fulfillmentOrder.locationName}</div>
+                      <div className="table-primary">{fo.locationName}</div>
                       <div className="table-secondary">
-                        {fulfillmentOrder.status}
-                        {fulfillmentOrder.requestStatus ? ` · ${fulfillmentOrder.requestStatus}` : ""}
+                        {fo.status}{fo.requestStatus ? ` · ${fo.requestStatus}` : ""}
                       </div>
                     </div>
                     <div className="mini-table-metrics">
-                      <span>{fulfillmentOrder.lineItems} líneas</span>
-                      <span>{fulfillmentOrder.fulfillments} fulfillments</span>
+                      <span>{fo.lineItems} líneas</span>
+                      <span>{fo.fulfillments} fulfillments</span>
                     </div>
                   </div>
                 ))}
