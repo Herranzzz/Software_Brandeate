@@ -1391,7 +1391,9 @@ def _extract_open_fulfillment_order_ids(snapshot: object) -> list[str]:
     if not isinstance(snapshot, list):
         return []
 
-    blocked_statuses = {"CANCELLED", "CLOSED", "INCOMPLETE"}
+    # INCOMPLETE = partially fulfilled; remaining items can still receive new fulfillments.
+    # Only CANCELLED and CLOSED are truly terminal — do not include INCOMPLETE here.
+    blocked_statuses = {"CANCELLED", "CLOSED"}
     fulfillment_order_ids: list[str] = []
     for row in snapshot:
         if not isinstance(row, dict):

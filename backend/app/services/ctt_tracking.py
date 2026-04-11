@@ -122,13 +122,19 @@ def sync_shipment_tracking(
                 notify_customer=False,  # initial creation auto-notifies; updates do not
                 force=True,
             )
+            # Fallback: if the full sync failed but we already have a fulfillment_id,
+            # still try to push the pending status event independently.
+            # sync_shipment_tracking_to_shopify calls this on success (no-op there),
+            # but on failure it returns early without calling it.
+            if (shipment.fulfillment_id or "").strip():
+                push_pending_shipment_status_event(db=db, order=shipment.order, shipment=shipment)
         elif (shipment.fulfillment_id or "").strip():
             # Nothing changed but there may be a pending status event to push
             # (e.g. app was redeployed and shopify_status_event_pushed was reset)
             push_pending_shipment_status_event(db=db, order=shipment.order, shipment=shipment)
             shopify_sync_status = shipment.shopify_sync_status
 
-    evaluate_order_automation_rules(db=db, order=shipment.order, source="ctt_tracking_sync")
+    evaluate_order_automation_rules(db=db, order=shipment.order, source="ctt_tracking_sync", skip_url_checks=True)
     logger.info(
         "CTT tracking sync end shipment_id=%s tracking=%s previous_status=%s latest_status=%s changed=%s events_created=%s shopify_sync_status=%s",
         shipment.id,
