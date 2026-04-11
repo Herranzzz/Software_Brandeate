@@ -52,6 +52,8 @@ class Shipment(Base):
     shopify_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     shopify_last_sync_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     shopify_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Last shipping_status that was successfully pushed as a Shopify fulfillment event
+    shopify_status_event_pushed: Mapped[str | None] = mapped_column(String(120), nullable=True)
     public_token: Mapped[str] = mapped_column(
         String(128),
         unique=True,

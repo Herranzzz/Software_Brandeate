@@ -426,6 +426,50 @@ mutation FulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: 
 """
 
 
+FULFILLMENT_EVENT_CREATE_MUTATION = """
+mutation FulfillmentEventCreate($fulfillmentEvent: FulfillmentEventInput!) {
+  fulfillmentEventCreate(fulfillmentEvent: $fulfillmentEvent) {
+    fulfillmentEvent {
+      id
+      status
+      happenedAt
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""
+
+ORDER_TAGS_ADD_MUTATION = """
+mutation tagsAdd($id: ID!, $tags: [String!]!) {
+  tagsAdd(id: $id, tags: $tags) {
+    node {
+      id
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""
+
+# Maps our internal shipping_status → Shopify FulfillmentEventStatus enum value
+# https://shopify.dev/docs/api/admin-graphql/latest/enums/FulfillmentEventStatus
+INTERNAL_TO_SHOPIFY_EVENT_STATUS: dict[str, str] = {
+    "label_created":     "CONFIRMED",
+    "prepared":          "CONFIRMED",
+    "picked_up":         "IN_TRANSIT",
+    "in_transit":        "IN_TRANSIT",
+    "out_for_delivery":  "OUT_FOR_DELIVERY",
+    "delivered":         "DELIVERED",
+    "exception":         "FAILURE",
+    "stalled":           "FAILURE",
+    "pickup_available":  "READY_FOR_PICKUP",
+}
+
 TRACKING_STATUS_MAP = {
     "LABEL_PURCHASED": "label_created",
     "LABEL_PRINTED": "label_created",
@@ -1115,6 +1159,67 @@ def push_tracking_to_shopify(
     return _clean_text(fulfillment.get("id")), resolved_url
 
 
+def push_fulfillment_event_to_shopify(
+    *,
+    integration: ShopIntegration,
+    access_token: str,
+    fulfillment_id: str,
+    shopify_event_status: str,
+    happened_at: str | None = None,
+    message: str | None = None,
+) -> None:
+    """Push a single fulfillment event (status update) to Shopify.
+
+    shopify_event_status must be a valid FulfillmentEventStatus enum value:
+    CONFIRMED | IN_TRANSIT | OUT_FOR_DELIVERY | DELIVERED | FAILURE |
+    ATTEMPTED_DELIVERY | READY_FOR_PICKUP | LABEL_PURCHASED | LABEL_PRINTED
+    """
+    variables: dict = {
+        "fulfillmentEvent": {
+            "fulfillmentId": fulfillment_id,
+            "status": shopify_event_status,
+            "happenedAt": happened_at or datetime.now(timezone.utc).isoformat(),
+        }
+    }
+    if message:
+        variables["fulfillmentEvent"]["message"] = message
+
+    payload = _run_shopify_graphql(
+        shop_domain=integration.shop_domain,
+        access_token=access_token,
+        query=FULFILLMENT_EVENT_CREATE_MUTATION,
+        variables=variables,
+    )
+    container = payload.get("data", {}).get("fulfillmentEventCreate", {}) or {}
+    _raise_on_shopify_user_errors(container.get("userErrors") or [])
+    event = container.get("fulfillmentEvent") or {}
+    logger.info(
+        "Shopify fulfillment event created fulfillment_id=%s status=%s event_id=%s",
+        fulfillment_id,
+        shopify_event_status,
+        _clean_text(event.get("id")),
+    )
+
+
+def add_order_tags_in_shopify(
+    *,
+    integration: ShopIntegration,
+    access_token: str,
+    order_gid: str,
+    tags: list[str],
+) -> None:
+    """Add tags to a Shopify order (used for return status signals)."""
+    payload = _run_shopify_graphql(
+        shop_domain=integration.shop_domain,
+        access_token=access_token,
+        query=ORDER_TAGS_ADD_MUTATION,
+        variables={"id": order_gid, "tags": tags},
+    )
+    container = payload.get("data", {}).get("tagsAdd", {}) or {}
+    _raise_on_shopify_user_errors(container.get("userErrors") or [])
+    logger.info("Shopify order tags added order_gid=%s tags=%s", order_gid, tags)
+
+
 def sync_shipment_tracking_to_shopify(
     *,
     db: Session,
@@ -1181,7 +1286,94 @@ def sync_shipment_tracking_to_shopify(
         shipment.fulfillment_id,
         shipment.tracking_number,
     )
+
+    # ── Push fulfillment status event ──────────────────────────────────────
+    # After creating/updating the fulfillment, push the current shipping status
+    # as a fulfillment event so Shopify (and the customer) see the correct state.
+    _maybe_push_status_event(db=db, order=order, shipment=shipment)
+
     return shipment.shopify_sync_status
+
+
+def _maybe_push_status_event(
+    *,
+    db: Session,
+    order: Order,
+    shipment: Shipment,
+) -> None:
+    """If the shipping status has changed since the last pushed event, create a
+    Shopify fulfillment event for the new status."""
+
+    current_status = (shipment.shipping_status or "").strip() or None
+    last_pushed = (shipment.shopify_status_event_pushed or "").strip() or None
+    fulfillment_id = (shipment.fulfillment_id or "").strip() or None
+
+    if not fulfillment_id or not current_status:
+        return
+
+    shopify_event_status = INTERNAL_TO_SHOPIFY_EVENT_STATUS.get(current_status)
+    if not shopify_event_status:
+        logger.debug(
+            "No Shopify event mapping for status=%s shipment_id=%s — skipping event push",
+            current_status,
+            shipment.id,
+        )
+        return
+
+    if current_status == last_pushed:
+        logger.debug(
+            "Status %s already pushed to Shopify for shipment_id=%s — skipping",
+            current_status,
+            shipment.id,
+        )
+        return
+
+    integration = db.scalar(
+        select(ShopIntegration).where(
+            ShopIntegration.shop_id == order.shop_id,
+            ShopIntegration.provider == SHOPIFY_PROVIDER,
+            ShopIntegration.is_active.is_(True),
+        )
+    )
+    if integration is None:
+        logger.debug("No active Shopify integration for shop_id=%s — skipping event push", order.shop_id)
+        return
+
+    access_token = resolve_shopify_access_token(db, integration)
+
+    STATUS_MESSAGES: dict[str, str] = {
+        "CONFIRMED":         "Pedido confirmado y en preparación",
+        "IN_TRANSIT":        "Envío recogido — en tránsito",
+        "OUT_FOR_DELIVERY":  "El paquete está en reparto. ¡Hoy podría llegar!",
+        "DELIVERED":         "¡Entregado! Esperamos que estés disfrutando tu pedido.",
+        "FAILURE":           "Incidencia en la entrega. Estamos gestionándolo.",
+        "READY_FOR_PICKUP":  "Tu pedido está listo para recogida",
+        "ATTEMPTED_DELIVERY": "Se intentó la entrega sin éxito. Se realizará un nuevo intento.",
+    }
+
+    try:
+        push_fulfillment_event_to_shopify(
+            integration=integration,
+            access_token=access_token,
+            fulfillment_id=fulfillment_id,
+            shopify_event_status=shopify_event_status,
+            message=STATUS_MESSAGES.get(shopify_event_status),
+        )
+        shipment.shopify_status_event_pushed = current_status
+        logger.info(
+            "Shopify status event pushed shipment_id=%s status=%s shopify_event=%s",
+            shipment.id,
+            current_status,
+            shopify_event_status,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Don't fail the whole sync just because the event push failed
+        logger.warning(
+            "Shopify status event push failed shipment_id=%s status=%s error=%s",
+            shipment.id,
+            current_status,
+            exc,
+        )
 
 
 def _extract_open_fulfillment_order_ids(snapshot: object) -> list[str]:

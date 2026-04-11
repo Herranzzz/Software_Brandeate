@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -9,6 +10,18 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_accessible_shop_ids, get_db, resolve_shop_scope
 from app.models.return_ import Return, ReturnStatus
 from app.schemas.return_ import ReturnCreate, ReturnRead, ReturnUpdate
+
+logger = logging.getLogger(__name__)
+
+# Shopify order tags pushed when a return status changes
+RETURN_STATUS_SHOPIFY_TAGS: dict[str, list[str]] = {
+    ReturnStatus.requested:  ["brandeate:devolucion-solicitada"],
+    ReturnStatus.approved:   ["brandeate:devolucion-aprobada"],
+    ReturnStatus.in_transit: ["brandeate:devolucion-en-transito"],
+    ReturnStatus.received:   ["brandeate:devolucion-recibida"],
+    ReturnStatus.closed:     ["brandeate:devolucion-cerrada"],
+    ReturnStatus.rejected:   ["brandeate:devolucion-rechazada"],
+}
 
 
 router = APIRouter(prefix="/returns", tags=["returns"])
@@ -123,14 +136,84 @@ def update_return(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Return not found")
     if accessible_shop_ids is not None and ret.shop_id not in accessible_shop_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+    previous_status = ret.status
     try:
         for field, value in payload.model_dump(exclude_unset=True).items():
             setattr(ret, field, value)
         ret.updated_at = datetime.now(timezone.utc)
         db.commit()
-        return db.scalar(_return_query().where(Return.id == return_id))
     except ProgrammingError as exc:
         db.rollback()
         if _is_missing_returns_table_error(exc):
             raise _returns_feature_unavailable() from exc
         raise
+
+    # Push Shopify order tags when return status changes
+    new_status = ret.status
+    if new_status != previous_status and ret.order_id is not None:
+        _push_return_status_tags(db=db, ret=ret, new_status=new_status)
+
+    return db.scalar(_return_query().where(Return.id == return_id))
+
+
+def _push_return_status_tags(*, db: Session, ret: Return, new_status: ReturnStatus) -> None:
+    """Push Shopify order tags when a return status changes.
+    Never raises — tag sync failures are logged but don't break the API response.
+    """
+    tags = RETURN_STATUS_SHOPIFY_TAGS.get(new_status)
+    if not tags:
+        return
+
+    try:
+        from app.models import Order, ShopIntegration
+        from app.services.shopify import (
+            SHOPIFY_PROVIDER,
+            add_order_tags_in_shopify,
+            resolve_shopify_access_token,
+        )
+        from sqlalchemy import select as _select
+
+        order = db.get(Order, ret.order_id)
+        if order is None or not order.shopify_order_gid:
+            logger.debug(
+                "Skipping return Shopify tags: no order or no shopify_order_gid for return_id=%s",
+                ret.id,
+            )
+            return
+
+        integration = db.scalar(
+            _select(ShopIntegration).where(
+                ShopIntegration.shop_id == ret.shop_id,
+                ShopIntegration.provider == SHOPIFY_PROVIDER,
+                ShopIntegration.is_active.is_(True),
+            )
+        )
+        if integration is None:
+            logger.debug(
+                "Skipping return Shopify tags: no active integration for shop_id=%s return_id=%s",
+                ret.shop_id,
+                ret.id,
+            )
+            return
+
+        access_token = resolve_shopify_access_token(db, integration)
+        add_order_tags_in_shopify(
+            integration=integration,
+            access_token=access_token,
+            order_gid=order.shopify_order_gid,
+            tags=tags,
+        )
+        logger.info(
+            "Shopify return tags pushed return_id=%s order_id=%s status=%s tags=%s",
+            ret.id,
+            order.id,
+            new_status,
+            tags,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Shopify return tag push failed return_id=%s status=%s error=%s",
+            ret.id,
+            new_status,
+            exc,
+        )
