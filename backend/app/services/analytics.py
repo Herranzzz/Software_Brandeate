@@ -438,9 +438,16 @@ def build_analytics_overview(
     created_this_month = [order for order in orders if (_to_business_date(order.created_at) or now.date()) >= month_start]
 
     shipped_orders = [order for order in orders if _enum_value(order.status) == "shipped"]
+    # "stalled" is treated as an exclusive stage: an order that is stalled is
+    # removed from its normal in-transit/out-for-delivery bucket so that the
+    # distribution sums exactly to total_orders (no double-counting).
+    stalled_ids = {order.id for order in stalled_tracking_orders}
     stage_buckets: dict[str, list[Order]] = defaultdict(list)
     for order in orders:
-        stage_buckets[_shipment_stage(order)].append(order)
+        if order.id in stalled_ids:
+            stage_buckets["stalled"].append(order)
+        else:
+            stage_buckets[_shipment_stage(order)].append(order)
     pending_orders = stage_buckets["pending"]
     prepared_orders = stage_buckets["prepared"]
     picked_up_orders = stage_buckets["picked_up"]
@@ -705,9 +712,9 @@ def build_analytics_overview(
             ("picked_up", len(picked_up_orders)),
             ("in_transit", len(in_transit_orders)),
             ("out_for_delivery", len(out_for_delivery_orders)),
+            ("stalled", len(stage_buckets["stalled"])),
             ("delivered", len(delivered_orders)),
             ("exception", len(exception_orders)),
-            ("stalled", len(stalled_tracking_orders)),
         )
         if value > 0
     ]
