@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("invoice_number", sa.String(64), nullable=False),
         sa.Column("shop_id", sa.Integer(), nullable=True),
-        sa.Column("status", sa.Enum("draft", "sent", "paid", "cancelled", name="invoice_status"), server_default="draft", nullable=False),
+        sa.Column("status", sa.Enum("draft", "sent", "paid", "cancelled", name="invoice_status", create_type=False), server_default="draft", nullable=False),
         sa.Column("client_name", sa.String(255), nullable=False),
         sa.Column("client_email", sa.String(320), nullable=False),
         sa.Column("client_company", sa.String(255), nullable=True),
