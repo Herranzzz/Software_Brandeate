@@ -146,10 +146,15 @@ export function DashboardEmployeeMetrics({
               ranking.map((employee, index) => {
                 const value = getPeriodCount(employee, period);
                 const share = totalInPeriod > 0 ? Math.round((value / totalInPeriod) * 100) : 0;
+                const rankLabel = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`;
                 return (
-                  <article className={`employee-dashboard-rank-row${index === 0 ? " is-lead" : ""}`} key={employee.id}>
+                  <article
+                    className={`employee-dashboard-rank-row${index === 0 ? " is-lead" : ""}${value === 0 ? " is-zero" : ""}`}
+                    key={employee.id}
+                  >
                     <div className="employee-dashboard-rank-main">
                       <div className="employee-dashboard-rank-meta">
+                        <span className="employee-dashboard-rank-pos">{rankLabel}</span>
                         <span className="employee-dashboard-rank-avatar">{getInitials(employee.name)}</span>
                         <div>
                           <strong>{employee.name}</strong>
@@ -162,7 +167,7 @@ export function DashboardEmployeeMetrics({
                       <strong className="employee-dashboard-rank-value">{value}</strong>
                     </div>
                     <div className="employee-dashboard-rank-track">
-                      <span style={{ width: `${Math.max(value > 0 ? 12 : 0, (value / maxValue) * 100)}%` }} />
+                      <span style={{ width: `${Math.max(value > 0 ? 6 : 0, (value / maxValue) * 100)}%` }} />
                     </div>
                   </article>
                 );
