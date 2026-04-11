@@ -6,6 +6,14 @@ import type {
   EmployeeAnalyticsResponse,
   EmployeeWorkspace,
   Incident,
+  InventoryItem,
+  InventoryItemListResponse,
+  InboundShipment,
+  InboundShipmentLine,
+  InboundShipmentListResponse,
+  StockMovement,
+  StockMovementListResponse,
+  InventoryAlertsRead,
   Order,
   PickBatch,
   PublicTracking,
@@ -566,4 +574,204 @@ export async function fetchReturnById(id: string | number): Promise<Return | nul
   });
   if (response.status === 404) return null;
   return parseResponse<Return>(response);
+}
+
+
+// ── SGA / Inventory ──────────────────────────────────────────────────────────
+
+export async function fetchInventoryItems(params?: {
+  shop_id?: string | number;
+  low_stock?: boolean;
+  page?: number;
+  per_page?: number;
+}): Promise<InventoryItemListResponse> {
+  const query = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) query.append(k, String(v));
+    });
+  }
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/inventory/items?${query}`), { headers });
+  return parseResponse<InventoryItemListResponse>(res);
+}
+
+export async function createInventoryItem(data: {
+  shop_id: number;
+  sku: string;
+  name: string;
+  stock_on_hand?: number;
+  reorder_point?: number | null;
+  reorder_qty?: number | null;
+  location?: string | null;
+  notes?: string | null;
+}): Promise<InventoryItem> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl("/inventory/items"), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return parseResponse<InventoryItem>(res);
+}
+
+export async function updateInventoryItem(
+  id: number,
+  data: Partial<{
+    name: string;
+    reorder_point: number | null;
+    reorder_qty: number | null;
+    location: string | null;
+    notes: string | null;
+    is_active: boolean;
+  }>
+): Promise<InventoryItem> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/inventory/items/${id}`), {
+    method: "PATCH",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return parseResponse<InventoryItem>(res);
+}
+
+export async function adjustInventoryStock(
+  id: number,
+  data: { qty_delta: number; movement_type: string; notes?: string | null }
+): Promise<InventoryItem> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/inventory/items/${id}/adjust`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return parseResponse<InventoryItem>(res);
+}
+
+export async function fetchInboundShipments(params?: {
+  shop_id?: string | number;
+  status?: string;
+  page?: number;
+  per_page?: number;
+}): Promise<InboundShipmentListResponse> {
+  const query = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) query.append(k, String(v));
+    });
+  }
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/inventory/inbound?${query}`), { headers });
+  return parseResponse<InboundShipmentListResponse>(res);
+}
+
+export async function createInboundShipment(data: {
+  shop_id: number;
+  reference: string;
+  expected_arrival?: string | null;
+  carrier?: string | null;
+  tracking_number?: string | null;
+  notes?: string | null;
+}): Promise<InboundShipment> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl("/inventory/inbound"), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return parseResponse<InboundShipment>(res);
+}
+
+export async function updateInboundShipment(
+  id: number,
+  data: Partial<{
+    reference: string;
+    status: string;
+    expected_arrival: string | null;
+    carrier: string | null;
+    tracking_number: string | null;
+    notes: string | null;
+  }>
+): Promise<InboundShipment> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/inventory/inbound/${id}`), {
+    method: "PATCH",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return parseResponse<InboundShipment>(res);
+}
+
+export async function addInboundShipmentLine(
+  shipmentId: number,
+  data: { sku: string; name?: string | null; qty_expected: number; notes?: string | null }
+): Promise<InboundShipmentLine> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/inventory/inbound/${shipmentId}/lines`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return parseResponse<InboundShipmentLine>(res);
+}
+
+export async function deleteInboundShipmentLine(
+  shipmentId: number,
+  lineId: number
+): Promise<void> {
+  const headers = await buildAuthHeaders();
+  await fetch(apiUrl(`/inventory/inbound/${shipmentId}/lines/${lineId}`), {
+    method: "DELETE",
+    headers,
+  });
+}
+
+export async function receiveInboundShipment(
+  shipmentId: number,
+  data: {
+    lines: Array<{
+      line_id: number;
+      qty_received: number;
+      qty_accepted: number;
+      qty_rejected: number;
+      rejection_reason?: string | null;
+    }>;
+    notes?: string | null;
+  }
+): Promise<InboundShipment> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/inventory/inbound/${shipmentId}/receive`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return parseResponse<InboundShipment>(res);
+}
+
+export async function fetchStockMovements(params?: {
+  shop_id?: string | number;
+  sku?: string;
+  item_id?: number;
+  page?: number;
+  per_page?: number;
+}): Promise<StockMovementListResponse> {
+  const query = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) query.append(k, String(v));
+    });
+  }
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/inventory/movements?${query}`), { headers });
+  return parseResponse<StockMovementListResponse>(res);
+}
+
+export async function fetchInventoryAlerts(params?: {
+  shop_id?: string | number;
+}): Promise<InventoryAlertsRead> {
+  const query = new URLSearchParams();
+  if (params?.shop_id !== undefined) query.append("shop_id", String(params.shop_id));
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/inventory/alerts?${query}`), { headers });
+  return parseResponse<InventoryAlertsRead>(res);
 }

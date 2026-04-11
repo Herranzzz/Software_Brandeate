@@ -16,6 +16,7 @@ from app.api.routes.shipments import router as shipments_router
 from app.api.routes.shops import router as shops_router
 from app.api.routes.tracking import router as tracking_router
 from app.api.routes.users import router as users_router
+from app.api.routes.inventory import router as inventory_router
 from app.api.routes.webhooks import router as webhooks_router
 
 
@@ -37,3 +38,4 @@ api_router.include_router(ctt_router)
 api_router.include_router(tracking_router)
 api_router.include_router(returns_router)
 api_router.include_router(webhooks_router)
+api_router.include_router(inventory_router)

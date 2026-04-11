@@ -700,3 +700,104 @@ export type Return = {
     customer_email: string;
   } | null;
 };
+
+// ── SGA / Inventory ──────────────────────────────────────────────────────────
+
+export type InventoryItem = {
+  id: number;
+  shop_id: number;
+  sku: string;
+  name: string;
+  variant_id: number | null;
+  stock_on_hand: number;
+  stock_reserved: number;
+  stock_available: number; // computed: on_hand - reserved
+  reorder_point: number | null;
+  reorder_qty: number | null;
+  location: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InboundShipmentStatus = "draft" | "sent" | "in_transit" | "received" | "closed";
+
+export type InboundShipmentLine = {
+  id: number;
+  inbound_shipment_id: number;
+  inventory_item_id: number | null;
+  sku: string;
+  name: string | null;
+  qty_expected: number;
+  qty_received: number;
+  qty_accepted: number;
+  qty_rejected: number;
+  rejection_reason: string | null;
+  notes: string | null;
+};
+
+export type InboundShipment = {
+  id: number;
+  shop_id: number;
+  reference: string;
+  status: InboundShipmentStatus;
+  expected_arrival: string | null;
+  carrier: string | null;
+  tracking_number: string | null;
+  notes: string | null;
+  created_by_user_id: number | null;
+  received_by_user_id: number | null;
+  received_at: string | null;
+  created_at: string;
+  updated_at: string;
+  lines: InboundShipmentLine[];
+  total_expected: number;
+  total_received: number;
+};
+
+export type StockMovementType =
+  | "inbound_receipt"
+  | "outbound_fulfillment"
+  | "adjustment_add"
+  | "adjustment_remove"
+  | "return_receipt"
+  | "cycle_count"
+  | "damage_write_off";
+
+export type StockMovement = {
+  id: number;
+  shop_id: number;
+  inventory_item_id: number;
+  sku: string;
+  movement_type: StockMovementType;
+  qty_delta: number;
+  qty_before: number;
+  qty_after: number;
+  reference_type: string | null;
+  reference_id: number | null;
+  notes: string | null;
+  performed_by_user_id: number | null;
+  performed_by_name: string | null;
+  created_at: string;
+};
+
+export type InventoryItemListResponse = {
+  items: InventoryItem[];
+  total: number;
+};
+
+export type InboundShipmentListResponse = {
+  shipments: InboundShipment[];
+  total: number;
+};
+
+export type StockMovementListResponse = {
+  movements: StockMovement[];
+  total: number;
+};
+
+export type InventoryAlertsRead = {
+  items: InventoryItem[];
+  total: number;
+};

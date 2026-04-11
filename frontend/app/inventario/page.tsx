@@ -1,84 +1,89 @@
-import { Card } from "@/components/card";
-import { KpiCard } from "@/components/kpi-card";
+import { AdminInventoryPanel } from "@/components/admin-inventory-panel";
 import { PageHeader } from "@/components/page-header";
-import { PortalInventoryPanel } from "@/components/portal-inventory-panel";
-import { fetchOrders, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
+import {
+  fetchInventoryItems,
+  fetchInboundShipments,
+  fetchStockMovements,
+  fetchInventoryAlerts,
+  fetchShops,
+} from "@/lib/api";
 
 type AdminInventarioPageProps = {
   searchParams?: Promise<{ shop_id?: string }>;
 };
 
-export default async function AdminInventarioPage({ searchParams }: AdminInventarioPageProps) {
+export default async function AdminInventarioPage({
+  searchParams,
+}: AdminInventarioPageProps) {
   await requireAdminUser();
   const params = (await searchParams) ?? {};
+  const shopId = params.shop_id ? Number(params.shop_id) : undefined;
 
-  const [shopsResult, ordersResult] = await Promise.allSettled([
+  const [
+    itemsResult,
+    inboundResult,
+    movementsResult,
+    alertsResult,
+    shopsResult,
+  ] = await Promise.allSettled([
+    fetchInventoryItems({ shop_id: shopId, per_page: 200 }),
+    fetchInboundShipments({ shop_id: shopId, per_page: 50 }),
+    fetchStockMovements({ shop_id: shopId, per_page: 100 }),
+    fetchInventoryAlerts({ shop_id: shopId }),
     fetchShops(),
-    fetchOrders({
-      page: 1,
-      per_page: 500,
-      ...(params.shop_id ? { shop_id: params.shop_id } : {}),
-    }).then((r) => r.orders),
   ]);
 
-  const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
-  const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
-
-  const now = Date.now();
-  const ms30 = 30 * 24 * 60 * 60 * 1000;
-  const skuSet = new Set<string>();
-  let totalUnits30 = 0;
-  for (const order of orders) {
-    const inLast30 = now - new Date(order.created_at).getTime() <= ms30;
-    for (const item of order.items) {
-      if (item.sku?.trim()) skuSet.add(item.sku.trim());
-      if (inLast30) totalUnits30 += item.quantity;
-    }
-  }
+  const items =
+    itemsResult.status === "fulfilled" ? itemsResult.value.items : [];
+  const inboundShipments =
+    inboundResult.status === "fulfilled"
+      ? inboundResult.value.shipments
+      : [];
+  const movements =
+    movementsResult.status === "fulfilled"
+      ? movementsResult.value.movements
+      : [];
+  const alerts =
+    alertsResult.status === "fulfilled" ? alertsResult.value.items : [];
+  const shops =
+    shopsResult.status === "fulfilled" ? shopsResult.value : [];
 
   return (
     <div className="stack">
       <PageHeader
-        eyebrow="Inventario"
-        title="Control de stock por SKU"
-        description="Velocidad de consumo, previsión de días restantes y alertas de reposición por cliente y tienda."
+        description="Control de stock en tiempo real, recepción de mercancía y trazabilidad completa de movimientos."
+        eyebrow="SGA"
+        title="Sistema de Gestión de Almacén"
       />
 
       {/* Shop filter */}
       {shops.length > 1 && (
         <form className="portal-filter-row" method="get">
           <label className="field" style={{ maxWidth: 280 }}>
-            <span>Filtrar por tienda</span>
-            <select defaultValue={params.shop_id ?? ""} name="shop_id" onChange={(e) => void 0}>
-              <option value="">Todas las tiendas</option>
+            <span>Filtrar por cliente</span>
+            <select defaultValue={params.shop_id ?? ""} name="shop_id">
+              <option value="">Todos los clientes</option>
               {shops.map((s) => (
-                <option key={s.id} value={String(s.id)}>{s.name}</option>
+                <option key={s.id} value={String(s.id)}>
+                  {s.name}
+                </option>
               ))}
             </select>
           </label>
-          <button className="button-secondary" type="submit">Ver</button>
+          <button className="button-secondary" type="submit">
+            Ver
+          </button>
         </form>
       )}
 
-      <section className="portal-returns-kpis">
-        <KpiCard label="SKUs activos" tone="accent" value={String(skuSet.size)} delta="referencias detectadas" />
-        <KpiCard label="Unidades vendidas" tone="success" value={String(totalUnits30)} delta="últimos 30 días" />
-        <KpiCard label="Pedidos analizados" tone="default" value={String(orders.length)} delta="para calcular velocidad" />
-      </section>
-
-      <Card className="stack settings-section-card">
-        <div className="settings-section-head">
-          <div>
-            <span className="eyebrow">📦 Stock</span>
-            <h3 className="section-title section-title-small">Niveles de inventario por SKU</h3>
-            <p className="subtitle">
-              Haz clic en el stock de cualquier SKU para actualizarlo. La previsión se recalcula al momento.
-            </p>
-          </div>
-        </div>
-        <PortalInventoryPanel orders={orders} />
-      </Card>
+      <AdminInventoryPanel
+        alerts={alerts}
+        inboundShipments={inboundShipments}
+        isAdmin={true}
+        items={items}
+        movements={movements}
+      />
     </div>
   );
 }

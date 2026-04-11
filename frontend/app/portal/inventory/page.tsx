@@ -1,11 +1,10 @@
-import { Card } from "@/components/card";
-import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { PortalInventoryPanel } from "@/components/portal-inventory-panel";
 import { PortalTenantControl } from "@/components/portal-tenant-control";
-import { fetchOrders } from "@/lib/api";
+import { fetchInventoryItems, fetchInboundShipments, fetchInventoryAlerts } from "@/lib/api";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
 import { resolveTenantScope } from "@/lib/tenant-scope";
+import { KpiCard } from "@/components/kpi-card";
 
 type PortalInventoryPageProps = {
   searchParams?: Promise<{ shop_id?: string }>;
@@ -16,35 +15,29 @@ export default async function PortalInventoryPage({ searchParams }: PortalInvent
   const params = (await searchParams) ?? {};
   const shops = await fetchMyShops();
   const tenantScope = resolveTenantScope(shops, params.shop_id);
+  const shopId = tenantScope.selectedShopId
+    ? Number(tenantScope.selectedShopId)
+    : tenantScope.shops[0]?.id ?? null;
 
-  const ordersResult = await fetchOrders({
-    page: 1,
-    per_page: 500,
-    ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
-  }).catch(() => ({ orders: [] }));
+  const [itemsResult, inboundResult, alertsResult] = await Promise.allSettled([
+    shopId ? fetchInventoryItems({ shop_id: shopId, per_page: 200 }) : Promise.resolve({ items: [], total: 0 }),
+    shopId ? fetchInboundShipments({ shop_id: shopId, per_page: 50 }) : Promise.resolve({ shipments: [], total: 0 }),
+    shopId ? fetchInventoryAlerts({ shop_id: shopId }) : Promise.resolve({ items: [], total: 0 }),
+  ]);
 
-  const orders = ordersResult.orders ?? [];
+  const items = itemsResult.status === "fulfilled" ? itemsResult.value.items : [];
+  const inboundShipments = inboundResult.status === "fulfilled" ? inboundResult.value.shipments : [];
+  const alerts = alertsResult.status === "fulfilled" ? alertsResult.value.items : [];
 
-  // Server-side derived metrics
-  const now = Date.now();
-  const ms30 = 30 * 24 * 60 * 60 * 1000;
-  const skuSet = new Set<string>();
-  let totalUnits30 = 0;
-
-  for (const order of orders) {
-    const inLast30 = now - new Date(order.created_at).getTime() <= ms30;
-    for (const item of order.items) {
-      if (item.sku?.trim()) skuSet.add(item.sku.trim());
-      if (inLast30) totalUnits30 += item.quantity;
-    }
-  }
+  const totalStock = items.reduce((s, i) => s + i.stock_on_hand, 0);
+  const pendingInbound = inboundShipments.filter(s => s.status === "sent" || s.status === "in_transit").length;
 
   return (
     <div className="stack">
       <PageHeader
-        eyebrow="Inventario"
-        title="Previsión de demanda"
-        description="Velocidad de consumo por SKU, días de stock restantes y alertas tempranas para evitar roturas antes de que ocurran."
+        eyebrow="Mi inventario"
+        title="Stock en almacén Brandeate"
+        description="Gestiona tu mercancía, crea notas de envío y sigue el estado de tus entradas en tiempo real."
       />
 
       <PortalTenantControl
@@ -55,23 +48,26 @@ export default async function PortalInventoryPage({ searchParams }: PortalInvent
       />
 
       <section className="portal-returns-kpis">
-        <KpiCard label="SKUs activos" tone="accent" value={String(skuSet.size)} delta="referencias detectadas" />
-        <KpiCard label="Unidades vendidas" tone="success" value={String(totalUnits30)} delta="últimos 30 días" />
-        <KpiCard label="Pedidos analizados" tone="default" value={String(orders.length)} delta="para calcular velocidad" />
+        <KpiCard label="SKUs en almacén" tone="accent" value={String(items.length)} delta="referencias activas" />
+        <KpiCard label="Unidades totales" tone="default" value={String(totalStock)} delta="stock disponible" />
+        <KpiCard label="Alertas reposición" tone={alerts.length > 0 ? "danger" : "success"} value={String(alerts.length)} delta="por debajo del mínimo" />
+        <KpiCard label="Entradas en curso" tone={pendingInbound > 0 ? "warning" : "default"} value={String(pendingInbound)} delta="enviadas o en tránsito" />
       </section>
 
-      <Card className="stack settings-section-card portal-glass-card">
-        <div className="settings-section-head">
-          <div>
-            <span className="eyebrow">📦 Stock</span>
-            <h3 className="section-title section-title-small">Niveles de inventario por SKU</h3>
-            <p className="subtitle">
-              Haz clic en el stock de cualquier SKU para actualizarlo. La previsión se recalcula al momento.
-            </p>
-          </div>
+      {shopId ? (
+        <PortalInventoryPanel
+          alerts={alerts}
+          inboundShipments={inboundShipments}
+          items={items}
+          shopId={shopId}
+        />
+      ) : (
+        <div className="sga-empty">
+          <div className="sga-empty-icon">🏪</div>
+          <p className="sga-empty-title">Sin tienda seleccionada</p>
+          <p className="sga-empty-sub">Selecciona una tienda para ver el inventario.</p>
         </div>
-        <PortalInventoryPanel orders={orders} />
-      </Card>
+      )}
     </div>
   );
 }

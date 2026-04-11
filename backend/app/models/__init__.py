@@ -1,4 +1,5 @@
 from app.models.automation_event import AutomationActionType, AutomationEntityType, AutomationEvent
+from app.models.inventory import InventoryItem, InboundShipment, InboundShipmentLine, StockMovement
 from app.models.return_ import Return, ReturnReason, ReturnStatus
 from app.models.incident import Incident, IncidentPriority, IncidentStatus, IncidentType
 from app.models.order import DesignStatus, DeliveryType, Order, OrderItem, OrderPriority, OrderStatus, ProductionStatus
@@ -14,6 +15,10 @@ from app.models.shop_sync_event import ShopSyncEvent
 from app.models.user import User, UserRole, UserShop
 
 __all__ = [
+    "InventoryItem",
+    "InboundShipment",
+    "InboundShipmentLine",
+    "StockMovement",
     "Return",
     "ReturnReason",
     "ReturnStatus",
