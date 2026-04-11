@@ -7,7 +7,7 @@ import {
   adjustInventoryStock,
   receiveInboundShipment,
   updateInboundShipment,
-} from "@/lib/api";
+} from "@/lib/api-client";
 import type {
   InventoryItem,
   InboundShipment,

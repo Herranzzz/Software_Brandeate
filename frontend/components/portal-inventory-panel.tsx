@@ -8,7 +8,7 @@ import {
   addInboundShipmentLine,
   deleteInboundShipmentLine,
   updateInboundShipment,
-} from "@/lib/api";
+} from "@/lib/api-client";
 
 type PortalInventoryPanelProps = {
   items: InventoryItem[];
