@@ -16,7 +16,13 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE IF NOT EXISTS invoice_status AS ENUM ('draft', 'sent', 'paid', 'cancelled')")
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE invoice_status AS ENUM ('draft', 'sent', 'paid', 'cancelled');
+        EXCEPTION
+            WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
 
     op.create_table(
         "invoices",
@@ -66,4 +72,10 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("invoice_items")
     op.drop_table("invoices")
-    op.execute("DROP TYPE IF EXISTS invoice_status")
+    op.execute("""
+        DO $$ BEGIN
+            DROP TYPE invoice_status;
+        EXCEPTION
+            WHEN undefined_object THEN NULL;
+        END $$;
+    """)
