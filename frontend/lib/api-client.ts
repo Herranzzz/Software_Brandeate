@@ -144,3 +144,26 @@ export async function syncInventoryFromCatalog(
   );
   return parseClientResponse<CatalogSyncResult>(res);
 }
+
+// ── Shopify → Inventory stock sync ───────────────────────────────────────────
+
+export type ShopifyInventorySyncResult = {
+  shop_id: number;
+  synced: number;
+  created: number;
+  skipped: number;
+  errors: number;
+  error_details: string[];
+  sync_status: string;
+  synced_at: string;
+};
+
+export async function syncInventoryFromShopify(
+  shopId?: number,
+): Promise<ShopifyInventorySyncResult> {
+  const url = shopId
+    ? `/api/inventory/sync-from-shopify?shop_id=${shopId}`
+    : `/api/inventory/sync-from-shopify`;
+  const res = await fetch(url, { method: "POST" });
+  return parseClientResponse<ShopifyInventorySyncResult>(res);
+}

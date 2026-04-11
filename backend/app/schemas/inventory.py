@@ -266,3 +266,27 @@ class CatalogSyncResult(BaseModel):
     already_existed: int
     skipped_no_sku: int
     total_variants: int
+
+
+# ---------------------------------------------------------------------------
+# Shopify inventory sync schemas
+# ---------------------------------------------------------------------------
+
+class InventoryShopifySyncResult(BaseModel):
+    shop_id: int
+    synced: int
+    created: int
+    skipped: int
+    errors: int
+    error_details: list[str] = []
+    sync_status: str  # "success" | "partial" | "failed"
+    synced_at: datetime
+
+
+class InventorySyncStatusRead(BaseModel):
+    shop_id: int
+    shop_name: str
+    last_synced_at: datetime | None = None
+    last_sync_status: str | None = None
+    last_sync_summary: dict | None = None
+    last_error_message: str | None = None

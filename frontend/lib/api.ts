@@ -977,3 +977,41 @@ export async function testWebhookEndpoint(id: number): Promise<{ success: boolea
   const res = await fetch(apiUrl(`/webhook-endpoints/${id}/test`), { method: "POST", headers });
   return parseResponse(res);
 }
+
+
+// ---------------------------------------------------------------------------
+// Inventory — Shopify sync
+// ---------------------------------------------------------------------------
+
+export async function syncInventoryFromShopify(shopId?: number): Promise<{
+  shop_id: number;
+  synced: number;
+  created: number;
+  skipped: number;
+  errors: number;
+  error_details: string[];
+  sync_status: string;
+  synced_at: string;
+}> {
+  const headers = await buildAuthHeaders();
+  const url = shopId
+    ? apiUrl(`/inventory/sync-from-shopify?shop_id=${shopId}`)
+    : apiUrl("/inventory/sync-from-shopify");
+  const res = await fetch(url, { method: "POST", headers });
+  return parseResponse(res);
+}
+
+export async function fetchInventorySyncStatus(): Promise<
+  Array<{
+    shop_id: number;
+    shop_name: string;
+    last_synced_at: string | null;
+    last_sync_status: string | null;
+    last_sync_summary: Record<string, unknown> | null;
+    last_error_message: string | null;
+  }>
+> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl("/inventory/sync-status"), { headers });
+  return parseResponse(res);
+}

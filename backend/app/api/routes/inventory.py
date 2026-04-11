@@ -20,6 +20,7 @@ from app.models.inventory import (
     InventoryItem,
     StockMovement,
 )
+from app.models.shop_integration import ShopIntegration
 from app.schemas.inventory import (
     InboundReceivePayload,
     InboundShipmentCreate,
@@ -35,10 +36,13 @@ from app.schemas.inventory import (
     InventoryItemRead,
     InventoryItemUpdate,
     CatalogSyncResult,
+    InventoryShopifySyncResult,
+    InventorySyncStatusRead,
     StockAdjustPayload,
     StockMovementListResponse,
     StockMovementRead,
 )
+from app.services.inventory_sync import sync_inventory_from_shopify as _run_shopify_sync
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -800,3 +804,98 @@ def sync_inventory_from_catalog(
         skipped_no_sku=skipped_no_sku,
         total_variants=total_variants,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /inventory/sync-from-shopify
+# ---------------------------------------------------------------------------
+
+@router.post("/sync-from-shopify", response_model=InventoryShopifySyncResult)
+def sync_inventory_from_shopify(
+    shop_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+) -> InventoryShopifySyncResult:
+    """Pull inventory_quantity from Shopify and update stock_on_hand for matching SKUs.
+
+    If shop_id is omitted all active Shopify integrations are synced; only the
+    first result is returned in that case (use /inventory/sync-status for a
+    per-shop overview).
+    """
+    results = _run_shopify_sync(shop_id=shop_id, db=db)
+
+    if not results:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No active Shopify integration found for shop_id={shop_id}"
+                if shop_id
+                else "No active Shopify integrations found"
+            ),
+        )
+
+    # Merge all results into one aggregate response
+    merged_shop_id = shop_id if shop_id is not None else results[0].shop_id
+    total_synced = sum(r.synced for r in results)
+    total_created = sum(r.created for r in results)
+    total_skipped = sum(r.skipped for r in results)
+    total_errors = sum(r.errors for r in results)
+    all_error_details: list[str] = [d for r in results for d in r.error_details]
+
+    if total_errors == 0:
+        merged_status = "success"
+    elif total_synced > 0 or total_created > 0:
+        merged_status = "partial"
+    else:
+        merged_status = "failed"
+
+    return InventoryShopifySyncResult(
+        shop_id=merged_shop_id,
+        synced=total_synced,
+        created=total_created,
+        skipped=total_skipped,
+        errors=total_errors,
+        error_details=all_error_details,
+        sync_status=merged_status,
+        synced_at=results[0].synced_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /inventory/sync-status
+# ---------------------------------------------------------------------------
+
+@router.get("/sync-status", response_model=list[InventorySyncStatusRead])
+def get_inventory_sync_status(
+    shop_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+) -> list[InventorySyncStatusRead]:
+    """Return last Shopify inventory sync metadata for each active integration."""
+    from app.models.shop import Shop  # local import to avoid circular deps
+
+    q = select(ShopIntegration).where(
+        ShopIntegration.provider == "shopify",
+        ShopIntegration.is_active.is_(True),
+    )
+    if shop_id is not None:
+        q = q.where(ShopIntegration.shop_id == shop_id)
+
+    integrations = db.scalars(q).all()
+
+    output: list[InventorySyncStatusRead] = []
+    for integration in integrations:
+        shop = db.get(Shop, integration.shop_id)
+        shop_name = shop.name if shop else f"Shop #{integration.shop_id}"
+        output.append(
+            InventorySyncStatusRead(
+                shop_id=integration.shop_id,
+                shop_name=shop_name,
+                last_synced_at=integration.last_synced_at,
+                last_sync_status=integration.last_sync_status,
+                last_sync_summary=integration.last_sync_summary,
+                last_error_message=integration.last_error_message,
+            )
+        )
+
+    return output

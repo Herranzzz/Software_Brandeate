@@ -6,6 +6,7 @@ import {
   fetchInboundShipments,
   fetchStockMovements,
   fetchInventoryAlerts,
+  fetchInventorySyncStatus,
   fetchShops,
 } from "@/lib/api";
 
@@ -26,12 +27,14 @@ export default async function AdminInventarioPage({
     movementsResult,
     alertsResult,
     shopsResult,
+    syncStatusResult,
   ] = await Promise.allSettled([
     fetchInventoryItems({ shop_id: shopId, per_page: 200 }),
     fetchInboundShipments({ shop_id: shopId, per_page: 50 }),
     fetchStockMovements({ shop_id: shopId, per_page: 100 }),
     fetchInventoryAlerts({ shop_id: shopId }),
     fetchShops(),
+    fetchInventorySyncStatus(),
   ]);
 
   const items =
@@ -48,6 +51,8 @@ export default async function AdminInventarioPage({
     alertsResult.status === "fulfilled" ? alertsResult.value.items : [];
   const shops =
     shopsResult.status === "fulfilled" ? shopsResult.value : [];
+  const syncStatus =
+    syncStatusResult.status === "fulfilled" ? syncStatusResult.value : [];
 
   return (
     <div className="stack">
@@ -84,6 +89,7 @@ export default async function AdminInventarioPage({
         items={items}
         movements={movements}
         shopId={shopId}
+        syncStatus={syncStatus}
       />
     </div>
   );

@@ -7,8 +7,10 @@ import {
   adjustInventoryStock,
   receiveInboundShipment,
   syncInventoryFromCatalog,
+  syncInventoryFromShopify,
   updateInboundShipment,
   type CatalogSyncResult,
+  type ShopifyInventorySyncResult,
 } from "@/lib/api-client";
 import type {
   InventoryItem,
@@ -22,6 +24,15 @@ import type {
 
 type Tab = "resumen" | "skus" | "entradas" | "movimientos";
 
+type SyncStatusEntry = {
+  shop_id: number;
+  shop_name: string;
+  last_synced_at: string | null;
+  last_sync_status: string | null;
+  last_sync_summary: Record<string, unknown> | null;
+  last_error_message: string | null;
+};
+
 type AdminInventoryPanelProps = {
   items: InventoryItem[];
   inboundShipments: InboundShipment[];
@@ -30,6 +41,7 @@ type AdminInventoryPanelProps = {
   isAdmin: boolean;
   /** When set, "Sincronizar desde catálogo" uses this shop_id */
   shopId?: number;
+  syncStatus?: SyncStatusEntry[];
 };
 
 type AdjustState = {
@@ -685,6 +697,7 @@ export function AdminInventoryPanel({
   alerts,
   isAdmin,
   shopId,
+  syncStatus = [],
 }: AdminInventoryPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("resumen");
   const [items, setItems] = useState<InventoryItem[]>(initialItems);
@@ -693,6 +706,8 @@ export function AdminInventoryPanel({
   const [adjustingId, setAdjustingId] = useState<number | null>(null);
   const [catalogSyncResult, setCatalogSyncResult] = useState<CatalogSyncResult | null>(null);
   const [isSyncingCatalog, startCatalogSync] = useTransition();
+  const [shopifySyncResult, setShopifySyncResult] = useState<ShopifyInventorySyncResult | null>(null);
+  const [isSyncingShopify, startShopifySync] = useTransition();
   const router = useRouter();
 
   // ── KPI computations ────────────────────────────────────────────────────────
@@ -951,6 +966,27 @@ export function AdminInventoryPanel({
                 {isSyncingCatalog ? "Sincronizando…" : "↙ Importar SKUs de Shopify"}
               </button>
             )}
+            {shopId && (
+              <button
+                className="button-secondary"
+                disabled={isSyncingShopify}
+                onClick={() => {
+                  setShopifySyncResult(null);
+                  startShopifySync(async () => {
+                    try {
+                      const result = await syncInventoryFromShopify(shopId);
+                      setShopifySyncResult(result);
+                      router.refresh();
+                    } catch (e) {
+                      alert(`Error al sincronizar stock: ${e instanceof Error ? e.message : String(e)}`);
+                    }
+                  });
+                }}
+                type="button"
+              >
+                {isSyncingShopify ? "Sincronizando stock…" : "↻ Sync desde Shopify"}
+              </button>
+            )}
           </div>
 
           {catalogSyncResult && (
@@ -968,6 +1004,103 @@ export function AdminInventoryPanel({
                 style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "var(--muted)" }}
                 type="button"
               >✕</button>
+            </div>
+          )}
+
+          {shopifySyncResult && (
+            <div
+              className="info-banner"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                borderColor: shopifySyncResult.sync_status === "failed"
+                  ? "var(--danger, #e53e3e)"
+                  : shopifySyncResult.sync_status === "partial"
+                  ? "var(--warning, #d69e2e)"
+                  : undefined,
+              }}
+            >
+              <span>
+                {shopifySyncResult.sync_status === "failed"
+                  ? "❌"
+                  : shopifySyncResult.sync_status === "partial"
+                  ? "⚠️"
+                  : "✅"}
+              </span>
+              <span>
+                Sync Shopify —{" "}
+                <strong>{shopifySyncResult.synced}</strong> actualizados,{" "}
+                <strong>{shopifySyncResult.created}</strong> creados,{" "}
+                <strong>{shopifySyncResult.skipped}</strong> sin cambios.{" "}
+                {shopifySyncResult.errors > 0 && (
+                  <span style={{ color: "var(--danger, #e53e3e)" }}>
+                    {shopifySyncResult.errors} error(es).
+                  </span>
+                )}
+              </span>
+              <button
+                onClick={() => setShopifySyncResult(null)}
+                style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "var(--muted)" }}
+                type="button"
+              >✕</button>
+            </div>
+          )}
+
+          {/* Sync status summary */}
+          {syncStatus.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+              {syncStatus.map((entry) => {
+                const statusIcon = entry.last_sync_status === "success" ? "✅"
+                  : entry.last_sync_status === "partial" ? "⚠️"
+                  : entry.last_sync_status === "failed" ? "❌"
+                  : "⏳";
+                const summary = entry.last_sync_summary;
+                const lastSynced = entry.last_synced_at
+                  ? new Date(entry.last_synced_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })
+                  : null;
+                return (
+                  <div
+                    key={entry.shop_id}
+                    style={{
+                      background: "var(--bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 3,
+                      minWidth: 180,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      Sync inventario · {entry.shop_name}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>{statusIcon}</span>
+                      <span style={{ fontWeight: 600 }}>
+                        {entry.last_sync_status ?? "Nunca sincronizado"}
+                      </span>
+                      {lastSynced && (
+                        <span style={{ color: "var(--muted)", fontSize: 11 }}>· {lastSynced}</span>
+                      )}
+                    </div>
+                    {summary && (
+                      <div style={{ color: "var(--muted)", fontSize: 11 }}>
+                        {typeof summary.synced === "number" && <span>{summary.synced} actualizados · </span>}
+                        {typeof summary.created === "number" && <span>{summary.created} creados · </span>}
+                        {typeof summary.skipped === "number" && <span>{summary.skipped} sin cambio</span>}
+                      </div>
+                    )}
+                    {entry.last_error_message && (
+                      <div style={{ color: "var(--danger, #e53e3e)", fontSize: 11, marginTop: 2 }}>
+                        {entry.last_error_message}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
