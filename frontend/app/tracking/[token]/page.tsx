@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import { TrackingTimeline } from "@/components/tracking-timeline";
 import { TrackingCTASection } from "@/components/tracking-cta-section";
 import { fetchPublicTracking } from "@/lib/api";
-import { formatDateTime, sortTrackingEvents } from "@/lib/format";
+import { sortTrackingEvents } from "@/lib/format";
 import { getTenantBranding } from "@/lib/tenant-branding";
 
 type TrackingPageProps = {
@@ -25,11 +25,11 @@ function getFlowStatus(orderStatus: string, latestEventNorm?: string | null): Fl
 }
 
 const FLOW_STEPS = [
-  { key: "received",         label: "Recibido",     icon: "📦", description: "Pedido confirmado." },
-  { key: "prepared",         label: "Preparado",    icon: "🏷️", description: "Etiqueta creada." },
-  { key: "in_transit",       label: "En tránsito",  icon: "🚚", description: "Recogido por el carrier." },
-  { key: "out_for_delivery", label: "En reparto",   icon: "📍", description: "Repartidor en ruta." },
-  { key: "delivered",        label: "Entregado",    icon: "✅", description: "Entrega confirmada." },
+  { key: "received",         label: "Recibido",     icon: "📦" },
+  { key: "prepared",         label: "Preparado",    icon: "🏷️" },
+  { key: "in_transit",       label: "En tránsito",  icon: "🚚" },
+  { key: "out_for_delivery", label: "En reparto",   icon: "📍" },
+  { key: "delivered",        label: "Entregado",    icon: "✓"  },
 ] as const;
 
 type FlowStepKey = (typeof FLOW_STEPS)[number]["key"];
@@ -49,21 +49,71 @@ function getStepState(stepKey: FlowStepKey, currentStatus: FlowStatus, lastKnown
   return "pending";
 }
 
-function getStatusHeadline(status: FlowStatus, latestRaw?: string | null): { title: string; subtitle: string; emoji: string } {
+type StatusConfig = {
+  title: string;
+  subtitle: string;
+  label: string;
+  heroClass: string;
+  accentOverride?: string;
+};
+
+function getStatusConfig(status: FlowStatus): StatusConfig {
   switch (status) {
     case "delivered":
-      return { emoji: "🎉", title: "¡Tu pedido ha llegado!", subtitle: "La entrega ha sido confirmada por el carrier. ¡Gracias por confiar en nosotros!" };
+      return {
+        label: "Entregado",
+        title: "¡Tu pedido ha llegado!",
+        subtitle: "La entrega ha sido confirmada. Esperamos que estés disfrutando de tu compra.",
+        heroClass: "trk-hero-delivered",
+        accentOverride: "#16a34a",
+      };
     case "out_for_delivery":
-      return { emoji: "📍", title: "En reparto activo", subtitle: "El repartidor está en camino. Prepárate para recibirlo en breve." };
+      return {
+        label: "En reparto",
+        title: "Tu pedido está de camino",
+        subtitle: "El repartidor está en ruta hacia tu dirección. Prepárate para recibirlo.",
+        heroClass: "trk-hero-ofd",
+      };
     case "in_transit":
-      return { emoji: "🚚", title: "En tránsito", subtitle: latestRaw ?? "Tu pedido está en camino hacia su destino." };
+      return {
+        label: "En tránsito",
+        title: "Tu pedido está viajando",
+        subtitle: "El paquete está en movimiento y se acerca a su destino.",
+        heroClass: "trk-hero-transit",
+      };
     case "prepared":
-      return { emoji: "🏷️", title: "Pedido preparado", subtitle: "La etiqueta está creada y el pedido espera recogida por el carrier." };
+      return {
+        label: "Preparado",
+        title: "Pedido listo para envío",
+        subtitle: "Tu pedido ha sido preparado y está a la espera de ser recogido por el carrier.",
+        heroClass: "trk-hero-prepared",
+      };
     case "exception":
-      return { emoji: "⚠️", title: "Incidencia de envío", subtitle: latestRaw ?? "Ha surgido un problema con tu envío. El equipo está revisando el caso." };
+      return {
+        label: "Incidencia",
+        title: "Hay una incidencia en tu envío",
+        subtitle: "Estamos trabajando para resolver la situación. Si tienes dudas, contáctanos.",
+        heroClass: "trk-hero-exception",
+        accentOverride: "#d97706",
+      };
     default:
-      return { emoji: "📦", title: "Pedido recibido", subtitle: "Tu pedido está registrado y en proceso de preparación." };
+      return {
+        label: "Recibido",
+        title: "Pedido recibido",
+        subtitle: "Hemos recibido tu pedido y estamos preparándolo. Pronto tendrás más novedades.",
+        heroClass: "",
+      };
   }
+}
+
+function formatDateShort(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString("es-ES", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default async function TrackingPage({ params }: TrackingPageProps) {
@@ -75,7 +125,7 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
   const sortedEvents = sortTrackingEvents(tracking.tracking_events);
   const latestEvent = sortedEvents[0] ?? null;
   const flowStatus = getFlowStatus(tracking.order.status, latestEvent?.status_norm);
-  const headline = getStatusHeadline(flowStatus, latestEvent?.status_raw);
+  const statusConfig = getStatusConfig(flowStatus);
   const isException = flowStatus === "exception";
   const isDelivered = flowStatus === "delivered";
 
@@ -96,7 +146,7 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
       ? tracking.shipment.tracking_number
       : null;
 
-  // Branding from DB config
+  // Branding
   const shopData = tracking.shop ?? null;
   const trackingConfig = shopData?.tracking_config ?? null;
   const branding = getTenantBranding(
@@ -104,6 +154,10 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
     trackingConfig,
   );
   const shopSlug = shopData?.slug ?? "";
+
+  // Clean up order ID — remove leading # if present to avoid ##
+  const rawId = String(tracking.order.external_id ?? "");
+  const cleanId = rawId.startsWith("#") ? rawId : `#${rawId}`;
 
   const estimatedDelivery = tracking.shipment.expected_delivery_date
     ? new Date(tracking.shipment.expected_delivery_date + "T12:00:00").toLocaleDateString("es-ES", {
@@ -113,75 +167,94 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
       })
     : null;
 
+  const accent = statusConfig.accentOverride ?? branding.accentColor;
+
   const style: CSSProperties & Record<string, string> = {
-    "--tracking-accent": branding.accentColor,
-    "--tracking-accent-soft": `${branding.accentColor}18`,
+    "--trk-accent": accent,
+    "--trk-accent-rgb": hexToRgb(accent),
   };
 
   return (
-    <div className="trk-page" style={style}>
+    <div className="trk2-page" style={style}>
 
-      {/* ── Brand header ── */}
-      <header className="trk-header">
-        <div className="trk-header-inner">
+      {/* ── Top bar ── */}
+      <header className="trk2-topbar">
+        <div className="trk2-topbar-brand">
           {branding.logoUrl ? (
-            <img alt={branding.displayName} className="trk-logo-img" src={branding.logoUrl} />
+            <img alt={branding.displayName} className="trk2-topbar-logo" src={branding.logoUrl} />
           ) : (
-            <div className="trk-logo-mark">{branding.logoMark}</div>
+            <div className="trk2-topbar-mark">{branding.logoMark}</div>
           )}
-          <div className="trk-header-copy">
-            <span className="trk-brand-name">{branding.displayName}</span>
-            <span className="trk-brand-sub">Seguimiento de pedido</span>
-          </div>
+          <span className="trk2-topbar-name">{branding.displayName}</span>
         </div>
-        <div className="trk-header-order">
-          <span className="trk-header-order-label">Pedido</span>
-          <span className="trk-header-order-id">#{tracking.order.external_id}</span>
+        <div className="trk2-topbar-order">
+          <span className="trk2-order-chip">{cleanId}</span>
         </div>
       </header>
 
-      {/* ── Status hero ── */}
-      <section className={`trk-hero${isException ? " trk-hero-exception" : isDelivered ? " trk-hero-delivered" : ""}`}>
-        <div className="trk-hero-inner">
-          <div className="trk-hero-emoji">{headline.emoji}</div>
-          <div className="trk-hero-copy">
-            <span className={`trk-status-badge trk-status-${isException ? "exception" : flowStatus}`}>
-              {isException ? "Incidencia" : FLOW_STEPS.find((s) => s.key === flowStatus)?.label ?? "En proceso"}
+      {/* ── Hero ── */}
+      <section className={`trk2-hero ${statusConfig.heroClass}`}>
+        <div className="trk2-hero-inner">
+          {/* Status pill */}
+          <div className="trk2-status-pill-wrap">
+            <span className={`trk2-status-pill trk2-status-${flowStatus}${!isDelivered && !isException ? " trk2-status-pulse" : ""}`}>
+              <span className="trk2-status-dot" />
+              {statusConfig.label}
             </span>
             {latestEvent && (
-              <span className="trk-status-ts">{formatDateTime(latestEvent.occurred_at)}</span>
-            )}
-            <h1 className="trk-hero-title">{headline.title}</h1>
-            <p className="trk-hero-subtitle">{headline.subtitle}</p>
-            {estimatedDelivery && !isDelivered && !isException && (
-              <div className="trk-estimated-delivery">
-                <span className="trk-est-label">Entrega estimada</span>
-                <span className="trk-est-date">{estimatedDelivery}</span>
-              </div>
+              <span className="trk2-hero-ts">{formatDateShort(latestEvent.occurred_at)}</span>
             )}
           </div>
+
+          <h1 className="trk2-hero-title">{statusConfig.title}</h1>
+          <p className="trk2-hero-sub">{statusConfig.subtitle}</p>
+
+          {/* Estimated delivery */}
+          {estimatedDelivery && !isDelivered && !isException && (
+            <div className="trk2-eta-badge">
+              <svg fill="none" height="14" viewBox="0 0 24 24" width="14">
+                <rect height="18" rx="2" stroke="currentColor" strokeWidth="2" width="18" x="3" y="4"/>
+                <path d="M3 9h18M8 2v4M16 2v4" stroke="currentColor" strokeLinecap="round" strokeWidth="2"/>
+              </svg>
+              <span className="trk2-eta-label">Entrega estimada</span>
+              <span className="trk2-eta-date">{estimatedDelivery}</span>
+            </div>
+          )}
         </div>
       </section>
 
-      {/* ── Flow stepper ── */}
+      {/* ── Progress stepper ── */}
       {!isException && (
-        <div className="trk-stepper-wrap">
-          <div className="trk-stepper">
-            {FLOW_STEPS.map((step) => {
+        <div className="trk2-progress-wrap">
+          <div className="trk2-progress-inner">
+            {FLOW_STEPS.map((step, idx) => {
               const state = getStepState(step.key, flowStatus, lastKnownStep);
+              const isDone = state === "done";
+              const isActive = state === "active";
+              const isLast = idx === FLOW_STEPS.length - 1;
               return (
-                <div className={`trk-step trk-step-${state}`} key={step.key}>
-                  <div className="trk-step-node">
-                    {state === "done" ? (
-                      <svg fill="none" height="14" viewBox="0 0 24 24" width="14">
-                        <path d="M20 6 9 17l-5-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
-                      </svg>
-                    ) : (
-                      <span>{step.icon}</span>
+                <div className="trk2-step" key={step.key}>
+                  <div className="trk2-step-track">
+                    {/* Left connector */}
+                    {idx > 0 && (
+                      <div className={`trk2-step-conn trk2-step-conn-left${isDone || isActive ? " trk2-conn-filled" : ""}`} />
+                    )}
+                    {/* Node */}
+                    <div className={`trk2-step-node trk2-step-node-${state}`}>
+                      {isDone ? (
+                        <svg fill="none" height="12" viewBox="0 0 24 24" width="12">
+                          <path d="M20 6 9 17l-5-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+                        </svg>
+                      ) : (
+                        <span className="trk2-step-icon">{step.icon}</span>
+                      )}
+                    </div>
+                    {/* Right connector */}
+                    {!isLast && (
+                      <div className={`trk2-step-conn trk2-step-conn-right${isDone ? " trk2-conn-filled" : ""}`} />
                     )}
                   </div>
-                  <span className="trk-step-label">{step.label}</span>
-                  {step.key !== "delivered" && <div className="trk-step-line" />}
+                  <span className={`trk2-step-label trk2-step-label-${state}`}>{step.label}</span>
                 </div>
               );
             })}
@@ -189,26 +262,36 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
         </div>
       )}
 
-      {/* ── Main grid ── */}
-      <div className="trk-grid">
+      {/* Exception banner */}
+      {isException && (
+        <div className="trk2-exception-banner">
+          <svg fill="none" height="18" viewBox="0 0 24 24" width="18">
+            <path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"/>
+          </svg>
+          <span>Ha surgido una incidencia con tu envío. El equipo está revisando el caso. Si necesitas ayuda, contacta con nosotros.</span>
+        </div>
+      )}
 
-        {/* Info card */}
-        <div className="trk-card">
-          <div className="trk-card-head">
-            <span className="trk-card-eyebrow">Resumen del envío</span>
-          </div>
-          <div className="trk-kv">
-            <div className="trk-kv-row">
-              <span className="trk-kv-label">Carrier</span>
-              <span className="trk-kv-value trk-kv-bold">{tracking.shipment.carrier}</span>
+      {/* ── Main content ── */}
+      <main className="trk2-main">
+
+        {/* Shipment info */}
+        <div className="trk2-info-card">
+          <div className="trk2-info-grid">
+            <div className="trk2-info-item">
+              <span className="trk2-info-label">Transportista</span>
+              <span className="trk2-info-value trk2-info-carrier">{tracking.shipment.carrier}</span>
             </div>
             {trackingNumber && (
-              <div className="trk-kv-row">
-                <span className="trk-kv-label">Nº seguimiento</span>
-                <span className="trk-kv-value">
+              <div className="trk2-info-item">
+                <span className="trk2-info-label">Nº de seguimiento</span>
+                <span className="trk2-info-value">
                   {tracking.shipment.tracking_url ? (
-                    <a className="trk-external-link" href={tracking.shipment.tracking_url} rel="noreferrer" target="_blank">
-                      {trackingNumber} ↗
+                    <a className="trk2-tracking-link" href={tracking.shipment.tracking_url} rel="noreferrer" target="_blank">
+                      {trackingNumber}
+                      <svg fill="none" height="11" viewBox="0 0 24 24" width="11">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"/>
+                      </svg>
                     </a>
                   ) : (
                     trackingNumber
@@ -216,65 +299,91 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
                 </span>
               </div>
             )}
-            <div className="trk-kv-row">
-              <span className="trk-kv-label">Última actualización</span>
-              <span className="trk-kv-value">
-                {latestEvent ? formatDateTime(latestEvent.occurred_at) : "Sin novedades aún"}
-              </span>
-            </div>
-            <div className="trk-kv-row">
-              <span className="trk-kv-label">Envío creado</span>
-              <span className="trk-kv-value">{formatDateTime(tracking.shipment.created_at)}</span>
-            </div>
+            {latestEvent && (
+              <div className="trk2-info-item">
+                <span className="trk2-info-label">Última actualización</span>
+                <span className="trk2-info-value">{formatDateShort(latestEvent.occurred_at)}</span>
+              </div>
+            )}
             {tracking.order.customer_name && (
-              <div className="trk-kv-row">
-                <span className="trk-kv-label">Destinatario</span>
-                <span className="trk-kv-value">{tracking.order.customer_name}</span>
+              <div className="trk2-info-item">
+                <span className="trk2-info-label">Destinatario</span>
+                <span className="trk2-info-value">{tracking.order.customer_name}</span>
               </div>
             )}
           </div>
           {tracking.shipment.tracking_url && (
             <a
-              className="trk-carrier-btn"
+              className="trk2-carrier-btn"
               href={tracking.shipment.tracking_url}
               rel="noreferrer"
               target="_blank"
             >
-              Seguimiento oficial {tracking.shipment.carrier} ↗
+              <svg fill="none" height="14" viewBox="0 0 24 24" width="14">
+                <path d="M1 3h15v13H1zM16 8l4 0 3 3v5h-7V8z" stroke="currentColor" strokeLinejoin="round" strokeWidth="2"/>
+                <circle cx="5.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2"/>
+                <circle cx="18.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2"/>
+              </svg>
+              Ver seguimiento en {tracking.shipment.carrier}
             </a>
           )}
         </div>
 
-        {/* Timeline card */}
-        <div className="trk-card">
-          <div className="trk-card-head">
-            <span className="trk-card-eyebrow">Historial del carrier</span>
+        {/* Timeline */}
+        {sortedEvents.length > 0 && (
+          <div className="trk2-timeline-card">
+            <div className="trk2-timeline-head">
+              <span>Historial de envío</span>
+              <span className="trk2-tl-count">{sortedEvents.length} evento{sortedEvents.length !== 1 ? "s" : ""}</span>
+            </div>
+            <TrackingTimeline
+              emptyDescription="El carrier aún no ha reportado movimientos."
+              emptyTitle="Sin eventos todavía"
+              events={sortedEvents}
+            />
           </div>
-          <TrackingTimeline
-            emptyDescription="El carrier aún no ha reportado movimientos."
-            emptyTitle="Sin eventos todavía"
-            events={sortedEvents}
-          />
-        </div>
+        )}
+
+        {sortedEvents.length === 0 && (
+          <div className="trk2-empty-timeline">
+            <div className="trk2-empty-icon">
+              <svg fill="none" height="28" viewBox="0 0 24 24" width="28">
+                <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"/>
+              </svg>
+            </div>
+            <p className="trk2-empty-text">El carrier aún no ha reportado movimientos.<br/>Vuelve más tarde para ver las novedades.</p>
+          </div>
+        )}
+
+      </main>
+
+      {/* ── CTA ── */}
+      <div className="trk2-cta-wrap">
+        <TrackingCTASection
+          accentColor={accent}
+          branding={branding.tracking ?? null}
+          isDelivered={isDelivered}
+          shopName={branding.displayName}
+          shopSlug={shopSlug ?? ""}
+        />
       </div>
 
-      {/* ── CTA section (client, reads branding config + localStorage) ── */}
-      <TrackingCTASection
-        accentColor={branding.accentColor}
-        branding={branding.tracking ?? null}
-        isDelivered={isDelivered}
-        shopName={branding.displayName}
-        shopSlug={shopSlug ?? ""}
-      />
-
       {/* ── Footer ── */}
-      <footer className="trk-footer">
-        <div className="trk-footer-inner">
-          <span className="trk-footer-brand">{branding.displayName}</span>
-          <span className="trk-footer-sep">·</span>
-          <span className="trk-footer-powered">Logística gestionada por <strong>Brandeate</strong></span>
-        </div>
+      <footer className="trk2-footer">
+        <span>Logística gestionada por <strong>Brandeate</strong></span>
+        <span className="trk2-footer-dot" />
+        <span>{branding.displayName}</span>
       </footer>
     </div>
   );
+}
+
+/** Convert #rrggbb to "r, g, b" for use in rgba() */
+function hexToRgb(hex: string): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return "99, 102, 241";
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `${r}, ${g}, ${b}`;
 }
