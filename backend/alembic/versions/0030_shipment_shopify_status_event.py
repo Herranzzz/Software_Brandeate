@@ -12,8 +12,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0030"
-down_revision = "0029"
+revision = "0030_shipment_shopify_status_event"
+down_revision = "0029_prepared_orders_backfill"
 branch_labels = None
 depends_on = None
 
