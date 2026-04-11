@@ -16,6 +16,10 @@ function getPeriodCount(employee: EmployeeAnalyticsRow, period: EmployeeMetricsP
   return period === "day" ? employee.labels_today : employee.labels_this_week;
 }
 
+function getPreparedCount(employee: EmployeeAnalyticsRow, period: EmployeeMetricsPeriod) {
+  return period === "day" ? employee.orders_prepared_today : employee.orders_prepared_this_week;
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -145,6 +149,7 @@ export function DashboardEmployeeMetrics({
             {ranking.length > 0 ? (
               ranking.map((employee, index) => {
                 const value = getPeriodCount(employee, period);
+                const prepared = getPreparedCount(employee, period);
                 const share = totalInPeriod > 0 ? Math.round((value / totalInPeriod) * 100) : 0;
                 const rankLabel = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`;
                 return (
@@ -164,7 +169,12 @@ export function DashboardEmployeeMetrics({
                           </div>
                         </div>
                       </div>
-                      <strong className="employee-dashboard-rank-value">{value}</strong>
+                      <div className="employee-dashboard-rank-stats">
+                        <strong className="employee-dashboard-rank-value">{value}</strong>
+                        {prepared > 0 && (
+                          <span className="employee-dashboard-rank-prepared" title="Pedidos preparados">{prepared} ped.</span>
+                        )}
+                      </div>
                     </div>
                     <div className="employee-dashboard-rank-track">
                       <span style={{ width: `${Math.max(value > 0 ? 6 : 0, (value / maxValue) * 100)}%` }} />

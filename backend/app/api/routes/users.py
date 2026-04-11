@@ -256,6 +256,24 @@ def _build_employee_analytics(
         if row.employee_id is not None
     }
 
+    prepared_query = (
+        select(
+            Order.prepared_by_employee_id.label("employee_id"),
+            func.sum(case((Order.prepared_at >= start_of_today, 1), else_=0)).label("orders_prepared_today"),
+            func.sum(case((Order.prepared_at >= start_of_week, 1), else_=0)).label("orders_prepared_this_week"),
+        )
+        .where(Order.prepared_by_employee_id.in_(user_ids))
+        .group_by(Order.prepared_by_employee_id)
+    )
+    if shop_id is not None:
+        prepared_query = prepared_query.where(Order.shop_id == shop_id)
+
+    prepared_rows = {
+        int(row.employee_id): row
+        for row in db.execute(prepared_query).all()
+        if row.employee_id is not None
+    }
+
     def sort_key(item: EmployeeAnalyticsRow) -> tuple[int, int, int, str]:
         period_count = item.labels_today if period == "day" else item.labels_this_week
         return (period_count, item.total_labels, int(item.is_active), item.name.lower())
@@ -268,6 +286,8 @@ def _build_employee_analytics(
                 "labels_today": int((metrics_rows.get(user.id).labels_today if metrics_rows.get(user.id) else 0) or 0),
                 "labels_this_week": int((metrics_rows.get(user.id).labels_this_week if metrics_rows.get(user.id) else 0) or 0),
                 "total_labels": int((metrics_rows.get(user.id).total_labels if metrics_rows.get(user.id) else 0) or 0),
+                "orders_prepared_today": int((prepared_rows.get(user.id).orders_prepared_today if prepared_rows.get(user.id) else 0) or 0),
+                "orders_prepared_this_week": int((prepared_rows.get(user.id).orders_prepared_this_week if prepared_rows.get(user.id) else 0) or 0),
                 "last_activity_at": metrics_rows.get(user.id).last_activity_at if metrics_rows.get(user.id) else None,
             }
         )

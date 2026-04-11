@@ -181,6 +181,9 @@ export type Order = {
   shopify_fulfillment_status: string | null;
   fulfillment_orders_json: unknown;
   created_at: string;
+  prepared_by_employee_id: number | null;
+  prepared_at: string | null;
+  prepared_by_employee_name: string | null;
   has_open_incident: boolean;
   open_incidents_count: number;
   automation_flags: AutomationFlag[];
@@ -596,6 +599,8 @@ export type EmployeeAnalyticsRow = AdminUser & {
   labels_today: number;
   labels_this_week: number;
   total_labels: number;
+  orders_prepared_today: number;
+  orders_prepared_this_week: number;
   last_activity_at: string | null;
 };
 

@@ -23,6 +23,8 @@ class EmployeeAnalyticsRow(BaseModel):
     labels_today: int = 0
     labels_this_week: int = 0
     total_labels: int = 0
+    orders_prepared_today: int = 0
+    orders_prepared_this_week: int = 0
     last_activity_at: datetime | None = None
 
 

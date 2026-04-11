@@ -947,6 +947,11 @@ export function OrdersWorkbench({
                               {getAutomationFlags(order).filter((f) => f.key !== "design_ready" && f.key !== "ready_idle").slice(0, 2).map((flag) => (
                                 <AutomationFlagBadge flag={flag} key={`${order.id}-${flag.key}`} />
                               ))}
+                              {order.prepared_by_employee_name ? (
+                                <span className="badge badge-preparer" title={`Preparado por ${order.prepared_by_employee_name}`}>
+                                  {order.prepared_by_employee_name.split(" ")[0]}
+                                </span>
+                              ) : null}
                             </div>
                           </td>
                           <td>
@@ -1155,6 +1160,18 @@ export function OrdersWorkbench({
                   </div>
                 ) : null}
               </div>
+
+              {quickDetail.prepared_by_employee_name ? (
+                <div className="orders-drawer-section">
+                  <span className="eyebrow">Preparación</span>
+                  <div className="orders-drawer-kv">
+                    <div><span>Preparado por</span><strong>{quickDetail.prepared_by_employee_name}</strong></div>
+                    {quickDetail.prepared_at ? (
+                      <div><span>Fecha</span><strong>{new Date(quickDetail.prepared_at).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</strong></div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="orders-drawer-section">
                 <span className="eyebrow">Automatizaciones</span>

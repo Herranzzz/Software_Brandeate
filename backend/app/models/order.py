@@ -212,6 +212,11 @@ class Order(Base):
         return self.open_incidents_count > 0
 
     @property
+    def prepared_by_employee_name(self) -> str | None:
+        emp = self.prepared_by_employee
+        return emp.name if emp is not None else None
+
+    @property
     def automation_flags(self) -> list[dict]:
         from app.services.automation_rules import build_order_automation_flags
 

@@ -642,6 +642,25 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             )}
           </Card>
 
+          {/* Preparation */}
+          {order.prepared_by_employee_name ? (
+            <Card className="stack">
+              <SectionTitle eyebrow="Preparación" title="Responsable" />
+              <div className="order-kv-list">
+                <div className="order-kv-item">
+                  <span className="order-kv-label">Preparado por</span>
+                  <span className="order-kv-value">{order.prepared_by_employee_name}</span>
+                </div>
+                {order.prepared_at ? (
+                  <div className="order-kv-item">
+                    <span className="order-kv-label">Fecha</span>
+                    <span className="order-kv-value">{formatDateTime(order.prepared_at)}</span>
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
+
           {/* Address */}
           <Card className="stack">
             <SectionTitle eyebrow="Dirección" title="Datos de entrega" />

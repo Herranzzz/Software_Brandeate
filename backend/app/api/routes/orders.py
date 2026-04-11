@@ -91,6 +91,7 @@ def _order_query():
         selectinload(Order.items),
         selectinload(Order.incidents),
         selectinload(Order.shipment).selectinload(Shipment.events),
+        selectinload(Order.prepared_by_employee).load_only(User.id, User.name),
     )
 
 
@@ -162,6 +163,7 @@ def _order_list_query():
                 TrackingEvent.occurred_at,
                 TrackingEvent.created_at,
             ),
+            selectinload(Order.prepared_by_employee).load_only(User.id, User.name),
         )
     )
 

@@ -160,6 +160,9 @@ class OrderListRead(BaseModel):
     shopify_financial_status: str | None
     shopify_fulfillment_status: str | None
     created_at: datetime
+    prepared_by_employee_id: int | None = None
+    prepared_at: datetime | None = None
+    prepared_by_employee_name: str | None = None
     has_open_incident: bool
     open_incidents_count: int
     automation_flags: list["AutomationFlagRead"] = Field(default_factory=list)
@@ -210,6 +213,9 @@ class OrderRead(BaseModel):
     shopify_fulfillment_status: str | None
     fulfillment_orders_json: dict | list | None
     created_at: datetime
+    prepared_by_employee_id: int | None = None
+    prepared_at: datetime | None = None
+    prepared_by_employee_name: str | None = None
     has_open_incident: bool
     open_incidents_count: int
     automation_flags: list["AutomationFlagRead"] = Field(default_factory=list)

@@ -2871,6 +2871,14 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   white-space: nowrap;
 }
 
+.badge-preparer {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.2);
+  color: #059669;
+  white-space: nowrap;
+  font-size: 0.68rem;
+}
+
 .portal-order-items-list {
   display: grid;
   gap: 10px;
@@ -6213,6 +6221,13 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   text-transform: uppercase;
 }
 
+.employee-dashboard-rank-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
 .employee-dashboard-rank-value {
   font-size: 1.5rem;
   line-height: 1;
@@ -6222,6 +6237,14 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 .employee-dashboard-rank-row.is-lead .employee-dashboard-rank-value {
   color: var(--accent);
+}
+
+.employee-dashboard-rank-prepared {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .employee-dashboard-rank-track {
