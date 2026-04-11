@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Card } from "@/components/card";
 import { ShipmentDonut, type ShipmentSegment } from "@/components/shipment-donut";
 
-type DashboardTone = "accent" | "warning" | "danger" | "default" | "success";
+type DashboardTone = "accent" | "warning" | "danger" | "default" | "success" | "blue" | "purple";
 
 type DashboardKpi = {
   label: string;
@@ -82,6 +82,8 @@ const KPI_COLOR_MAP: Record<DashboardTone, string> = {
   success: "is-green",
   warning: "is-orange",
   default: "is-slate",
+  blue:    "is-blue",
+  purple:  "is-purple",
 };
 
 export function SharedDashboardView({

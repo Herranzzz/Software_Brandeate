@@ -12,11 +12,13 @@ class Settings(BaseSettings):
     # para que el servidor web no arranque un scheduler duplicado.
     disable_scheduler: bool = False
     shopify_sync_enabled: bool = True
-    shopify_sync_interval_minutes: int = 5
+    # Interval between incremental scheduler runs. Webhooks handle real-time updates;
+    # the scheduler is a safety net — 15 min is plenty.
+    shopify_sync_interval_minutes: int = 15
     shopify_sync_max_orders: int = 5000
-    # To protect memory on small instances, incremental syncs (scheduler/webhooks/manual sync)
-    # use a lower cap than full imports by default.
-    shopify_incremental_sync_max_orders: int = 500
+    # Incremental syncs only need to catch what webhooks missed in the last window.
+    # 100 orders is more than enough for a 15-min catch-up on any shop.
+    shopify_incremental_sync_max_orders: int = 100
     # When enabled, webhooks trigger an immediate sync in the web process.
     # Keeping this disabled by default avoids random RAM spikes on low-memory instances.
     shopify_webhook_immediate_sync_enabled: bool = False

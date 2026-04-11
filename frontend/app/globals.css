@@ -1389,11 +1389,35 @@ a.admin-orders-row:hover {
 
 .table-row {
   transition: background 120ms ease;
+  position: relative;
 }
 
 .table-row:hover td {
   background: var(--surface-soft);
 }
+
+/* ── Status-coloured left border on order rows ──────────────────────── */
+.table-row[data-status] td:first-child {
+  position: relative;
+}
+.table-row[data-status] td:first-child::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+}
+.table-row[data-status="incident"] td:first-child::before { background: var(--danger); }
+.table-row[data-status="incident"] {
+  background: rgba(220, 38, 38, 0.03);
+}
+.table-row[data-status="incident"]:hover td { background: rgba(220, 38, 38, 0.05); }
+.table-row[data-status="delivered"] td:first-child::before { background: var(--success); }
+.table-row[data-status="transit"] td:first-child::before  { background: #3b82f6; }
+.table-row[data-status="ready"] td:first-child::before    { background: var(--warning); }
+.table-row[data-status="pending"] td:first-child::before  { background: var(--border-strong); }
 
 .table-link {
   color: var(--accent);
@@ -2807,6 +2831,13 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   border-color: rgba(var(--accent-rgb), 0.20);
 }
 
+/* Transit state badge — blue, distinct from in-progress (red) */
+.badge-status-transit {
+  background: rgba(59, 130, 246, 0.10);
+  color: #2563eb;
+  border-color: rgba(59, 130, 246, 0.22);
+}
+
 .badge-status-ready-to-ship {
   background: var(--warning-soft);
   color: var(--warning);
@@ -2814,27 +2845,34 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 
 .badge-status-shipped {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: rgba(var(--accent-rgb), 0.20);
+  background: rgba(59, 130, 246, 0.10);
+  color: #2563eb;
+  border-color: rgba(59, 130, 246, 0.22);
 }
 
 .badge-status-out-for-delivery {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  border-color: rgba(var(--accent-rgb), 0.20);
+  background: rgba(249, 115, 22, 0.10);
+  color: #ea580c;
+  border-color: rgba(249, 115, 22, 0.22);
 }
 
 .badge-status-delivered {
   background: var(--success-soft);
   color: var(--success);
   border-color: rgba(5, 150, 105, 0.20);
+  font-weight: 600;
 }
 
+@keyframes badge-incident-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.72; }
+}
 .badge-status-incident {
   background: var(--danger-soft);
   color: var(--danger);
-  border-color: rgba(229, 57, 53, 0.20);
+  border-color: rgba(220, 38, 38, 0.30);
+  font-weight: 600;
+  animation: badge-incident-pulse 2.4s ease-in-out infinite;
 }
 
 .badge-status-pickup {
@@ -8981,6 +9019,12 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   background: var(--surface-soft);
 }
 
+:root[data-theme="dark"] .badge-status-transit {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.28);
+}
+
 :root[data-theme="dark"] .orders-filter-pill,
 :root[data-theme="dark"] .admin-dashboard-soft-badge,
 :root[data-theme="dark"] .production-type-pill,
@@ -11753,6 +11797,9 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .exp-kpi-card.is-orange .exp-kpi-value { color: #d97706; }
 
 .exp-kpi-card.is-slate::before  { background: var(--border-strong); }
+
+.exp-kpi-card.is-purple::before { background: linear-gradient(90deg, #8b5cf6, #6d28d9); }
+.exp-kpi-card.is-purple .exp-kpi-value { color: #7c3aed; }
 
 /* ── Main 3-col grid ─────────────────────────────────────────── */
 .exp-main-grid {

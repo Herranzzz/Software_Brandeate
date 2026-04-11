@@ -161,6 +161,7 @@ function getOperationalStatusMeta(order: Order) {
     return {
       label: "Incidencia",
       className: "badge badge-status badge-status-incident",
+      rowStatus: "incident",
     };
   }
 
@@ -168,6 +169,7 @@ function getOperationalStatusMeta(order: Order) {
     return {
       label: "Entregado",
       className: "badge badge-status badge-status-delivered",
+      rowStatus: "delivered",
     };
   }
 
@@ -175,13 +177,15 @@ function getOperationalStatusMeta(order: Order) {
     return {
       label: "En reparto",
       className: "badge badge-status badge-status-out-for-delivery",
+      rowStatus: "transit",
     };
   }
 
   if (shipmentState === "picked_up") {
     return {
       label: "Recogido",
-      className: "badge badge-status badge-status-shipped",
+      className: "badge badge-status badge-status-transit",
+      rowStatus: "transit",
     };
   }
 
@@ -189,6 +193,7 @@ function getOperationalStatusMeta(order: Order) {
     return {
       label: "Listo para recoger",
       className: "badge badge-status badge-status-pickup",
+      rowStatus: "transit",
     };
   }
 
@@ -199,7 +204,8 @@ function getOperationalStatusMeta(order: Order) {
   ) {
     return {
       label: "En tránsito",
-      className: "badge badge-status badge-status-shipped",
+      className: "badge badge-status badge-status-transit",
+      rowStatus: "transit",
     };
   }
 
@@ -207,12 +213,14 @@ function getOperationalStatusMeta(order: Order) {
     return {
       label: "Listo para enviar",
       className: "badge badge-status badge-status-ready-to-ship",
+      rowStatus: "ready",
     };
   }
 
   return {
     label: "Sin preparar",
     className: "badge badge-status badge-status-pending",
+    rowStatus: "pending",
   };
 }
 
@@ -862,6 +870,7 @@ export function OrdersWorkbench({
                       return (
                         <tr
                           className={`table-row ${selectedOrderId === order.id ? "orders-ops-row-active" : ""}`}
+                          data-status={operationalStatus.rowStatus}
                           key={order.id}
                         >
                           <td>

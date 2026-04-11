@@ -42,7 +42,7 @@ from app.services.orders import infer_design_status, infer_order_is_personalized
 SHOPIFY_PROVIDER = "shopify"
 SHOPIFY_API_VERSION = "2026-01"
 logger = logging.getLogger(__name__)
-SHOPIFY_RECENT_ORDERS_PAGE_SIZE = 10
+SHOPIFY_RECENT_ORDERS_PAGE_SIZE = 50
 # Commit and expunge the SQLAlchemy session every N orders during import to
 # prevent unbounded memory growth on long syncs (full imports / large shops).
 _IMPORT_BATCH_SIZE = 50
@@ -1659,7 +1659,9 @@ def run_shopify_sync_cycle(
         # Safety overlap: each incremental sync goes back an extra 30 minutes relative
         # to last_synced_at. This catches orders that fell beyond the page cap in the
         # previous cycle (their updated_at is within the overlap window).
-        INCREMENTAL_SAFETY_OVERLAP = timedelta(minutes=30)
+        # 10-min overlap catches orders that slipped past the previous cycle's cap
+        # without re-fetching excessive history on every run.
+        INCREMENTAL_SAFETY_OVERLAP = timedelta(minutes=10)
         if full_sync:
             updated_since = None
         else:

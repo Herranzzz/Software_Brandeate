@@ -330,9 +330,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       incidentsTitle="Incidencias recientes"
       kpis={[
         { label: "Pendientes",           value: String(pendingOrders),     delta: "esperando revisión",              tone: "accent"  },
-        { label: "En producción",        value: String(inProgressOrders),  delta: "flujo activo",                    tone: "default" },
+        { label: "En producción",        value: String(inProgressOrders),  delta: "flujo activo",                    tone: "purple"  },
         { label: "Listos para enviar",   value: String(readyToShipOrders), delta: "esperando recogida",              tone: "warning" },
-        { label: "Enviados",             value: String(shippedOrders),     delta: `${withShipment} con tracking`,    tone: "default" },
+        { label: "Enviados",             value: String(shippedOrders),     delta: `${withShipment} con tracking`,    tone: "blue"    },
         { label: "Entregados",           value: String(deliveredOrders),   delta: "ciclo cerrado",                   tone: "success" },
         { label: "Incidencias abiertas", value: String(openIncidents),     delta: `${urgentIncidents} prioritarias`, tone: "danger"  },
       ]}
