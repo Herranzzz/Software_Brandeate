@@ -56,6 +56,7 @@ type OrdersWorkbenchProps = {
 type QuickFilterKey =
   | "has_incident"
   | "not_prepared"
+  | "prepared"
   | "label_no_update"
   | "shipping_in_transit"
   | "shipping_out_for_delivery"
@@ -65,6 +66,7 @@ type QuickFilterKey =
 const quickFilterMeta: Array<{ key: QuickFilterKey; label: string }> = [
   { key: "has_incident",              label: "⚠️ Con incidencia" },
   { key: "not_prepared",              label: "🔧 No preparados" },
+  { key: "prepared",                  label: "✅ Preparados" },
   { key: "label_no_update",           label: "📦 Etiqueta sin avances" },
   { key: "shipping_in_transit",       label: "🚚 En tránsito" },
   { key: "shipping_out_for_delivery", label: "🚛 En reparto" },
@@ -252,6 +254,15 @@ function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
         order.status !== "shipped" &&
         order.status !== "ready_to_ship" &&
         order.status !== "delivered"
+      );
+
+    case "prepared":
+      // Prepared and waiting for carrier pickup (ready_to_ship, no label yet or label not yet scanned)
+      return (
+        order.status === "ready_to_ship" ||
+        (order.production_status === "done" &&
+          order.status !== "shipped" &&
+          order.status !== "delivered")
       );
 
     case "label_no_update":

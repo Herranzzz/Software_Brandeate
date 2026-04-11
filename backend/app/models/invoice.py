@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import sqlalchemy as sa
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -25,7 +26,7 @@ class Invoice(Base):
         ForeignKey("shops.id", ondelete="SET NULL"), nullable=True, index=True
     )
     status: Mapped[InvoiceStatus] = mapped_column(
-        sa.Enum(InvoiceStatus, name="invoice_status"),
+        PGEnum(InvoiceStatus, name="invoice_status", create_type=False),
         nullable=False,
         server_default=InvoiceStatus.draft.value,
     )
