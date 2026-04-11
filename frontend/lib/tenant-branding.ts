@@ -1,11 +1,20 @@
 import type { Shop } from "@/lib/types";
 
+export type TrackingCTA = {
+  message?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  discountCode?: string;
+  discountText?: string;
+};
+
 export type TenantBranding = {
   displayName: string;
   subtitle: string;
   accentColor: string;
   logoUrl?: string;
   logoMark?: string;
+  tracking?: TrackingCTA;
 };
 
 const brandingBySlug: Record<string, Partial<TenantBranding>> = {

@@ -117,6 +117,37 @@ function LogoutIcon(props: IconProps) {
   );
 }
 
+function InventarioIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <rect height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" width="14" x="5" y="4" />
+      <rect height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" width="14" x="5" y="14" />
+      <path d="M9 7h6M9 17h4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function ReportingIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      <path d="M14 3v5h5" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      <path d="M9 13h6M9 17h4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function SustainabilityAdminIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 3c3 3 4.5 6 4.5 9s-1.5 6-4.5 9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M12 3c-3 3-4.5 6-4.5 9s1.5 6 4.5 9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M3 12h18" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function ReturnsAdminIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -144,6 +175,14 @@ const navGroups = [
       { href: "/employees", label: "Empleados", icon: EmployeesIcon },
       { href: "/returns", label: "Devoluciones", icon: ReturnsAdminIcon },
       { href: "/incidencias", label: "Incidencias", icon: IncidenciasIcon },
+    ],
+  },
+  {
+    label: "Datos",
+    items: [
+      { href: "/inventario", label: "Inventario", icon: InventarioIcon },
+      { href: "/reporting", label: "Informes", icon: ReportingIcon },
+      { href: "/sustainability", label: "Sostenibilidad", icon: SustainabilityAdminIcon },
     ],
   },
 ];

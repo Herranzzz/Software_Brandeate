@@ -97,6 +97,46 @@ function HelpIcon(props: IconProps) {
   );
 }
 
+function SustainabilityIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M12 3C7 3 3 7.5 3 12c0 1.8.5 3.4 1.4 4.8" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M12 3c3 3 4.5 6 4.5 9s-1.5 6-4.5 9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M12 3c-3 3-4.5 6-4.5 9s1.5 6 4.5 9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M3 12h18" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M12 3c5 0 9 4 9 9s-4 9-9 9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function ReportsIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      <path d="M14 3v5h5" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      <path d="M9 13h6M9 17h4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function InventoryIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <rect height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" width="14" x="5" y="4" />
+      <rect height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" width="14" x="5" y="14" />
+      <path d="M9 7h6M9 17h4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function IntegrationsIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z" stroke="currentColor" strokeWidth="1.6" fill="none" />
+    </svg>
+  );
+}
+
 function SettingsIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -140,6 +180,10 @@ const portalNavItems = [
   { href: "/portal/analytics", label: "Analítica", shortLabel: "Stats", icon: ChartIcon },
   { href: "/portal/incidencias", label: "Incidencias", shortLabel: "Incid.", icon: IncidenciasIcon },
   { href: "/portal/returns", label: "Devoluciones", shortLabel: "Devol.", icon: ReturnsIcon },
+  { href: "/portal/inventory", label: "Inventario", shortLabel: "Stock", icon: InventoryIcon },
+  { href: "/portal/reports", label: "Informes", shortLabel: "Report.", icon: ReportsIcon },
+  { href: "/portal/sustainability", label: "Sostenibilidad", shortLabel: "CO₂", icon: SustainabilityIcon },
+  { href: "/portal/integrations", label: "Integraciones", shortLabel: "Integ.", icon: IntegrationsIcon },
   { href: "/portal/settings", label: "Ajustes", shortLabel: "Ajustes", icon: SettingsIcon },
 ];
 

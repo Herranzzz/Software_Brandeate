@@ -1,35 +1,35 @@
 import { Card } from "@/components/card";
 import { PageHeader } from "@/components/page-header";
-import { PortalReportsPanel } from "@/components/portal-reports-panel";
-import { fetchIncidents, fetchOrders, fetchShops } from "@/lib/api";
+import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
+import { fetchOrders, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 
-type AdminReportingPageProps = {
+type AdminSustainabilityPageProps = {
   searchParams?: Promise<{ shop_id?: string }>;
 };
 
-export default async function AdminReportingPage({ searchParams }: AdminReportingPageProps) {
+export default async function AdminSustainabilityPage({ searchParams }: AdminSustainabilityPageProps) {
   await requireAdminUser();
   const params = (await searchParams) ?? {};
 
-  const shopFilter = params.shop_id ? { shop_id: params.shop_id } : {};
-
-  const [shopsResult, ordersResult, incidentsResult] = await Promise.allSettled([
+  const [shopsResult, ordersResult] = await Promise.allSettled([
     fetchShops(),
-    fetchOrders({ page: 1, per_page: 500, ...shopFilter }).then((r) => r.orders),
-    fetchIncidents({ page: 1, per_page: 500, ...shopFilter }),
+    fetchOrders({
+      page: 1,
+      per_page: 500,
+      ...(params.shop_id ? { shop_id: params.shop_id } : {}),
+    }).then((r) => r.orders),
   ]);
 
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const orders = ordersResult.status === "fulfilled" ? ordersResult.value : [];
-  const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
 
   return (
     <div className="stack">
       <PageHeader
-        eyebrow="Informes"
-        title="Reporting y exportaciones"
-        description="Informes predefinidos de fulfillment, costes, devoluciones y comparativa mensual. Exporta a CSV con un clic."
+        eyebrow="Sostenibilidad"
+        title="Huella de carbono logística"
+        description="Estimación de CO₂ por envío, comparativa de carriers y badge Brandeate Green por cliente."
       />
 
       {shops.length > 1 && (
@@ -48,7 +48,7 @@ export default async function AdminReportingPage({ searchParams }: AdminReportin
       )}
 
       <Card className="stack settings-section-card">
-        <PortalReportsPanel orders={orders} incidents={incidents} />
+        <PortalSustainabilityPanel orders={orders} />
       </Card>
     </div>
   );

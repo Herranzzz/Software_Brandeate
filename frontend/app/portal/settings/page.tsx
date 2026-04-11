@@ -8,6 +8,7 @@ import { ShopShippingSettingsForm } from "@/components/shop-shipping-settings-fo
 import { ShopCatalogManager } from "@/components/shop-catalog-manager";
 import { TenantProfileForm } from "@/components/tenant-profile-form";
 import { TenantShopifyPanel } from "@/components/tenant-shopify-panel";
+import { PortalTrackingSettings } from "@/components/portal-tracking-settings";
 import { fetchMyClientAccounts, fetchShopCatalogProducts, fetchShopifyIntegrations } from "@/lib/api";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
 import { resolveTenantScope } from "@/lib/tenant-scope";
@@ -178,6 +179,23 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
           <Card className="stack settings-section-card portal-glass-card">
             {catalogError ? <div className="info-banner">{catalogError}</div> : null}
             <ShopCatalogManager products={catalogProducts} shop={primaryShop} />
+          </Card>
+
+          <Card className="stack settings-section-card portal-glass-card">
+            <div className="settings-section-head">
+              <div>
+                <span className="eyebrow">📦 Tracking</span>
+                <h3 className="section-title section-title-small">Página de seguimiento de pedidos</h3>
+                <p className="subtitle">
+                  Personaliza lo que ve tu cliente cuando consulta el estado de su envío: mensaje, botón de vuelta a tu tienda y código de descuento.
+                </p>
+              </div>
+            </div>
+            <PortalTrackingSettings
+              shopSlug={primaryShop.slug}
+              shopName={primaryShop.name}
+              publicTrackingExample={null}
+            />
           </Card>
         </>
       ) : (
