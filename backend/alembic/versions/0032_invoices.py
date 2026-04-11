@@ -7,6 +7,7 @@ Create Date: 2026-04-11
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 
 
 revision = "0032_invoices"
@@ -14,8 +15,19 @@ down_revision = "0031_inventory_sga"
 branch_labels = None
 depends_on = None
 
+# Use PGEnum with create_type=False so SQLAlchemy never auto-emits
+# CREATE TYPE. We handle type creation ourselves via a DO block that
+# is safe to run even when the type already exists.
+_invoice_status = PGEnum(
+    "draft", "sent", "paid", "cancelled",
+    name="invoice_status",
+    create_type=False,
+)
+
 
 def upgrade() -> None:
+    # Create the enum type idempotently — safe on both fresh DBs and
+    # DBs where a previous partial migration already created the type.
     op.execute("""
         DO $$ BEGIN
             CREATE TYPE invoice_status AS ENUM ('draft', 'sent', 'paid', 'cancelled');
@@ -29,7 +41,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("invoice_number", sa.String(64), nullable=False),
         sa.Column("shop_id", sa.Integer(), nullable=True),
-        sa.Column("status", sa.Enum("draft", "sent", "paid", "cancelled", name="invoice_status", create_type=False), server_default="draft", nullable=False),
+        sa.Column("status", _invoice_status, server_default="draft", nullable=False),
         sa.Column("client_name", sa.String(255), nullable=False),
         sa.Column("client_email", sa.String(320), nullable=False),
         sa.Column("client_company", sa.String(255), nullable=True),
