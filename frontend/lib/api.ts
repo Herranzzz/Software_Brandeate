@@ -1,5 +1,3 @@
-import { cookies } from "next/headers";
-
 import type {
   ActivityLog,
   AdminUser,
@@ -86,12 +84,18 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 
 async function buildAuthHeaders(): Promise<Record<string, string>> {
+  if (typeof window !== "undefined") {
+    // Client context: auth token is httpOnly and cannot be read here.
+    // Mutations from client components must go through Next.js API routes.
+    return {};
+  }
+  // Server context (Server Components, Route Handlers, Server Actions)
+  const { cookies } = await import("next/headers");
   const cookieStore = await cookies();
   const token = cookieStore.get("auth_token")?.value;
   if (!token) {
     return {};
   }
-
   return { Authorization: `Bearer ${token}` };
 }
 
