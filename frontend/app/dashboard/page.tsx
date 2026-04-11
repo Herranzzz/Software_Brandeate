@@ -246,9 +246,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const pendingOrders = analytics
     ? (analytics.shipping.pending_orders ?? 0)
     : orders.filter((o) => o.status === "pending").length;
-  const inProgressOrders = analytics
-    ? analytics.kpis.in_production_orders
-    : orders.filter((o) => o.status === "in_progress").length;
   const readyToShipOrders = analytics
     ? (analytics.flow.orders_prepared ?? 0)
     : orders.filter((o) => o.status === "ready_to_ship").length;
@@ -300,7 +297,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       eyebrow="Brandeate operations"
       healthItems={[
         { label: "⏳ Pendientes", value: pendingOrders, hint: "esperando revisión" },
-        { label: "🔧 En producción", value: inProgressOrders, hint: "flujo activo" },
         { label: "📦 Con envío", value: withShipment, hint: "ya etiquetados" },
         { label: "✅ Entregados", value: deliveredOrders, hint: "cerrados correctamente" },
       ]}
@@ -330,7 +326,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       incidentsTitle="Incidencias recientes"
       kpis={[
         { label: "Pendientes",           value: String(pendingOrders),     delta: "esperando revisión",              tone: "accent"  },
-        { label: "En producción",        value: String(inProgressOrders),  delta: "flujo activo",                    tone: "purple"  },
         { label: "Listos para enviar",   value: String(readyToShipOrders), delta: "esperando recogida",              tone: "warning" },
         { label: "Enviados",             value: String(shippedOrders),     delta: `${withShipment} con tracking`,    tone: "blue"    },
         { label: "Entregados",           value: String(deliveredOrders),   delta: "ciclo cerrado",                   tone: "success" },
