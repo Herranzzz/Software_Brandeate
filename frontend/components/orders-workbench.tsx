@@ -257,10 +257,10 @@ function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
       );
 
     case "prepared":
-      // Prepared and waiting for carrier pickup (ready_to_ship, no label yet or label not yet scanned)
+      // Prepared and waiting for carrier pickup (ready_to_ship or production completed)
       return (
         order.status === "ready_to_ship" ||
-        (order.production_status === "done" &&
+        (order.production_status === "completed" &&
           order.status !== "shipped" &&
           order.status !== "delivered")
       );
