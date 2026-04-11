@@ -1,9 +1,9 @@
 /**
  * Browser-safe API helpers for use inside "use client" components.
  *
- * Unlike lib/api.ts (which uses next/headers and only runs on the server),
- * this module reads the auth_token from document.cookie so it can be bundled
- * and executed in the browser.
+ * All calls go through Next.js API route handlers (/api/inventory/...)
+ * so the httpOnly auth_token cookie is forwarded automatically by the browser
+ * without any JavaScript access to the cookie.
  */
 
 import type {
@@ -20,25 +20,6 @@ export type CatalogSyncResult = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function clientApiUrl(path: string): string {
-  const base = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${base}${normalizedPath}`;
-}
-
-function getAuthToken(): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.match(/(?:^|;\s*)auth_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function buildClientHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return headers;
-}
 
 async function parseClientResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -65,9 +46,9 @@ export async function adjustInventoryStock(
   id: number,
   data: { qty_delta: number; movement_type: string; notes?: string | null },
 ): Promise<InventoryItem> {
-  const res = await fetch(clientApiUrl(`/inventory/items/${id}/adjust`), {
+  const res = await fetch(`/api/inventory/items/${id}/adjust`, {
     method: "POST",
-    headers: buildClientHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   return parseClientResponse<InventoryItem>(res);
@@ -83,9 +64,9 @@ export async function createInboundShipment(data: {
   tracking_number?: string | null;
   notes?: string | null;
 }): Promise<InboundShipment> {
-  const res = await fetch(clientApiUrl("/inventory/inbound"), {
+  const res = await fetch("/api/inventory/inbound", {
     method: "POST",
-    headers: buildClientHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   return parseClientResponse<InboundShipment>(res);
@@ -102,9 +83,9 @@ export async function updateInboundShipment(
     notes: string | null;
   }>,
 ): Promise<InboundShipment> {
-  const res = await fetch(clientApiUrl(`/inventory/inbound/${id}`), {
+  const res = await fetch(`/api/inventory/inbound/${id}`, {
     method: "PATCH",
-    headers: buildClientHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   return parseClientResponse<InboundShipment>(res);
@@ -114,9 +95,9 @@ export async function addInboundShipmentLine(
   shipmentId: number,
   data: { sku: string; name?: string | null; qty_expected: number; notes?: string | null },
 ): Promise<InboundShipmentLine> {
-  const res = await fetch(clientApiUrl(`/inventory/inbound/${shipmentId}/lines`), {
+  const res = await fetch(`/api/inventory/inbound/${shipmentId}/lines`, {
     method: "POST",
-    headers: buildClientHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   return parseClientResponse<InboundShipmentLine>(res);
@@ -126,11 +107,8 @@ export async function deleteInboundShipmentLine(
   shipmentId: number,
   lineId: number,
 ): Promise<void> {
-  const headers = buildClientHeaders();
-  delete headers["Content-Type"]; // no body on DELETE
-  await fetch(clientApiUrl(`/inventory/inbound/${shipmentId}/lines/${lineId}`), {
+  await fetch(`/api/inventory/inbound/${shipmentId}/lines/${lineId}`, {
     method: "DELETE",
-    headers,
   });
 }
 
@@ -147,9 +125,9 @@ export async function receiveInboundShipment(
     notes?: string | null;
   },
 ): Promise<InboundShipment> {
-  const res = await fetch(clientApiUrl(`/inventory/inbound/${shipmentId}/receive`), {
+  const res = await fetch(`/api/inventory/inbound/${shipmentId}/receive`, {
     method: "POST",
-    headers: buildClientHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   return parseClientResponse<InboundShipment>(res);
@@ -160,11 +138,9 @@ export async function receiveInboundShipment(
 export async function syncInventoryFromCatalog(
   shopId: number,
 ): Promise<CatalogSyncResult> {
-  const headers = buildClientHeaders();
-  delete headers["Content-Type"];
   const res = await fetch(
-    clientApiUrl(`/inventory/sync-from-catalog?shop_id=${shopId}`),
-    { method: "POST", headers },
+    `/api/inventory/sync-from-catalog?shop_id=${shopId}`,
+    { method: "POST" },
   );
   return parseClientResponse<CatalogSyncResult>(res);
 }

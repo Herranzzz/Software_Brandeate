@@ -1309,10 +1309,13 @@ def push_pending_shipment_status_event(
 ) -> None:
     """Push a Shopify fulfillment event for the shipment's current status if it has
     not been pushed yet. Safe to call at any time — deduplicates via
-    shipment.shopify_status_event_pushed. Never raises."""
+    shipment.shopify_status_event_pushed (stores comma-separated set of all statuses
+    ever pushed, so each status is only pushed once per shipment). Never raises."""
 
     current_status = (shipment.shipping_status or "").strip() or None
-    last_pushed = (shipment.shopify_status_event_pushed or "").strip() or None
+    pushed_raw = (shipment.shopify_status_event_pushed or "").strip()
+    # Support both legacy single-value ("delivered") and new set format ("in_transit,delivered")
+    pushed_set: set[str] = {s for s in pushed_raw.split(",") if s}
     fulfillment_id = (shipment.fulfillment_id or "").strip() or None
 
     if not fulfillment_id or not current_status:
@@ -1327,7 +1330,7 @@ def push_pending_shipment_status_event(
         )
         return
 
-    if current_status == last_pushed:
+    if current_status in pushed_set:
         logger.debug(
             "Status %s already pushed to Shopify for shipment_id=%s — skipping",
             current_status,
@@ -1366,7 +1369,8 @@ def push_pending_shipment_status_event(
             shopify_event_status=shopify_event_status,
             message=STATUS_MESSAGES.get(shopify_event_status),
         )
-        shipment.shopify_status_event_pushed = current_status
+        pushed_set.add(current_status)
+        shipment.shopify_status_event_pushed = ",".join(sorted(pushed_set))
         logger.info(
             "Shopify status event pushed shipment_id=%s status=%s shopify_event=%s",
             shipment.id,
