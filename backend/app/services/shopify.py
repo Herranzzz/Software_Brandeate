@@ -1655,13 +1655,19 @@ def run_shopify_sync_cycle(
         # full_sync=True (manual import from settings) → no date filter, fetch all history.
         # full_sync=False (scheduler / incremental) → cap at 3 months so we never pull
         # older orders unless explicitly requested.
+        #
+        # Safety overlap: each incremental sync goes back an extra 30 minutes relative
+        # to last_synced_at. This catches orders that fell beyond the page cap in the
+        # previous cycle (their updated_at is within the overlap window).
+        INCREMENTAL_SAFETY_OVERLAP = timedelta(minutes=30)
         if full_sync:
             updated_since = None
         else:
             cutoff = datetime.now(timezone.utc) - timedelta(days=90)
             if integration.last_synced_at:
                 last_sync = integration.last_synced_at.astimezone(timezone.utc)
-                updated_since = last_sync if last_sync > cutoff else cutoff
+                safe_since = last_sync - INCREMENTAL_SAFETY_OVERLAP
+                updated_since = safe_since if safe_since > cutoff else cutoff
             else:
                 updated_since = cutoff
         result = import_shopify_orders(
