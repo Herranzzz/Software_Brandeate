@@ -6,6 +6,10 @@ import type {
   EmployeeAnalyticsResponse,
   EmployeeWorkspace,
   Incident,
+  Invoice,
+  InvoiceCreatePayload,
+  InvoiceSendPayload,
+  InvoiceStatus,
   InventoryItem,
   InventoryItemListResponse,
   InboundShipment,
@@ -774,4 +778,79 @@ export async function fetchInventoryAlerts(params?: {
   const headers = await buildAuthHeaders();
   const res = await fetch(apiUrl(`/inventory/alerts?${query}`), { headers });
   return parseResponse<InventoryAlertsRead>(res);
+}
+
+
+/* ─── Invoices ────────────────────────────────────────────────────────────── */
+
+export async function fetchInvoices(params?: {
+  status?: InvoiceStatus;
+  shop_id?: number;
+  q?: string;
+  page?: number;
+  per_page?: number;
+}): Promise<Invoice[]> {
+  const query = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) query.append(k, String(v));
+    });
+  }
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/invoices?${query}`), { headers, cache: "no-store" });
+  return parseResponse<Invoice[]>(res);
+}
+
+export async function fetchInvoiceById(id: number): Promise<Invoice> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/invoices/${id}`), { headers, cache: "no-store" });
+  return parseResponse<Invoice>(res);
+}
+
+export async function createInvoice(payload: InvoiceCreatePayload): Promise<Invoice> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl("/invoices"), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<Invoice>(res);
+}
+
+export async function updateInvoice(id: number, payload: Partial<InvoiceCreatePayload>): Promise<Invoice> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/invoices/${id}`), {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<Invoice>(res);
+}
+
+export async function deleteInvoice(id: number): Promise<void> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/invoices/${id}`), { method: "DELETE", headers });
+  if (!res.ok && res.status !== 204) await parseResponse<void>(res);
+}
+
+export async function sendInvoice(id: number, payload?: InvoiceSendPayload): Promise<Invoice> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/invoices/${id}/send`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload ?? {}),
+  });
+  return parseResponse<Invoice>(res);
+}
+
+export async function markInvoicePaid(id: number): Promise<Invoice> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/invoices/${id}/mark-paid`), { method: "POST", headers });
+  return parseResponse<Invoice>(res);
+}
+
+export async function cancelInvoice(id: number): Promise<Invoice> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/invoices/${id}/cancel`), { method: "POST", headers });
+  return parseResponse<Invoice>(res);
 }

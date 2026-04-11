@@ -806,3 +806,77 @@ export type InventoryAlertsRead = {
   items: InventoryItem[];
   total: number;
 };
+
+/* ─── Invoices ────────────────────────────────────────────────────────────── */
+
+export type InvoiceStatus = "draft" | "sent" | "paid" | "cancelled";
+
+export type InvoiceItem = {
+  id: number;
+  invoice_id: number;
+  description: string;
+  quantity: string;
+  unit_price: string;
+  sort_order: number;
+};
+
+export type Invoice = {
+  id: number;
+  invoice_number: string;
+  shop_id: number | null;
+  status: InvoiceStatus;
+  client_name: string;
+  client_email: string;
+  client_company: string | null;
+  client_tax_id: string | null;
+  client_address: string | null;
+  sender_name: string | null;
+  sender_tax_id: string | null;
+  sender_address: string | null;
+  currency: string;
+  tax_rate: string;
+  notes: string | null;
+  payment_terms: string | null;
+  issue_date: string;
+  due_date: string | null;
+  sent_at: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+  items: InvoiceItem[];
+  subtotal: string;
+  tax_amount: string;
+  total: string;
+};
+
+export type InvoiceItemDraft = {
+  description: string;
+  quantity: string;
+  unit_price: string;
+  sort_order: number;
+};
+
+export type InvoiceCreatePayload = {
+  shop_id?: number | null;
+  client_name: string;
+  client_email: string;
+  client_company?: string | null;
+  client_tax_id?: string | null;
+  client_address?: string | null;
+  sender_name?: string | null;
+  sender_tax_id?: string | null;
+  sender_address?: string | null;
+  currency?: string;
+  tax_rate?: string;
+  notes?: string | null;
+  payment_terms?: string | null;
+  issue_date: string;
+  due_date?: string | null;
+  items: InvoiceItemDraft[];
+};
+
+export type InvoiceSendPayload = {
+  recipient_email?: string | null;
+  subject?: string | null;
+  message?: string | null;
+};

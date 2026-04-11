@@ -1,4 +1,5 @@
 from app.models.automation_event import AutomationActionType, AutomationEntityType, AutomationEvent
+from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus
 from app.models.inventory import InventoryItem, InboundShipment, InboundShipmentLine, StockMovement
 from app.models.return_ import Return, ReturnReason, ReturnStatus
 from app.models.incident import Incident, IncidentPriority, IncidentStatus, IncidentType
@@ -53,4 +54,7 @@ __all__ = [
     "User",
     "UserRole",
     "UserShop",
+    "Invoice",
+    "InvoiceItem",
+    "InvoiceStatus",
 ]

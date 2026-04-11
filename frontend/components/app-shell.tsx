@@ -157,6 +157,16 @@ function ReturnsAdminIcon(props: IconProps) {
   );
 }
 
+function InvoicesIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <rect height="16" rx="2.5" stroke="currentColor" strokeWidth="1.8" width="14" x="5" y="4" />
+      <path d="M8.5 8.5h7M8.5 11.5h7M8.5 14.5h4.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M15 17l1.5 1.5L19 15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 /* ─── Nav structure ───────────────────────────────────────────────────────── */
 
 const navGroups = [
@@ -179,6 +189,7 @@ const navGroups = [
     label: "Cuentas",
     items: [
       { href: "/client-accounts", label: "Cuentas cliente", icon: ClientAccountsIcon },
+      { href: "/invoices", label: "Facturación", icon: InvoicesIcon },
     ],
   },
   {
