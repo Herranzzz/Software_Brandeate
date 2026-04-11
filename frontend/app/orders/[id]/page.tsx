@@ -5,6 +5,7 @@ import { AutomationFlagBadge } from "@/components/automation-flag-badge";
 import { ActivityTimelineLoader } from "@/components/activity-timeline";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { OrderBlockButton } from "@/components/order-block-button";
+import { OrderInternalNote } from "@/components/order-internal-note";
 import { SlaBadge } from "@/components/sla-badge";
 import { Card } from "@/components/card";
 import { CopyButton } from "@/components/copy-button";
@@ -139,6 +140,31 @@ function getFulfillmentOrders(order: NonNullable<Awaited<ReturnType<typeof fetch
     }));
 }
 
+const TRACKING_NORM_LABELS: Record<string, string> = {
+  delivered: "Entregado",
+  out_for_delivery: "En reparto",
+  in_transit: "En tránsito",
+  pickup_available: "Disponible para recogida",
+  attempted_delivery: "Intento de entrega fallido",
+  exception: "Incidencia de carrier",
+  label_created: "Etiqueta generada",
+};
+
+function getTrackingNormLabel(norm: string): string {
+  return TRACKING_NORM_LABELS[norm.toLowerCase()] ?? norm;
+}
+
+function getTrackingIcon(norm: string): string {
+  switch (norm.toLowerCase()) {
+    case "delivered": return "✓";
+    case "out_for_delivery": return "🚛";
+    case "in_transit": return "🚚";
+    case "exception": return "⚠";
+    case "label_created": return "🏷";
+    default: return "→";
+  }
+}
+
 function buildOrderActivityFeed(
   order: Awaited<ReturnType<typeof fetchOrderById>>,
   incidents: Awaited<ReturnType<typeof fetchOrderIncidents>>,
@@ -154,7 +180,7 @@ function buildOrderActivityFeed(
       title: "Pedido creado",
       description: `Pedido ${order.external_id} registrado para ${order.customer_name}.`,
       meta: "Inicio",
-      icon: "●",
+      icon: "📦",
       tone: "neutral",
     },
   ];
@@ -166,7 +192,7 @@ function buildOrderActivityFeed(
       title: "Etiqueta de envío creada",
       description: `${order.shipment.carrier} · ${order.shipment.tracking_number}`,
       meta: "Envío",
-      icon: "▶",
+      icon: "🏷️",
       tone: "accent",
     });
 
@@ -199,11 +225,14 @@ function buildOrderActivityFeed(
     ...sortTrackingEvents(order.shipment?.events ?? []).map((event) => ({
       id: `tracking-${event.id}`,
       occurredAt: event.occurred_at,
-      title: event.status_norm,
-      description: event.status_raw ?? "Actualización automática de tracking.",
+      title: getTrackingNormLabel(event.status_norm),
+      description: [
+        event.status_raw && event.status_raw !== event.status_norm ? event.status_raw : null,
+        event.location ? `📍 ${event.location}` : null,
+      ].filter(Boolean).join(" — ") || "Actualización automática de tracking.",
       meta: "Tracking",
-      icon: "→",
-      tone: "accent" as const,
+      icon: getTrackingIcon(event.status_norm),
+      tone: event.status_norm.toLowerCase() === "exception" ? "warning" as const : "accent" as const,
     })),
   );
 
@@ -216,7 +245,7 @@ function buildOrderActivityFeed(
       title: incident.title,
       description: incident.description ?? "Incidencia registrada sin detalle adicional.",
       meta: `Incidencia · ${incident.status}`,
-      icon: "!",
+      icon: "⚠️",
       tone: "warning" as const,
       })),
   );
@@ -778,6 +807,12 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
               </div>
             </Card>
           )}
+          {/* Internal note */}
+          <Card className="stack">
+            <SectionTitle eyebrow="Notas internas" title="Nota del equipo" />
+            <OrderInternalNote orderId={order.id} initialNote={order.internal_note ?? null} />
+          </Card>
+
           {/* Activity log */}
           <Card>
             <SectionTitle eyebrow="Historial" title="Actividad" />

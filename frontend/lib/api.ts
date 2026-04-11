@@ -634,6 +634,17 @@ export async function unblockOrder(orderId: number): Promise<Order> {
 }
 
 
+export async function updateOrderInternalNote(orderId: number, note: string | null): Promise<void> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/orders/${orderId}/internal-note`), {
+    method: "PATCH",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ internal_note: note }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+
 // ── SGA / Inventory ──────────────────────────────────────────────────────────
 
 export async function fetchInventoryItems(params?: {

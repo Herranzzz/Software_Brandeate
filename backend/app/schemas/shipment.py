@@ -88,6 +88,10 @@ class ShipmentRead(ShipmentSummaryRead):
     events: list[TrackingEventRead] = Field(default_factory=list)
 
 
+class ShipmentCostUpdate(BaseModel):
+    shipping_cost: float | None = None
+
+
 class ShipmentTrackingSyncRead(BaseModel):
     shipment: ShipmentRead
     changed: bool

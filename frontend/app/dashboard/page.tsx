@@ -260,6 +260,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     : orders.filter((o) => o.shipment).length;
   const openIncidents = analytics ? analytics.kpis.open_incidents : openIncidentsList.length;
   const urgentIncidents   = openIncidentsList.filter((i) => i.priority === "urgent" || i.priority === "high").length;
+  const blockedOrders = analytics ? (analytics.operational.blocked_orders ?? 0) : 0;
+  const overdueSlaOrders = analytics ? (analytics.operational.overdue_sla_orders ?? 0) : 0;
 
   return (
     <div className="stack">
@@ -330,6 +332,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         { label: "Enviados",             value: String(shippedOrders),     delta: `${withShipment} con tracking`,    tone: "blue"    },
         { label: "Entregados",           value: String(deliveredOrders),   delta: "ciclo cerrado",                   tone: "success" },
         { label: "Incidencias abiertas", value: String(openIncidents),     delta: `${urgentIncidents} prioritarias`, tone: "danger"  },
+        ...(blockedOrders > 0 ? [{ label: "Bloqueados",      value: String(blockedOrders),     delta: "pedidos retenidos",               tone: "danger" as const }] : []),
+        ...(overdueSlaOrders > 0 ? [{ label: "SLA vencido",   value: String(overdueSlaOrders),  delta: "entrega atrasada",               tone: "danger" as const }] : []),
       ]}
       noteActions={
         <>

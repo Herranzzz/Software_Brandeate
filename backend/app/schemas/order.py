@@ -163,6 +163,7 @@ class OrderListRead(BaseModel):
     prepared_by_employee_id: int | None = None
     prepared_at: datetime | None = None
     prepared_by_employee_name: str | None = None
+    internal_note: str | None = None
     is_blocked: bool = False
     block_reason: str | None = None
     has_open_incident: bool
@@ -218,6 +219,7 @@ class OrderRead(BaseModel):
     prepared_by_employee_id: int | None = None
     prepared_at: datetime | None = None
     prepared_by_employee_name: str | None = None
+    internal_note: str | None = None
     is_blocked: bool = False
     block_reason: str | None = None
     has_open_incident: bool
@@ -229,6 +231,10 @@ class OrderRead(BaseModel):
 
 class OrderDetailRead(OrderRead):
     automation_events: list[AutomationEventRead] = Field(default_factory=list)
+
+
+class OrderInternalNoteUpdate(BaseModel):
+    internal_note: str | None = Field(default=None, max_length=10000)
 
 
 class OrderBlockUpdate(BaseModel):

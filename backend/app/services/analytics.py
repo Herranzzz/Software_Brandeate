@@ -378,6 +378,8 @@ def build_analytics_overview(
                 Shipment.carrier,
                 Shipment.tracking_number,
                 Shipment.shipping_status,
+                Shipment.shipping_cost,
+                Shipment.expected_delivery_date,
                 Shipment.created_at,
             )
             .selectinload(Shipment.events)
@@ -432,6 +434,25 @@ def build_analytics_overview(
     prepared_not_collected_orders = [order for order in orders if _is_prepared_not_collected(order, now)]
     outside_sla_orders = [order for order in orders if _is_outside_delivery_sla(order, now)]
     stalled_tracking_orders = [order for order in orders if _is_tracking_stalled(order, now)]
+
+    _resolved_shipping = {"delivered", "exception", "stalled"}
+    today_date = now.date()
+    overdue_sla_orders = [
+        order
+        for order in orders
+        if order.shipment is not None
+        and order.shipment.expected_delivery_date is not None
+        and order.shipment.expected_delivery_date < today_date
+        and _safe_text(order.shipment.shipping_status, "").lower() not in _resolved_shipping
+    ]
+    shipping_cost_total: float | None = None
+    _cost_list = [
+        float(order.shipment.shipping_cost)
+        for order in orders
+        if order.shipment is not None and order.shipment.shipping_cost is not None
+    ]
+    if _cost_list:
+        shipping_cost_total = round(sum(_cost_list), 2)
 
     created_today = [order for order in orders if (_to_business_date(order.created_at) or now.date()).isoformat() == today_key]
     created_this_week = [order for order in orders if (_to_business_date(order.created_at) or now.date()) >= week_start]
@@ -866,6 +887,7 @@ def build_analytics_overview(
             "sent_in_sla_rate": _percentage(sum(1 for hours in sent_sla_hours if hours <= SENT_SLA_HOURS), len(sent_sla_hours)),
             "delivered_in_sla_rate": _percentage(sum(1 for hours in delivery_hours if hours <= DELIVERED_SLA_HOURS), len(delivery_hours)),
             "blocked_orders": len(blocked_orders),
+            "overdue_sla_orders": len(overdue_sla_orders),
             "orders_without_shipment": len(orders_without_shipment),
             "orders_without_tracking": len(orders_without_tracking),
             "prepared_not_collected_orders": len(prepared_not_collected_orders),
@@ -873,6 +895,7 @@ def build_analytics_overview(
             "stalled_tracking_orders": len(stalled_tracking_orders),
             "incident_rate": _percentage(len({incident.order_id for incident in open_incidents}), total_orders),
             "aging_buckets": aging_buckets,
+            "shipping_cost_total": shipping_cost_total,
         },
         "personalization": {
             "personalized_share": _percentage(len(personalized_orders), total_orders),

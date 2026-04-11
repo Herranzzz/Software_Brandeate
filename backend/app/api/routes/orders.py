@@ -47,6 +47,7 @@ from app.models import (
 from app.schemas.incident import IncidentRead
 from app.schemas.order import (
     OrderBlockUpdate,
+    OrderInternalNoteUpdate,
     OrderCreate,
     OrderDetailRead,
     OrderListRead,
@@ -371,6 +372,8 @@ def _build_order_filters(
     channel: str | None,
     carrier: str | None,
     q: str | None,
+    is_blocked: bool | None = None,
+    overdue_sla: bool | None = None,
 ) -> sa.Select:
     query = base_query
     if status is not None:
@@ -421,11 +424,22 @@ def _build_order_filters(
                 Order.external_id.ilike(term),
                 Order.customer_name.ilike(term),
                 Order.customer_email.ilike(term),
+                Order.shipping_phone.ilike(term),
                 Order.items.any(OrderItem.sku.ilike(term)),
                 Order.items.any(OrderItem.name.ilike(term)),
                 Order.items.any(OrderItem.title.ilike(term)),
                 Order.shipment.has(Shipment.tracking_number.ilike(term)),
             )
+        )
+    if is_blocked is not None:
+        query = query.where(Order.is_blocked.is_(is_blocked))
+    if overdue_sla is True:
+        today = datetime.now(timezone.utc).date()
+        _resolved = ("delivered", "exception", "stalled")
+        query = query.join(Order.shipment).where(
+            Shipment.expected_delivery_date.isnot(None),
+            Shipment.expected_delivery_date < today,
+            Shipment.shipping_status.notin_(_resolved),
         )
     return query
 
@@ -447,6 +461,8 @@ def list_orders(
     channel: str | None = None,
     carrier: str | None = None,
     q: str | None = None,
+    is_blocked: bool | None = None,
+    overdue_sla: bool | None = None,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=DEFAULT_ORDERS_PER_PAGE, ge=1, le=MAX_ORDERS_PER_PAGE),
     db: Session = Depends(get_db),
@@ -472,6 +488,8 @@ def list_orders(
         channel=channel,
         carrier=carrier,
         q=q,
+        is_blocked=is_blocked,
+        overdue_sla=overdue_sla,
     )
 
     # Contar total antes de paginar para X-Total-Count
@@ -833,6 +851,24 @@ def update_order_priority(
         summary=f"{current_user.name} cambió prioridad a {payload.priority.value}",
         detail={"field": "priority", "old": old_priority.value, "new": payload.priority.value},
     )
+    db.commit()
+    return db.scalar(_order_detail_query().where(Order.id == order_id))
+
+
+@router.patch("/{order_id}/internal-note", response_model=OrderDetailRead)
+def update_order_internal_note(
+    order_id: int,
+    payload: OrderInternalNoteUpdate,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
+) -> Order:
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+    order.internal_note = payload.internal_note
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))
 

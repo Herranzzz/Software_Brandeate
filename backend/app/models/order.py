@@ -155,6 +155,7 @@ class Order(Base):
     pickup_point_json: Mapped[dict | list | None] = mapped_column(json_type, nullable=True)
     shipping_option_selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    internal_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags_json: Mapped[list[str] | None] = mapped_column(json_type, nullable=True)
     channel: Mapped[str | None] = mapped_column(String(120), nullable=True)
     shopify_financial_status: Mapped[str | None] = mapped_column(String(120), nullable=True)

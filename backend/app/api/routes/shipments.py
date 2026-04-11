@@ -6,6 +6,7 @@ from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, requ
 from app.models import Order, Shipment, TrackingEvent, User
 from app.schemas.shipment import (
     ShipmentTrackingBatchSyncRead,
+    ShipmentCostUpdate,
     ShipmentCreate,
     ShipmentRead,
     ShipmentSummaryRead,
@@ -346,4 +347,29 @@ def sync_active_shipments_tracking(
         changed_count=changed_count,
         events_created=events_created,
         shipments=shipments,
+    )
+
+
+@router.patch("/{shipment_id}/cost", response_model=ShipmentRead)
+def update_shipment_cost(
+    shipment_id: int,
+    payload: ShipmentCostUpdate,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
+) -> Shipment:
+    shipment = db.scalar(
+        select(Shipment)
+        .options(selectinload(Shipment.events))
+        .where(Shipment.id == shipment_id)
+    )
+    if shipment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shipment not found")
+    order = db.get(Order, shipment.order_id)
+    if order and accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+    shipment.shipping_cost = payload.shipping_cost
+    db.commit()
+    return db.scalar(
+        select(Shipment).options(selectinload(Shipment.events)).where(Shipment.id == shipment_id)
     )

@@ -179,6 +179,7 @@ export type Order = {
   pickup_point_json: Record<string, unknown> | null;
   is_blocked: boolean;
   block_reason: string | null;
+  internal_note: string | null;
   note: string | null;
   tags_json: string[] | null;
   channel: string | null;
@@ -260,6 +261,7 @@ export type PublicTracking = {
     shipping_status: string | null;
     public_token: string;
     created_at: string;
+    expected_delivery_date?: string | null;
   };
   tracking_events: Array<{
     id: number;
@@ -431,8 +433,10 @@ export type AnalyticsOperational = {
   prepared_not_collected_orders?: number;
   outside_sla_orders?: number;
   stalled_tracking_orders: number;
+  overdue_sla_orders?: number;
   incident_rate: number | null;
   aging_buckets: AgingBuckets | null;
+  shipping_cost_total?: number | null;
 };
 
 export type AgingBuckets = {

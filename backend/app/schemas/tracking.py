@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -29,6 +29,7 @@ class PublicTrackingShipmentRead(BaseModel):
     shipping_status: str | None
     public_token: str
     created_at: datetime
+    expected_delivery_date: date | None = None
 
 
 class PublicTrackingEventRead(BaseModel):
@@ -80,6 +81,7 @@ class PublicTrackingRead(BaseModel):
                 shipping_status=shipment.shipping_status,
                 public_token=shipment.public_token,
                 created_at=shipment.created_at,
+                expected_delivery_date=shipment.expected_delivery_date if hasattr(shipment, 'expected_delivery_date') else None,
             ),
             tracking_events=[
                 PublicTrackingEventRead(

@@ -203,19 +203,20 @@ export default async function PackingSlipPage({ params }: PackingSlipPageProps) 
             .page { padding: 24px; }
           }
         `}</style>
-        <script dangerouslySetInnerHTML={{ __html: "window.onload=()=>window.print();" }} />
+        <script dangerouslySetInnerHTML={{ __html: "window.addEventListener('DOMContentLoaded',function(){window.print();});" }} />
       </head>
       <body>
         <div className="page">
           {/* Print button (hidden on print) */}
           <div className="no-print" style={{ marginBottom: 24, display: "flex", gap: 12 }}>
-            <button
-              onClick={() => window.print()}
-              style={{ padding: "8px 20px", background: "#e8392b", color: "#fff", border: "none", borderRadius: 6, fontWeight: 700, cursor: "pointer", fontSize: 13 }}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+            <a
+              href="javascript:window.print()"
+              style={{ padding: "8px 20px", background: "#e8392b", color: "#fff", borderRadius: 6, fontWeight: 700, fontSize: 13, textDecoration: "none", display: "inline-block" }}
             >
               Imprimir
-            </button>
-            <a href={`/orders/${order.id}`} style={{ padding: "8px 20px", background: "#f1f5f9", color: "#333", border: "none", borderRadius: 6, fontWeight: 600, cursor: "pointer", fontSize: 13, textDecoration: "none" }}>
+            </a>
+            <a href={`/orders/${order.id}`} style={{ padding: "8px 20px", background: "#f1f5f9", color: "#333", borderRadius: 6, fontWeight: 600, fontSize: 13, textDecoration: "none", display: "inline-block" }}>
               ← Volver al pedido
             </a>
           </div>

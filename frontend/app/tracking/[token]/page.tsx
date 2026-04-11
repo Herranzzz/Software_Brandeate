@@ -105,6 +105,14 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
   );
   const shopSlug = shopData?.slug ?? "";
 
+  const estimatedDelivery = tracking.shipment.expected_delivery_date
+    ? new Date(tracking.shipment.expected_delivery_date + "T12:00:00").toLocaleDateString("es-ES", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      })
+    : null;
+
   const style: CSSProperties & Record<string, string> = {
     "--tracking-accent": branding.accentColor,
     "--tracking-accent-soft": `${branding.accentColor}18`,
@@ -145,6 +153,12 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
             )}
             <h1 className="trk-hero-title">{headline.title}</h1>
             <p className="trk-hero-subtitle">{headline.subtitle}</p>
+            {estimatedDelivery && !isDelivered && !isException && (
+              <div className="trk-estimated-delivery">
+                <span className="trk-est-label">Entrega estimada</span>
+                <span className="trk-est-date">{estimatedDelivery}</span>
+              </div>
+            )}
           </div>
         </div>
       </section>

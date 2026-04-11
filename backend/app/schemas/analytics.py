@@ -44,6 +44,7 @@ class AnalyticsOperationalMetricsRead(BaseModel):
     sent_in_sla_rate: float | None
     delivered_in_sla_rate: float | None
     blocked_orders: int
+    overdue_sla_orders: int = 0
     orders_without_shipment: int
     orders_without_tracking: int = 0
     prepared_not_collected_orders: int = 0
@@ -51,6 +52,7 @@ class AnalyticsOperationalMetricsRead(BaseModel):
     stalled_tracking_orders: int
     incident_rate: float | None
     aging_buckets: AgingBucketsRead | None = None
+    shipping_cost_total: float | None = None
 
 
 class AnalyticsPersonalizationMetricsRead(BaseModel):
