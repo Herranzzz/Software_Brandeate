@@ -9,7 +9,7 @@ import { SearchInput } from "@/components/search-input";
 import { fetchIncidents, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
-import type { Incident } from "@/lib/types";
+import type { Incident, IncidentPriority, IncidentStatus, IncidentType } from "@/lib/types";
 
 
 type IncidenciasPageProps = {
@@ -23,6 +23,33 @@ type IncidenciasPageProps = {
   }>;
 };
 
+const PRIORITY_LABEL: Record<IncidentPriority, string> = {
+  low:    "Baja",
+  medium: "Media",
+  high:   "Alta",
+  urgent: "Urgente",
+};
+
+const STATUS_LABEL: Record<IncidentStatus, string> = {
+  open:        "Abierta",
+  in_progress: "En progreso",
+  resolved:    "Resuelta",
+};
+
+const TYPE_LABEL: Record<IncidentType, string> = {
+  missing_asset:          "Asset roto",
+  personalization_error:  "Error personalización",
+  production_blocked:     "Producción bloqueada",
+  shipping_exception:     "Excepción envío",
+  address_issue:          "Problema dirección",
+  stock_issue:            "Stock",
+};
+
+const STATUS_CLASS: Record<IncidentStatus, string> = {
+  open:        "incident-status-badge is-open",
+  in_progress: "incident-status-badge is-in-progress",
+  resolved:    "incident-status-badge is-resolved",
+};
 
 function matchesFilters(
   incident: Incident,
@@ -36,6 +63,7 @@ function matchesFilters(
     normalizedQuery === "" ||
     [
       String(incident.id),
+      incident.title,
       incident.type,
       incident.order.external_id,
       incident.order.customer_name,
@@ -80,7 +108,8 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
   const openCount = incidents.filter((incident) => incident.status === "open").length;
   const inProgressCount = incidents.filter((incident) => incident.status === "in_progress").length;
   const urgentCount = incidents.filter((incident) => incident.priority === "urgent").length;
-  const personalizationCount = incidents.filter((incident) => incident.order.is_personalized).length;
+  const resolvedCount = incidents.filter((incident) => incident.status === "resolved").length;
+  const automatedCount = incidents.filter((incident) => incident.is_automated).length;
 
   return (
     <div className="stack">
@@ -97,15 +126,15 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
           </div>
         ) : null}
         <form className="filters filter-bar" method="get">
-          <SearchInput defaultValue={params.q ?? ""} placeholder="Pedido, cliente, responsable..." />
+          <SearchInput defaultValue={params.q ?? ""} placeholder="Pedido, cliente, título..." />
 
           <div className="field">
             <label htmlFor="status">Estado</label>
             <select defaultValue={statusFilter} id="status" name="status">
               <option value="all">Todos</option>
-              <option value="open">open</option>
-              <option value="in_progress">in_progress</option>
-              <option value="resolved">resolved</option>
+              <option value="open">Abierta</option>
+              <option value="in_progress">En progreso</option>
+              <option value="resolved">Resuelta</option>
             </select>
           </div>
 
@@ -113,10 +142,10 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
             <label htmlFor="priority">Prioridad</label>
             <select defaultValue={params.priority ?? ""} id="priority" name="priority">
               <option value="">Todas</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="urgent">urgent</option>
+              <option value="low">Baja</option>
+              <option value="medium">Media</option>
+              <option value="high">Alta</option>
+              <option value="urgent">Urgente</option>
             </select>
           </div>
 
@@ -124,12 +153,12 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
             <label htmlFor="type">Tipo</label>
             <select defaultValue={params.type ?? ""} id="type" name="type">
               <option value="">Todos</option>
-              <option value="missing_asset">missing_asset</option>
-              <option value="personalization_error">personalization_error</option>
-              <option value="production_blocked">production_blocked</option>
-              <option value="shipping_exception">shipping_exception</option>
-              <option value="address_issue">address_issue</option>
-              <option value="stock_issue">stock_issue</option>
+              <option value="missing_asset">Asset roto</option>
+              <option value="personalization_error">Error personalización</option>
+              <option value="production_blocked">Producción bloqueada</option>
+              <option value="shipping_exception">Excepción envío</option>
+              <option value="address_issue">Problema dirección</option>
+              <option value="stock_issue">Stock</option>
             </select>
           </div>
 
@@ -167,8 +196,8 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
         <KpiCard label="Abiertas" value={String(openCount)} tone="danger" />
         <KpiCard label="En progreso" value={String(inProgressCount)} tone="warning" />
         <KpiCard label="Urgentes" value={String(urgentCount)} tone="accent" />
-        <KpiCard label="Resueltas" value={String(incidents.filter((incident) => incident.status === "resolved").length)} tone="success" />
-        <KpiCard label="Pedido personalizado" value={String(personalizationCount)} tone="default" />
+        <KpiCard label="Resueltas" value={String(resolvedCount)} tone="success" />
+        <KpiCard label="Automáticas" value={String(automatedCount)} tone="default" />
       </section>
 
       <Card className="stack table-card">
@@ -191,41 +220,62 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Tipo</th>
+                  <th>Incidencia</th>
                   <th>Prioridad</th>
                   <th>Tienda</th>
                   <th>Pedido</th>
                   <th>Cliente</th>
-                  <th>Pedido tipo</th>
+                  <th>Tipo</th>
                   <th>Estado</th>
                   <th>Responsable</th>
-                  <th>Updated at</th>
+                  <th>Actualizado</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {incidents.map((incident) => (
-                  <tr className="table-row" key={incident.id}>
-                    <td>#{incident.id}</td>
-                    <td className="table-primary">{incident.type}</td>
+                  <tr
+                    className="table-row"
+                    data-priority={incident.priority}
+                    key={incident.id}
+                  >
+                    <td className="table-secondary">#{incident.id}</td>
+                    <td>
+                      <div className="incident-title-cell">
+                        <span className="table-primary">{incident.title}</span>
+                        {incident.is_automated && (
+                          <span className="incident-auto-badge">Auto</span>
+                        )}
+                      </div>
+                    </td>
                     <td>
                       <span className={`incident-priority incident-priority-${incident.priority}`}>
-                        {incident.priority}
+                        {PRIORITY_LABEL[incident.priority] ?? incident.priority}
                       </span>
                     </td>
-                    <td>{shopMap.get(incident.order.shop_id) ?? `Shop #${incident.order.shop_id}`}</td>
+                    <td className="table-secondary">{shopMap.get(incident.order.shop_id) ?? `Shop #${incident.order.shop_id}`}</td>
                     <td>
                       <a className="table-link table-link-strong" href={`/orders/${incident.order.id}`}>
                         {incident.order.external_id}
                       </a>
                     </td>
-                    <td>{incident.order.customer_name}</td>
                     <td>
-                      <PersonalizationBadge isPersonalized={incident.order.is_personalized} />
+                      <div className="table-primary">{incident.order.customer_name}</div>
+                      <div className="table-secondary">{incident.order.customer_email}</div>
                     </td>
-                    <td><span className="badge">{incident.status}</span></td>
-                    <td>{incident.assignee ?? "Sin asignar"}</td>
-                    <td>{formatDateTime(incident.updated_at)}</td>
+                    <td>
+                      <div className="incident-type-cell">
+                        <span className="table-secondary">{TYPE_LABEL[incident.type] ?? incident.type}</span>
+                        <PersonalizationBadge isPersonalized={incident.order.is_personalized} />
+                      </div>
+                    </td>
+                    <td>
+                      <span className={STATUS_CLASS[incident.status]}>
+                        {STATUS_LABEL[incident.status] ?? incident.status}
+                      </span>
+                    </td>
+                    <td className="table-secondary">{incident.assignee ?? "—"}</td>
+                    <td className="table-secondary">{formatDateTime(incident.updated_at)}</td>
                     <td>
                       <IncidentStatusActions compact incidentId={incident.id} status={incident.status} />
                     </td>

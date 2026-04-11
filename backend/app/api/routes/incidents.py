@@ -68,10 +68,6 @@ def list_incidents(
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ) -> list[Incident]:
     scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
-    lifecycle = reconcile_incident_lifecycle(db=db, scoped_shop_ids=scoped_shop_ids)
-    if lifecycle["resolved_total"] > 0:
-        db.commit()
-
     settings = get_settings()
     effective_recent_days = None if include_historical else recent_days
     if effective_recent_days is None and not include_historical:

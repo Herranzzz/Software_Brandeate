@@ -304,12 +304,16 @@ def evaluate_order_automation_rules(
     db: Session,
     order: Order,
     source: str,
+    skip_url_checks: bool = False,
 ) -> None:
     """Create incidents only for the three approved automatic triggers:
     1. Order stuck in pending/in_progress for more than PREPARATION_RISK_BUSINESS_DAYS business days.
     2. Tracking stalled (carrier has not updated the shipment in TRACKING_STALLED_BUSINESS_DAYS business days).
     3. The order's design_link URL returns JSON instead of an image (broken/expired link).
     All other flags remain as visual badges but no longer generate incidents automatically.
+
+    skip_url_checks: Set True during automated syncs to skip blocking HTTP HEAD requests.
+      The broken_design_link rule will be evaluated during manual reconciliation instead.
     """
     _resolve_order_incident_lifecycle(order)
     if _is_order_terminal_for_incidents(order):
@@ -320,7 +324,9 @@ def evaluate_order_automation_rules(
     active_incident_rules: set[str] = set()
 
     # ── 1. Broken design link (URL returns JSON instead of an image) ─────────
-    if order.is_personalized and _has_broken_design_link(order):
+    # Skipped during automated syncs (skip_url_checks=True) to avoid blocking
+    # the sync thread with synchronous HTTP calls. Runs only on manual reconcile.
+    if not skip_url_checks and order.is_personalized and _has_broken_design_link(order):
         active_incident_rules.add("broken_design_link")
         _ensure_automation_event(
             db=db,

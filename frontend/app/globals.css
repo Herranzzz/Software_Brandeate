@@ -1673,6 +1673,66 @@ a.admin-orders-row:hover {
   letter-spacing: 0.08em;
 }
 
+/* ── Incident table: status badge ────────────────────────────────── */
+.incident-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.incident-status-badge.is-open {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: rgba(217, 119, 6, 0.22);
+}
+.incident-status-badge.is-in-progress {
+  background: rgba(59, 130, 246, 0.10);
+  color: #2563eb;
+  border-color: rgba(59, 130, 246, 0.22);
+}
+.incident-status-badge.is-resolved {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: rgba(5, 150, 105, 0.22);
+}
+
+/* ── Incident table: title + auto badge ──────────────────────────── */
+.incident-title-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.incident-auto-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(139, 92, 246, 0.10);
+  color: #7c3aed;
+  border: 1px solid rgba(139, 92, 246, 0.20);
+  flex-shrink: 0;
+}
+.incident-type-cell {
+  display: grid;
+  gap: 4px;
+}
+
+/* ── Incident rows: left border by priority ──────────────────────── */
+.table-row[data-priority="urgent"] td:first-child::before { background: var(--danger); }
+.table-row[data-priority="high"]   td:first-child::before { background: var(--warning); }
+.table-row[data-priority="medium"] td:first-child::before { background: #3b82f6; }
+.table-row[data-priority="low"]    td:first-child::before { background: var(--border-strong); }
+.table-row[data-priority="urgent"] { background: rgba(220, 38, 38, 0.03); }
+
 .incident-side {
   display: grid;
   gap: 8px;

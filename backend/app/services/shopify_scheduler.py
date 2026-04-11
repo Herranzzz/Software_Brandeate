@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models import ShopIntegration
+from app.services.automation_rules import reconcile_incident_lifecycle
 from app.services.shopify import SHOPIFY_PROVIDER, sync_shopify_shop
 
 
@@ -59,6 +60,23 @@ class ShopifySyncScheduler:
                     sync_shopify_shop(shop_id, full_sync=False, source="scheduler")
                 except Exception:
                     logger.exception("Shopify scheduler sync failed for shop_id=%s", shop_id)
+
+            # Reconcile incident lifecycle after every sync cycle.
+            # This replaces the per-request reconciliation that was running on every
+            # GET /incidents — bulk SQL UPDATEs belong here, not in read endpoints.
+            try:
+                with SessionLocal() as db:
+                    result = reconcile_incident_lifecycle(db=db)
+                    if result["resolved_total"] > 0:
+                        db.commit()
+                        logger.info(
+                            "Incident lifecycle reconcile: %d resolved (terminal=%d, stale=%d)",
+                            result["resolved_total"],
+                            result["resolved_terminal_orders"],
+                            result["resolved_stale"],
+                        )
+            except Exception:
+                logger.exception("Incident lifecycle reconciliation failed in scheduler")
         finally:
             self._run_lock.release()
 

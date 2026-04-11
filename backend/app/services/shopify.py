@@ -1523,7 +1523,7 @@ def import_shopify_orders(
                 result.shipments_updated_count += 1
             result.tracking_events_created_count += shipment_sync.tracking_events_created_count
             incidents_before = len(existing_order.incidents)
-            evaluate_order_automation_rules(db=db, order=existing_order, source=source)
+            evaluate_order_automation_rules(db=db, order=existing_order, source=source, skip_url_checks=True)
             result.incidents_created_count += max(len(existing_order.incidents) - incidents_before, 0)
             result.updated_count += 1
             logger.info(
@@ -1600,7 +1600,7 @@ def import_shopify_orders(
             result.shipments_updated_count += 1
         result.tracking_events_created_count += shipment_sync.tracking_events_created_count
         incidents_before = len(order.incidents)
-        evaluate_order_automation_rules(db=db, order=order, source=source)
+        evaluate_order_automation_rules(db=db, order=order, source=source, skip_url_checks=True)
         result.incidents_created_count += max(len(order.incidents) - incidents_before, 0)
 
         db.add(order)
