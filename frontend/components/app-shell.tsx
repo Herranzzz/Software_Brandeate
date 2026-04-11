@@ -176,9 +176,14 @@ const navGroups = [
     ],
   },
   {
-    label: "Clientes",
+    label: "Cuentas",
     items: [
       { href: "/client-accounts", label: "Cuentas cliente", icon: ClientAccountsIcon },
+    ],
+  },
+  {
+    label: "Equipo",
+    items: [
       { href: "/employees", label: "Empleados", icon: EmployeesIcon },
     ],
   },

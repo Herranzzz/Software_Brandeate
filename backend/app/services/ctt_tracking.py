@@ -12,7 +12,7 @@ from app.models import Order, Shipment, TrackingEvent
 from app.services.automation_rules import evaluate_order_automation_rules
 from app.services.ctt import CTTError, get_tracking, get_trackings_by_date
 from app.services.orders import sync_order_status_from_tracking
-from app.services.shopify import sync_shipment_tracking_to_shopify
+from app.services.shopify import push_pending_shipment_status_event, sync_shipment_tracking_to_shopify
 
 
 logger = logging.getLogger(__name__)
@@ -112,14 +112,21 @@ def sync_shipment_tracking(
         changed = True
 
     shopify_sync_status: str | None = None
-    if changed and push_to_shopify:
-        shopify_sync_status = sync_shipment_tracking_to_shopify(
-            db=db,
-            order=shipment.order,
-            shipment=shipment,
-            notify_customer=False,
-            force=True,
-        )
+    if push_to_shopify:
+        if changed:
+            # Tracking changed → full sync (creates/updates fulfillment in Shopify)
+            shopify_sync_status = sync_shipment_tracking_to_shopify(
+                db=db,
+                order=shipment.order,
+                shipment=shipment,
+                notify_customer=False,  # initial creation auto-notifies; updates do not
+                force=True,
+            )
+        elif (shipment.fulfillment_id or "").strip():
+            # Nothing changed but there may be a pending status event to push
+            # (e.g. app was redeployed and shopify_status_event_pushed was reset)
+            push_pending_shipment_status_event(db=db, order=shipment.order, shipment=shipment)
+            shopify_sync_status = shipment.shopify_sync_status
 
     evaluate_order_automation_rules(db=db, order=shipment.order, source="ctt_tracking_sync")
     logger.info(

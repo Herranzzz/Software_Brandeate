@@ -1250,6 +1250,11 @@ def sync_shipment_tracking_to_shopify(
         shipment.shopify_sync_error = None
         return "synced"
 
+    # Always notify the customer on the FIRST fulfillment creation (the "your order has
+    # shipped" email). For subsequent tracking updates keep the caller's preference.
+    is_new_fulfillment = not (shipment.fulfillment_id or "").strip()
+    effective_notify_customer = True if is_new_fulfillment else notify_customer
+
     try:
         fulfillment_id, resolved_tracking_url = push_tracking_to_shopify(
             db=db,
@@ -1257,7 +1262,7 @@ def sync_shipment_tracking_to_shopify(
             tracking_number=tracking_number,
             tracking_url=tracking_url,
             carrier=carrier,
-            notify_customer=notify_customer,
+            notify_customer=effective_notify_customer,
         )
     except ShopifyIntegrationNotFoundError as exc:
         shipment.shopify_sync_status = "not_configured"
@@ -1280,29 +1285,31 @@ def sync_shipment_tracking_to_shopify(
     shipment.shopify_synced_at = now
     order.shopify_fulfillment_status = "FULFILLED"
     logger.info(
-        "Shopify sync completed order_id=%s shipment_id=%s fulfillment_id=%s tracking=%s",
+        "Shopify sync completed order_id=%s shipment_id=%s fulfillment_id=%s tracking=%s notify_customer=%s",
         order.id,
         shipment.id,
         shipment.fulfillment_id,
         shipment.tracking_number,
+        effective_notify_customer,
     )
 
     # ── Push fulfillment status event ──────────────────────────────────────
     # After creating/updating the fulfillment, push the current shipping status
     # as a fulfillment event so Shopify (and the customer) see the correct state.
-    _maybe_push_status_event(db=db, order=order, shipment=shipment)
+    push_pending_shipment_status_event(db=db, order=order, shipment=shipment)
 
     return shipment.shopify_sync_status
 
 
-def _maybe_push_status_event(
+def push_pending_shipment_status_event(
     *,
     db: Session,
     order: Order,
     shipment: Shipment,
 ) -> None:
-    """If the shipping status has changed since the last pushed event, create a
-    Shopify fulfillment event for the new status."""
+    """Push a Shopify fulfillment event for the shipment's current status if it has
+    not been pushed yet. Safe to call at any time — deduplicates via
+    shipment.shopify_status_event_pushed. Never raises."""
 
     current_status = (shipment.shipping_status or "").strip() or None
     last_pushed = (shipment.shopify_status_event_pushed or "").strip() or None
