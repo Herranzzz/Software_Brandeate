@@ -2,12 +2,26 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "frontend",
+      "name": "Frontend (Next.js)",
       "runtimeExecutable": "/usr/local/bin/node",
       "runtimeArgs": ["node_modules/.bin/next", "dev"],
       "cwd": "${workspaceFolder}/frontend",
       "port": 3000,
       "autoPort": false
+    },
+    {
+      "name": "Backend (Docker)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "backend", "--build"],
+      "cwd": "${workspaceFolder}",
+      "port": 8000
+    },
+    {
+      "name": "Background Worker",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["worker.py"],
+      "cwd": "${workspaceFolder}/backend",
+      "port": null
     }
   ]
 }
