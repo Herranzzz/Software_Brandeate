@@ -10,14 +10,16 @@ interface PrintCutlinePreviewProps {
 }
 
 // Page dimensions (mm) — A4 portrait for 18x24 portrait, A4 landscape for 18x24 landscape
-const PAGE_PORTRAIT  = { w: 210, h: 297 };  // A4 portrait
-const PAGE_LANDSCAPE = { w: 297, h: 210 };  // A4 landscape
-const PAGE_A3        = { w: 297, h: 420 };  // A3
+const PAGE_PORTRAIT      = { w: 210, h: 297 };  // A4 portrait
+const PAGE_LANDSCAPE     = { w: 297, h: 210 };  // A4 landscape
+const PAGE_A3            = { w: 297, h: 420 };  // A3 portrait
+const PAGE_A3_LANDSCAPE  = { w: 420, h: 297 };  // A3 landscape
 
 // Design area within page (mm)
-const DESIGN_18x24_PORTRAIT  = { w: 180, h: 240 };  // 18x24 portrait in A4p
-const DESIGN_18x24_LANDSCAPE = { w: 240, h: 180 };  // 18x24 landscape in A4l
-const DESIGN_30x40           = { w: 297, h: 420 };  // fills full A3
+const DESIGN_18x24_PORTRAIT    = { w: 180, h: 240 };  // 18x24 portrait in A4p
+const DESIGN_18x24_LANDSCAPE   = { w: 240, h: 180 };  // 18x24 landscape in A4l
+const DESIGN_30x40             = { w: 297, h: 420 };  // fills full A3 portrait
+const DESIGN_30x40_LANDSCAPE   = { w: 420, h: 297 };  // fills full A3 landscape
 
 const SNAP_THRESHOLD = 3;
 const MIN_ZOOM = 0.5;
@@ -58,18 +60,19 @@ export function PrintCutlinePreview({ srcs, variantTitle, orderId, printVariant 
 
   // Pick page + design based on variant AND detected orientation
   const page   = is18x24
-    ? (isImgLandscape ? PAGE_LANDSCAPE : PAGE_PORTRAIT)
-    : PAGE_A3;
+    ? (isImgLandscape ? PAGE_LANDSCAPE    : PAGE_PORTRAIT)
+    : (isImgLandscape ? PAGE_A3_LANDSCAPE : PAGE_A3);
   const design = is18x24
     ? (isImgLandscape ? DESIGN_18x24_LANDSCAPE : DESIGN_18x24_PORTRAIT)
-    : DESIGN_30x40;
+    : (isImgLandscape ? DESIGN_30x40_LANDSCAPE : DESIGN_30x40);
 
   // design as % of page
   const designWidthPct  = (design.w / page.w) * 100;
   const designHeightPct = (design.h / page.h) * 100;
 
-  // Top-only cut margin for 30x40 (2cm from top of A3)
-  const margin2cmPct = (20 / page.h) * 100;
+  // Cut margin: 2cm from top (portrait 30x40) or 2cm from right (landscape 30x40)
+  const margin2cmTopPct   = (20 / page.h) * 100;   // horizontal cut line Y position
+  const margin2cmRightPct = ((page.w - 20) / page.w) * 100; // vertical cut line X position
 
   const marginPctW = 0;
   const marginPctH = 0;
@@ -270,9 +273,12 @@ export function PrintCutlinePreview({ srcs, variantTitle, orderId, printVariant 
             <div className="pcl-cutline-v" style={{ left: `${designWidthPct}%` }} />
             <div className="pcl-cutline-h" style={{ top: `${designHeightPct}%` }} />
           </>
+        ) : isImgLandscape ? (
+          /* 30x40 landscape: right-only cut line at 2cm from right edge */
+          <div className="pcl-cutline-v" style={{ left: `${margin2cmRightPct}%` }} />
         ) : (
-          /* 30x40: top-only red cut line at 2cm from top */
-          <div className="pcl-cutline-top" style={{ top: `${margin2cmPct}%` }}>
+          /* 30x40 portrait: top-only red cut line at 2cm from top */
+          <div className="pcl-cutline-top" style={{ top: `${margin2cmTopPct}%` }}>
             <span className="pcl-corner pcl-corner-tl" />
             <span className="pcl-corner pcl-corner-tr" />
           </div>
