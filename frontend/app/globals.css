@@ -20447,40 +20447,64 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   color: var(--muted);
 }
 
-/* ─── Portal Quick Actions (pill bar) ────────────────────────────────────── */
+/* ─── Portal Quick Actions Strip ─────────────────────────────────────────── */
+.pqa-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 8px 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.pqa-strip-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.pqa-shop-name {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
 .pqa-bar {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 4px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .pqa-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 99px;
+  gap: 5px;
+  padding: 5px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   text-decoration: none;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+  transition: background 0.12s, color 0.12s;
   cursor: pointer;
 }
 
 .pqa-pill:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(var(--accent-rgb, 99 102 241) / 0.25);
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 .pqa-pill-icon {
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   line-height: 1;
 }
 
@@ -20488,14 +20512,22 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   line-height: 1;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 640px) {
+  .pqa-strip {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+    padding: 10px 12px;
+  }
   .pqa-bar {
-    gap: 6px;
+    justify-content: flex-start;
   }
   .pqa-pill {
-    padding: 5px 10px;
+    padding: 4px 8px;
     font-size: 0.75rem;
   }
+  .pqa-pill-label { display: none; }
+  .pqa-pill-icon { font-size: 1rem; }
 }
 
 /* ─── Bulk Order Actions ─────────────────────────────────────────────────── */

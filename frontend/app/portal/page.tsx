@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { PortalQuickActions } from "@/components/portal-quick-actions";
 import { PortalSyncButton } from "@/components/portal-sync-button";
-import { PortalTenantControl } from "@/components/portal-tenant-control";
 import { SharedDashboardView } from "@/components/shared-dashboard-view";
 import type { ShipmentSegment } from "@/components/shipment-donut";
 import { fetchAnalyticsOverview, fetchIncidents, fetchOrders, fetchShopifyIntegrations } from "@/lib/api";
@@ -316,23 +315,15 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       subtitle="Centro de control de tu cuenta: pedidos, expediciones, incidencias y estado en tiempo real."
       title={`Centro de control · ${branding.displayName}`}
       topContent={
-        <>
-          <PortalTenantControl
-            action="/portal"
-            hiddenFields={{ range }}
-            selectedShopId={tenantScope.selectedShopId}
-            shops={tenantScope.shops}
-            submitLabel="Cambiar"
-            title="Espacio activo"
-            description="Trabaja siempre sobre la tienda visible y entra directo a lo que toca mover hoy."
-            trailingActions={
-              activeIntegration?.last_synced_at ? (
-                <span className="portal-soft-pill">Sync {formatDateTime(activeIntegration.last_synced_at)}</span>
-              ) : null
-            }
-          />
-          <PortalQuickActions shopQuery={shopQuery} />
-        </>
+        <PortalQuickActions
+          shopQuery={shopQuery}
+          shopName={branding.displayName}
+          syncInfo={
+            activeIntegration?.last_synced_at ? (
+              <span className="portal-soft-pill">Sync {formatDateTime(activeIntegration.last_synced_at)}</span>
+            ) : null
+          }
+        />
       }
       />
     </div>
