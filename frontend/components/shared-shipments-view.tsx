@@ -468,37 +468,37 @@ export function SharedShipmentsView({
       {/* ── KPI Strip ──────────────────────────────────────────── */}
       <div className="exp-kpi-strip">
         <article className="exp-kpi-card is-accent">
-          <div className="exp-kpi-header"><span className="exp-kpi-emoji">🏷️</span><span className="exp-kpi-label">Expediciones creadas</span></div>
+          <div className="exp-kpi-top"><div className="exp-kpi-icon">🏷️</div><span className="exp-kpi-label">Expediciones creadas</span></div>
           <strong className="exp-kpi-value">{formatCount(shipmentsCreated)}</strong>
           <small className="exp-kpi-hint">etiquetas emitidas</small>
         </article>
         <article className="exp-kpi-card is-green">
-          <div className="exp-kpi-header"><span className="exp-kpi-emoji">✅</span><span className="exp-kpi-label">Entregadas</span></div>
+          <div className="exp-kpi-top"><div className="exp-kpi-icon">✅</div><span className="exp-kpi-label">Entregadas</span></div>
           <strong className="exp-kpi-value">{formatCount(shipping.delivered_orders)}</strong>
           <small className="exp-kpi-hint">ciclo cerrado</small>
         </article>
         <article className="exp-kpi-card is-blue">
-          <div className="exp-kpi-header"><span className="exp-kpi-emoji">🚚</span><span className="exp-kpi-label">En tránsito</span></div>
+          <div className="exp-kpi-top"><div className="exp-kpi-icon">🚚</div><span className="exp-kpi-label">En tránsito</span></div>
           <strong className="exp-kpi-value">{formatCount(shipping.in_transit_orders)}</strong>
           <small className="exp-kpi-hint">red activa</small>
         </article>
         <article className="exp-kpi-card is-red">
-          <div className="exp-kpi-header"><span className="exp-kpi-emoji">🚨</span><span className="exp-kpi-label">Incidencias</span></div>
+          <div className="exp-kpi-top"><div className="exp-kpi-icon">🚨</div><span className="exp-kpi-label">Incidencias</span></div>
           <strong className="exp-kpi-value">{formatCount(shipping.exception_orders)}</strong>
           <small className="exp-kpi-hint">carrier o flujo</small>
         </article>
         <article className="exp-kpi-card is-orange">
-          <div className="exp-kpi-header"><span className="exp-kpi-emoji">⏱️</span><span className="exp-kpi-label">On-time delivery</span></div>
+          <div className="exp-kpi-top"><div className="exp-kpi-icon">⏱️</div><span className="exp-kpi-label">On-time delivery</span></div>
           <strong className="exp-kpi-value">{formatPercent(operational.delivered_in_sla_rate)}</strong>
           <small className="exp-kpi-hint">dentro de SLA</small>
         </article>
         <article className="exp-kpi-card is-slate">
-          <div className="exp-kpi-header"><span className="exp-kpi-emoji">📍</span><span className="exp-kpi-label">Transit time medio</span></div>
+          <div className="exp-kpi-top"><div className="exp-kpi-icon">📍</div><span className="exp-kpi-label">Transit time medio</span></div>
           <strong className="exp-kpi-value">{formatHoursAsShort(shipping.avg_transit_hours)}</strong>
           <small className="exp-kpi-hint">recogido → entregado</small>
         </article>
         <article className="exp-kpi-card is-slate">
-          <div className="exp-kpi-header"><span className="exp-kpi-emoji">📅</span><span className="exp-kpi-label">Pedido → entrega</span></div>
+          <div className="exp-kpi-top"><div className="exp-kpi-icon">📅</div><span className="exp-kpi-label">Pedido → entrega</span></div>
           <strong className="exp-kpi-value">{formatDaysAsReadableFromHours(flow.avg_order_to_delivered_hours)}</strong>
           <small className="exp-kpi-hint">ciclo completo</small>
         </article>

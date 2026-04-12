@@ -12291,14 +12291,16 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 .exp-kpi-card {
   display: grid;
-  gap: 6px;
-  padding: 18px 20px 16px;
+  grid-template-rows: auto auto auto;
+  gap: 8px;
+  padding: 18px 18px 16px;
   border-radius: var(--radius-card);
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-soft);
   position: relative;
   overflow: hidden;
+  align-content: start;
   transition: box-shadow 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease;
 }
 
@@ -12315,52 +12317,46 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   transform: translateY(-2px);
 }
 
-.exp-kpi-header {
-  display: inline-flex;
+/* ── KPI top row: icon + label ───────────────────────────────── */
+.exp-kpi-top {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px 4px 7px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.06);
-  width: fit-content;
-  margin-bottom: 2px;
+  gap: 9px;
 }
 
-:root[data-theme="dark"] .exp-kpi-header {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-/* Per-tone pill background */
-.exp-kpi-card.is-accent .exp-kpi-header  { background: rgba(var(--accent-rgb), 0.12); }
-.exp-kpi-card.is-green  .exp-kpi-header  { background: rgba(16, 185, 129, 0.12); }
-.exp-kpi-card.is-blue   .exp-kpi-header  { background: rgba(59, 130, 246, 0.12); }
-.exp-kpi-card.is-red    .exp-kpi-header  { background: rgba(239, 68, 68, 0.12); }
-.exp-kpi-card.is-orange .exp-kpi-header  { background: rgba(245, 158, 11, 0.12); }
-.exp-kpi-card.is-slate  .exp-kpi-header  { background: rgba(100, 116, 139, 0.10); }
-.exp-kpi-card.is-purple .exp-kpi-header  { background: rgba(139, 92, 246, 0.12); }
-
-/* Per-tone label color inside pill */
-.exp-kpi-card.is-accent .exp-kpi-header .exp-kpi-label  { color: var(--accent); }
-.exp-kpi-card.is-green  .exp-kpi-header .exp-kpi-label  { color: #059669; }
-.exp-kpi-card.is-blue   .exp-kpi-header .exp-kpi-label  { color: #2563eb; }
-.exp-kpi-card.is-red    .exp-kpi-header .exp-kpi-label  { color: #dc2626; }
-.exp-kpi-card.is-orange .exp-kpi-header .exp-kpi-label  { color: #d97706; }
-.exp-kpi-card.is-slate  .exp-kpi-header .exp-kpi-label  { color: #64748b; }
-.exp-kpi-card.is-purple .exp-kpi-header .exp-kpi-label  { color: #7c3aed; }
-
-.exp-kpi-emoji {
-  font-size: 1.1rem;
-  line-height: 1;
+/* Rounded square icon — app-icon style */
+.exp-kpi-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  font-size: 1.2rem;
   flex-shrink: 0;
+  background: rgba(0,0,0,0.055);
 }
+
+:root[data-theme="dark"] .exp-kpi-icon {
+  background: rgba(255,255,255,0.09);
+}
+
+/* Per-tone icon background */
+.exp-kpi-card.is-accent .exp-kpi-icon { background: rgba(var(--accent-rgb), 0.13); }
+.exp-kpi-card.is-green  .exp-kpi-icon { background: rgba(16,185,129,0.13); }
+.exp-kpi-card.is-blue   .exp-kpi-icon { background: rgba(59,130,246,0.13); }
+.exp-kpi-card.is-red    .exp-kpi-icon { background: rgba(239,68,68,0.13); }
+.exp-kpi-card.is-orange .exp-kpi-icon { background: rgba(245,158,11,0.13); }
+.exp-kpi-card.is-slate  .exp-kpi-icon { background: rgba(100,116,139,0.10); }
+.exp-kpi-card.is-purple .exp-kpi-icon { background: rgba(139,92,246,0.13); }
 
 .exp-kpi-label {
-  font-size: 0.67rem;
+  font-size: 0.64rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--muted);
-  line-height: 1.2;
+  line-height: 1.25;
 }
 
 .exp-kpi-value {
