@@ -6,7 +6,20 @@ interface PrintCutlinePreviewProps {
   src: string;
   variantTitle?: string | null;
   orderId: number;
+  printVariant?: "30x40" | "18x24";
 }
+
+// Page dimensions per variant
+const PAGE_DIMS = {
+  "30x40": { w: 297, h: 420 },  // A3
+  "18x24": { w: 210, h: 297 },  // A4
+} as const;
+
+// Design area within page (mm)
+const DESIGN_DIMS = {
+  "30x40": { w: 297, h: 420 },  // fills full A3
+  "18x24": { w: 180, h: 240 },  // centred on A4
+} as const;
 
 const DEFAULT_MARGIN_MM = 20;
 const A3_W = 297;
@@ -32,7 +45,7 @@ async function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-export function PrintCutlinePreview({ src, variantTitle, orderId }: PrintCutlinePreviewProps) {
+export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant = "30x40" }: PrintCutlinePreviewProps) {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [snapping, setSnapping] = useState(false);
@@ -42,6 +55,16 @@ export function PrintCutlinePreview({ src, variantTitle, orderId }: PrintCutline
   const dragging = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const stageRef = useRef<HTMLDivElement>(null);
+
+  const page = PAGE_DIMS[printVariant];
+  const design = DESIGN_DIMS[printVariant];
+
+  // For 30x40: top-only cut line (design fills page). For 18x24: full rect cut line centred.
+  const is18x24 = printVariant === "18x24";
+  const cutLeft   = ((page.w - design.w) / 2 / page.w) * 100;
+  const cutTop    = ((page.h - design.h) / 2 / page.h) * 100;
+  const cutRight  = cutLeft;
+  const cutBottom = cutTop;
 
   const marginPctW = (DEFAULT_MARGIN_MM / A3_W) * 100;
   const marginPctH = (DEFAULT_MARGIN_MM / A3_H) * 100;

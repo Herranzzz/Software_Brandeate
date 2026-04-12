@@ -61,17 +61,19 @@ type QuickFilterKey =
   | "shipping_in_transit"
   | "shipping_out_for_delivery"
   | "shipping_exception"
-  | "overdue_sla";
+  | "overdue_sla"
+  | "delivered";
 
 const quickFilterMeta: Array<{ key: QuickFilterKey; label: string }> = [
   { key: "has_incident",              label: "⚠️ Con incidencia" },
   { key: "not_prepared",              label: "🔧 No preparados" },
-  { key: "prepared",                  label: "✅ Preparados" },
+  { key: "prepared",                  label: "✅ Listo para enviar" },
   { key: "label_no_update",           label: "📦 Etiqueta sin avances" },
   { key: "shipping_in_transit",       label: "🚚 En tránsito" },
   { key: "shipping_out_for_delivery", label: "🚛 En reparto" },
   { key: "shipping_exception",        label: "🚨 Excepción carrier" },
   { key: "overdue_sla",               label: "⏰ SLA vencido" },
+  { key: "delivered",                 label: "✓ Entregado" },
 ];
 
 
@@ -305,6 +307,13 @@ function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
         order.shipment.shipping_status !== "delivered"
       );
     }
+
+    case "delivered":
+      return (
+        order.status === "delivered" ||
+        order.shipment?.shipping_status === "delivered" ||
+        getShipmentState(order) === "delivered"
+      );
 
     default:
       return true;
@@ -716,22 +725,6 @@ export function OrdersWorkbench({
               </select>
             </div>
 
-            <div className="orders-view-switch">
-              <button
-                className={`button-secondary ${view === "queue" ? "orders-view-button-active" : ""}`}
-                onClick={() => setView("queue")}
-                type="button"
-              >
-                Cola
-              </button>
-              <button
-                className={`button-secondary ${view === "batches" ? "orders-view-button-active" : ""}`}
-                onClick={() => setView("batches")}
-                type="button"
-              >
-                Lotes
-              </button>
-            </div>
           </div>
 
           {view === "queue" ? (
@@ -764,36 +757,6 @@ export function OrdersWorkbench({
               <span>Aplica acciones por lote sin salir de la cola.</span>
             </div>
             <div className="orders-bulk-actions">
-              <select
-                aria-label="Cambiar prioridad"
-                defaultValue=""
-                disabled={isPending}
-                onChange={(event) => {
-                  if (event.target.value) {
-                    handleBulkPriority(event.target.value as OrderPriority);
-                    event.target.value = "";
-                  }
-                }}
-              >
-                <option value="">Cambiar prioridad</option>
-                {orderPriorityOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-              <button className="button-secondary" disabled={isPending} onClick={() => handleBulkProductionStatus("pending_personalization")} type="button">
-                Listo para producción
-              </button>
-              <button className="button-secondary" disabled={isPending} onClick={() => handleBulkProductionStatus("in_production")} type="button">
-                En producción
-              </button>
-              <button className="button-secondary" disabled={isPending} onClick={() => handleBulkProductionStatus("packed")} type="button">
-                Empaquetado
-              </button>
-              <button className="button-secondary" disabled={isPending} onClick={handleCreateBatch} type="button">
-                Crear lote
-              </button>
               <button className="button-secondary" disabled={isPending} onClick={handleBulkIncident} type="button">
                 Crear incidencia
               </button>

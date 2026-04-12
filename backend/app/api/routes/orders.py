@@ -1223,19 +1223,23 @@ def _unique_name(base: str, ext: str, used: set[str]) -> str:
 
 
 _30X40_PATTERN = re.compile(r'30\s*[xX×*]\s*40', re.IGNORECASE)
-_A3_W_MM = 297.0
-_A3_H_MM = 420.0
-_CUT_MARGIN_MM = 20.0  # 2cm cut line from edge
+_18X24_PATTERN = re.compile(r'18\s*[xX×*]\s*24', re.IGNORECASE)
 
 
-def _is_30x40_product(item: "OrderItem") -> bool:
-    # Check variant title first (most reliable: "30x40", "30 X 40 cm", etc.)
+def _detect_print_variant(item: "OrderItem") -> str | None:
+    """Return '30x40', '18x24', or None based on variant/name."""
     variant = (item.variant_title or "").strip()
-    if _30X40_PATTERN.search(variant):
-        return True
-    # Fallback: check product name/title
-    name = (item.name or item.title or "").strip()
-    return bool(_30X40_PATTERN.search(name))
+    name    = (item.name or item.title or "").strip()
+    if _30X40_PATTERN.search(variant) or _30X40_PATTERN.search(name):
+        return "30x40"
+    if _18X24_PATTERN.search(variant) or _18X24_PATTERN.search(name):
+        return "18x24"
+    return None
+
+
+# Keep backward-compat helper used elsewhere
+def _is_30x40_product(item: "OrderItem") -> bool:
+    return _detect_print_variant(item) == "30x40"
 
 
 def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
@@ -1279,6 +1283,51 @@ def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
     c.setLineWidth(0.7)
     c.line(0, cut_y, 0, cut_y - tick)
     c.line(page_w, cut_y, page_w, cut_y - tick)
+
+    c.save()
+
+
+def _generate_a4_print_pdf(image_path: str, output_path: str) -> None:
+    """Embed a design image into an A4 PDF with full-bleed cut lines for 18×24cm."""
+    from PIL import Image as PilImage
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.pdfgen.canvas import Canvas
+    from reportlab.lib.utils import ImageReader
+
+    PT = 2.834645669          # points per mm
+    page_w, page_h = A4       # 595.28 × 841.89 pt  (210×297mm)
+
+    # Design area: 180×240mm centred on A4
+    design_w_mm, design_h_mm = 180.0, 240.0
+    margin_x = (210.0 - design_w_mm) / 2   # 15mm each side
+    margin_y = (297.0 - design_h_mm) / 2   # 28.5mm top/bottom
+
+    x0 = margin_x * PT
+    y0 = margin_y * PT
+    dw = design_w_mm * PT
+    dh = design_h_mm * PT
+
+    pil_img = PilImage.open(image_path).convert("RGB")
+    img_reader = ImageReader(pil_img)
+
+    c = Canvas(output_path, pagesize=A4)
+
+    # Draw design image inside the 18×24 area (preserving aspect ratio, centred)
+    c.drawImage(img_reader, x0, y0, width=dw, height=dh, preserveAspectRatio=True, anchor="c")
+
+    # Cut lines: full-width horizontal + full-height vertical lines at design boundary
+    c.setStrokeColor(colors.Color(0.4, 0.4, 0.4))   # neutral grey like Canva
+    c.setLineWidth(0.5)
+    c.setDash(6, 4)
+
+    # Horizontal lines (top and bottom of design)
+    c.line(0,           y0,       page_w, y0)        # bottom cut
+    c.line(0,           y0 + dh,  page_w, y0 + dh)   # top cut
+
+    # Vertical lines (left and right of design)
+    c.line(x0,          0,        x0,     page_h)     # left cut
+    c.line(x0 + dw,     0,        x0 + dw, page_h)   # right cut
 
     c.save()
 
@@ -1356,7 +1405,7 @@ def _build_design_download_jobs(orders: list[Order]) -> tuple[list[dict], list[d
                     "design_url": design_url,
                     "base": base,
                     "url_ext": url_ext,
-                    "is_30x40": _is_30x40_product(item),
+                    "print_variant": _detect_print_variant(item),
                 }
             )
     return download_jobs, results
@@ -1445,12 +1494,19 @@ def _run_bulk_design_job(job_id: str) -> None:
                     pdf_path: str | None = None
                     try:
                         temp_path, fetched_ext = future.result()
-                        if current_job.get("is_30x40"):
-                            # Wrap in A3 PDF with 2cm cut line
+                        print_variant = current_job.get("print_variant")
+                        if print_variant == "30x40":
                             fd2, pdf_path = tempfile.mkstemp(prefix="bulk-design-a3-", suffix=".pdf")
                             os.close(fd2)
                             _generate_a3_print_pdf(temp_path, pdf_path)
-                            filename = _unique_name(current_job["base"], ".pdf", used_names)
+                            filename = _unique_name(current_job["base"] + " [A3]", ".pdf", used_names)
+                            used_names.add(filename)
+                            zf.write(pdf_path, arcname=filename)
+                        elif print_variant == "18x24":
+                            fd2, pdf_path = tempfile.mkstemp(prefix="bulk-design-a4-", suffix=".pdf")
+                            os.close(fd2)
+                            _generate_a4_print_pdf(temp_path, pdf_path)
+                            filename = _unique_name(current_job["base"] + " [A4]", ".pdf", used_names)
                             used_names.add(filename)
                             zf.write(pdf_path, arcname=filename)
                         else:
