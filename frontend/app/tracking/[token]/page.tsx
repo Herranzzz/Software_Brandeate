@@ -275,40 +275,50 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
       {/* ── Main content ── */}
       <main className="trk2-main">
 
-        {/* Shipment info */}
+        {/* Shipment info card */}
         <div className="trk2-info-card">
-          <div className="trk2-info-grid">
-            <div className="trk2-info-item">
-              <span className="trk2-info-label">Transportista</span>
-              <span className="trk2-info-value trk2-info-carrier">{tracking.shipment.carrier}</span>
+          <div className="trk2-info-rows">
+            <div className="trk2-info-row">
+              <span className="trk2-info-emoji">🚚</span>
+              <div className="trk2-info-row-body">
+                <span className="trk2-info-label">Transportista</span>
+                <span className="trk2-info-value trk2-info-carrier">{tracking.shipment.carrier}</span>
+              </div>
             </div>
             {trackingNumber && (
-              <div className="trk2-info-item">
-                <span className="trk2-info-label">Nº de seguimiento</span>
-                <span className="trk2-info-value">
-                  {tracking.shipment.tracking_url ? (
-                    <a className="trk2-tracking-link" href={tracking.shipment.tracking_url} rel="noreferrer" target="_blank">
-                      {trackingNumber}
-                      <svg fill="none" height="11" viewBox="0 0 24 24" width="11">
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"/>
-                      </svg>
-                    </a>
-                  ) : (
-                    trackingNumber
-                  )}
-                </span>
+              <div className="trk2-info-row">
+                <span className="trk2-info-emoji">🔍</span>
+                <div className="trk2-info-row-body">
+                  <span className="trk2-info-label">Nº de seguimiento</span>
+                  <span className="trk2-info-value">
+                    {tracking.shipment.tracking_url ? (
+                      <a className="trk2-tracking-link" href={tracking.shipment.tracking_url} rel="noreferrer" target="_blank">
+                        {trackingNumber}
+                        <svg fill="none" height="11" viewBox="0 0 24 24" width="11">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"/>
+                        </svg>
+                      </a>
+                    ) : trackingNumber}
+                  </span>
+                </div>
               </div>
             )}
             {latestEvent && (
-              <div className="trk2-info-item">
-                <span className="trk2-info-label">Última actualización</span>
-                <span className="trk2-info-value">{formatDateShort(latestEvent.occurred_at)}</span>
+              <div className="trk2-info-row">
+                <span className="trk2-info-emoji">🕐</span>
+                <div className="trk2-info-row-body">
+                  <span className="trk2-info-label">Última actualización</span>
+                  <span className="trk2-info-value">{formatDateShort(latestEvent.occurred_at)}</span>
+                </div>
               </div>
             )}
             {tracking.order.customer_name && (
-              <div className="trk2-info-item">
-                <span className="trk2-info-label">Destinatario</span>
-                <span className="trk2-info-value">{tracking.order.customer_name}</span>
+              <div className="trk2-info-row trk2-info-row-last">
+                <span className="trk2-info-emoji">📍</span>
+                <div className="trk2-info-row-body">
+                  <span className="trk2-info-label">Destinatario</span>
+                  <span className="trk2-info-value">{tracking.order.customer_name}</span>
+                </div>
               </div>
             )}
           </div>
@@ -319,12 +329,7 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
               rel="noreferrer"
               target="_blank"
             >
-              <svg fill="none" height="14" viewBox="0 0 24 24" width="14">
-                <path d="M1 3h15v13H1zM16 8l4 0 3 3v5h-7V8z" stroke="currentColor" strokeLinejoin="round" strokeWidth="2"/>
-                <circle cx="5.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2"/>
-                <circle cx="18.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2"/>
-              </svg>
-              Ver seguimiento en {tracking.shipment.carrier}
+              🚛 Ver seguimiento en {tracking.shipment.carrier}
             </a>
           )}
         </div>
@@ -333,7 +338,7 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
         {sortedEvents.length > 0 && (
           <div className="trk2-timeline-card">
             <div className="trk2-timeline-head">
-              <span>Historial de envío</span>
+              <span>📋 Historial de envío</span>
               <span className="trk2-tl-count">{sortedEvents.length} evento{sortedEvents.length !== 1 ? "s" : ""}</span>
             </div>
             <TrackingTimeline
@@ -346,11 +351,7 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
 
         {sortedEvents.length === 0 && (
           <div className="trk2-empty-timeline">
-            <div className="trk2-empty-icon">
-              <svg fill="none" height="28" viewBox="0 0 24 24" width="28">
-                <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"/>
-              </svg>
-            </div>
+            <div className="trk2-empty-icon-wrap">📦</div>
             <p className="trk2-empty-text">El carrier aún no ha reportado movimientos.<br/>Vuelve más tarde para ver las novedades.</p>
           </div>
         )}
