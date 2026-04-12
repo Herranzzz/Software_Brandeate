@@ -1240,20 +1240,26 @@ def _is_30x40_product(item: "OrderItem") -> bool:
 
 def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
     """Embed a design image into an A3 PDF with a 2cm cut/trim line."""
+    from PIL import Image as PilImage
     from reportlab.lib.pagesizes import A3
     from reportlab.lib import colors
     from reportlab.pdfgen.canvas import Canvas
+    from reportlab.lib.utils import ImageReader
 
     PT_PER_MM = 2.834645669
     page_w, page_h = A3  # portrait: 841.89 × 1190.55 pt
 
     margin_pt = _CUT_MARGIN_MM * PT_PER_MM  # 56.69 pt
 
+    # Open via Pillow so format is always detected regardless of file extension
+    pil_img = PilImage.open(image_path).convert("RGB")
+    img_reader = ImageReader(pil_img)
+
     c = Canvas(output_path, pagesize=A3)
 
     # Draw image filling the full page (scaled to fit, centred)
     c.drawImage(
-        image_path,
+        img_reader,
         0, 0,
         width=page_w,
         height=page_h,
