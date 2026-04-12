@@ -72,7 +72,7 @@ export default async function PortalShipmentsPage({ searchParams }: PortalShipme
         basePath="/portal/shipments"
         initialQuery={searchQuery}
         orders={searchOrders}
-        selectedShopId={tenantScope.selectedShopId}
+        selectedShopId={tenantScope.selectedShopId ? Number(tenantScope.selectedShopId) : null}
       />
 
       {/* Analytics view */}
