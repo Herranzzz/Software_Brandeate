@@ -4,9 +4,10 @@ import {
   getShipmentDateRange,
   type ShipmentPeriod,
 } from "@/components/shared-shipments-view";
-import { fetchAnalyticsOverview, fetchShopifyIntegrations } from "@/lib/api";
+import { fetchAnalyticsOverview, fetchShopifyIntegrations, fetchOrders } from "@/lib/api";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
 import { resolveTenantScope } from "@/lib/tenant-scope";
+import { PortalOrderSearch } from "@/components/portal-order-search";
 
 type PortalShipmentsPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -38,7 +39,10 @@ export default async function PortalShipmentsPage({ searchParams }: PortalShipme
   const dateTo = readValue(params.date_to) ?? defaults.dateTo;
   const tenantShopIds = tenantScope.shops.map((shop) => shop.id);
 
-  const [integrationsResult, analyticsResult] = await Promise.allSettled([
+  // Order search query
+  const searchQuery = readValue(params.q)?.trim() ?? "";
+
+  const [integrationsResult, analyticsResult, searchResult] = await Promise.allSettled([
     fetchShopifyIntegrations(),
     fetchAnalyticsOverview({
       date_from: dateFrom,
@@ -46,24 +50,46 @@ export default async function PortalShipmentsPage({ searchParams }: PortalShipme
       shop_id: tenantScope.selectedShopId,
       shipping_status: shippingStatus === "all" ? undefined : shippingStatus,
     }),
+    searchQuery
+      ? fetchOrders({
+          page: 1,
+          per_page: 20,
+          q: searchQuery,
+          ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+        })
+      : Promise.resolve(null),
   ]);
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
   const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : null;
+  const searchOrders = searchResult.status === "fulfilled" && searchResult.value
+    ? searchResult.value.orders
+    : null;
 
   return (
-    <SharedShipmentsView
-      analytics={analytics}
-      basePath="/portal/shipments"
-      dateFrom={dateFrom}
-      dateTo={dateTo}
-      heroEyebrow="Expediciones"
-      integrations={integrations.filter((integration) => tenantShopIds.includes(integration.shop_id))}
-      period={period}
-      selectedShopId={tenantScope.selectedShopId}
-      selectedShippingStatus={shippingStatus}
-      shops={tenantScope.shops}
-      subtitle="Visión global de la salud logística de tu cuenta: entrega, aging, incidencias y pedidos retrasados."
-      title="Analytics de expediciones"
-    />
+    <div className="stack">
+      {/* Order search panel */}
+      <PortalOrderSearch
+        basePath="/portal/shipments"
+        initialQuery={searchQuery}
+        orders={searchOrders}
+        selectedShopId={tenantScope.selectedShopId}
+      />
+
+      {/* Analytics view */}
+      <SharedShipmentsView
+        analytics={analytics}
+        basePath="/portal/shipments"
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        heroEyebrow="Analítica"
+        integrations={integrations.filter((integration) => tenantShopIds.includes(integration.shop_id))}
+        period={period}
+        selectedShopId={tenantScope.selectedShopId}
+        selectedShippingStatus={shippingStatus}
+        shops={tenantScope.shops}
+        subtitle="Visión global de la salud logística de tu cuenta: entrega, aging, incidencias y pedidos retrasados."
+        title="Analítica de envíos"
+      />
+    </div>
   );
 }

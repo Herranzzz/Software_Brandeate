@@ -9,7 +9,9 @@ import { ShopCatalogManager } from "@/components/shop-catalog-manager";
 import { TenantProfileForm } from "@/components/tenant-profile-form";
 import { TenantShopifyPanel } from "@/components/tenant-shopify-panel";
 import { PortalTrackingSettings } from "@/components/portal-tracking-settings";
-import { fetchMyClientAccounts, fetchShopCatalogProducts, fetchShopifyIntegrations } from "@/lib/api";
+import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
+import { fetchMyClientAccounts, fetchShopCatalogProducts, fetchShopifyIntegrations, fetchOrders } from "@/lib/api";
+import type { Order } from "@/lib/types";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
 import { resolveTenantScope } from "@/lib/tenant-scope";
 
@@ -28,10 +30,11 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
   const tenantScope = resolveTenantScope(shops, params.shop_id);
   const primaryShop = tenantScope.selectedShop;
 
-  const [integrationsResult, catalogResult, managedAccountsResult] = await Promise.allSettled([
+  const [integrationsResult, catalogResult, managedAccountsResult, ordersResult] = await Promise.allSettled([
     fetchShopifyIntegrations(),
     primaryShop ? fetchShopCatalogProducts(primaryShop.id) : Promise.resolve([]),
     user.role === "shop_admin" ? fetchMyClientAccounts() : Promise.resolve([]),
+    fetchOrders({ page: 1, per_page: 500, ...(primaryShop ? { shop_id: primaryShop.id } : {}) }).catch(() => ({ orders: [] })),
   ]);
 
   const integrations =
@@ -56,6 +59,10 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
     managedAccountsResult.status === "rejected"
       ? "No pudimos cargar las cuentas cliente asignadas. El resto de ajustes sigue disponible."
       : null;
+
+  const sustainabilityOrders: Order[] = ordersResult.status === "fulfilled" && ordersResult.value
+    ? ((ordersResult.value as { orders?: Order[] }).orders ?? [])
+    : [];
 
   return (
     <div className="stack">
@@ -207,6 +214,20 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
           />
         </Card>
       )}
+
+      {/* Sostenibilidad */}
+      <Card className="stack settings-section-card portal-glass-card">
+        <div className="settings-section-head">
+          <div>
+            <span className="eyebrow">🌱 Sostenibilidad</span>
+            <h3 className="section-title section-title-small">Huella de carbono logística</h3>
+            <p className="subtitle">
+              Estimación de emisiones CO₂ por envío, comparativa de carriers y badge Brandeate Green.
+            </p>
+          </div>
+        </div>
+        <PortalSustainabilityPanel orders={sustainabilityOrders} />
+      </Card>
     </div>
   );
 }

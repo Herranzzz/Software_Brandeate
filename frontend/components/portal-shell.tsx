@@ -179,7 +179,7 @@ const portalNavGroups = [
     items: [
       { href: "/portal", label: "Resumen", shortLabel: "Inicio", icon: HomeIcon },
       { href: "/portal/orders", label: "Pedidos", shortLabel: "Pedidos", icon: OrdersIcon },
-      { href: "/portal/shipments", label: "Expediciones", shortLabel: "Exp.", icon: AnalyticsIcon },
+      { href: "/portal/shipments", label: "Analítica", shortLabel: "Stats", icon: AnalyticsIcon },
     ],
   },
   {
@@ -190,18 +190,15 @@ const portalNavGroups = [
     ],
   },
   {
-    label: "Análisis",
+    label: "Almacén",
     items: [
       { href: "/portal/inventory", label: "Inventario", shortLabel: "Stock", icon: InventoryIcon },
-      { href: "/portal/analytics", label: "Analítica", shortLabel: "Stats", icon: ChartIcon },
       { href: "/portal/reports", label: "Informes", shortLabel: "Report.", icon: ReportsIcon },
-      { href: "/portal/sustainability", label: "Sostenibilidad", shortLabel: "CO₂", icon: SustainabilityIcon },
     ],
   },
   {
     label: "Configuración",
     items: [
-      { href: "/portal/integrations", label: "Integraciones", shortLabel: "Integ.", icon: IntegrationsIcon },
       { href: "/portal/settings", label: "Ajustes", shortLabel: "Ajustes", icon: SettingsIcon },
     ],
   },
