@@ -270,11 +270,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const avgDeliveryHours = analytics
     ? (analytics.flow.avg_order_to_delivered_hours ?? analytics.flow.avg_total_hours ?? null)
     : null;
-  const avgDeliveryLabel = avgDeliveryHours === null
-    ? "—"
-    : avgDeliveryHours < 24
-      ? `${Math.round(avgDeliveryHours)}h`
-      : `${(avgDeliveryHours / 24).toFixed(1).replace(".", ",")}d`;
+  function fmtHoursDH(h: number | null): string {
+    if (h === null) return "—";
+    if (h < 1) return "< 1h";
+    if (h < 24) return `${Math.round(h)}h`;
+    const d = Math.floor(h / 24);
+    const rem = Math.round(h % 24);
+    return rem === 0 ? `${d}d` : `${d}d ${rem}h`;
+  }
+  const avgDeliveryLabel = fmtHoursDH(avgDeliveryHours);
 
   const extraCharts = analytics ? [
     {

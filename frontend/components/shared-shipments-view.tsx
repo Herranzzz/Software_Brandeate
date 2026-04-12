@@ -130,16 +130,21 @@ function buildQuery(params: Record<string, string | number | null | undefined>) 
   return q ? `?${q}` : "";
 }
 
-function formatHoursAsShort(value: number | null) {
+function formatHoursDH(value: number | null): string {
   if (value === null || Number.isNaN(value)) return "—";
-  if (value >= 48) return `${Math.round(value / 24)}d`;
-  return `${Math.round(value)}h`;
+  if (value < 1) return "< 1h";
+  if (value < 24) return `${Math.round(value)}h`;
+  const d = Math.floor(value / 24);
+  const h = Math.round(value % 24);
+  return h === 0 ? `${d}d` : `${d}d ${h}h`;
+}
+
+function formatHoursAsShort(value: number | null) {
+  return formatHoursDH(value);
 }
 
 function formatDaysAsReadableFromHours(value: number | null) {
-  if (value === null || Number.isNaN(value)) return "—";
-  if (value < 24) return `${Math.round(value)}h`;
-  return `${(value / 24).toFixed(1).replace(".", ",")}d`;
+  return formatHoursDH(value);
 }
 
 function formatPercent(value: number | null) {

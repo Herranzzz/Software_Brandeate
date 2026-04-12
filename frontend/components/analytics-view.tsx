@@ -24,8 +24,13 @@ function formatPercent(value: number | null) {
 }
 
 
-function formatHours(value: number | null) {
-  return value === null ? "n/d" : `${value.toFixed(value >= 10 ? 0 : 1)}h`;
+function formatHours(value: number | null): string {
+  if (value === null) return "n/d";
+  if (value < 1) return "< 1h";
+  if (value < 24) return `${Math.round(value)}h`;
+  const d = Math.floor(value / 24);
+  const h = Math.round(value % 24);
+  return h === 0 ? `${d}d` : `${d}d ${h}h`;
 }
 
 

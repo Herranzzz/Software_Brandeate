@@ -21,7 +21,11 @@ function formatCount(n: number): string {
 
 function formatHoursAsShort(h: number | null): string {
   if (h === null || Number.isNaN(h)) return "—";
-  return h >= 24 ? `${Math.round(h / 24)}d` : `${Math.round(h)}h`;
+  if (h < 1) return "< 1h";
+  if (h < 24) return `${Math.round(h)}h`;
+  const d = Math.floor(h / 24);
+  const rem = Math.round(h % 24);
+  return rem === 0 ? `${d}d` : `${d}d ${rem}h`;
 }
 
 /* ── Shared tooltip ─────────────────────────────────────────────────── */
