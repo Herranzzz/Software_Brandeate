@@ -681,7 +681,7 @@ export function SharedShipmentsView({
           tone="blue"
           label="Tránsito medio"
           eyebrow="Transit time"
-          valueFormatter={formatHoursAsShort}
+          format="hours"
         />
         <MiniTrendChart
           points={performancePoints.map((p) => ({

@@ -101,10 +101,16 @@ type TrendChartProps = {
   tone: "blue" | "green" | "red";
   label: string;
   eyebrow: string;
-  valueFormatter?: (value: number | null) => string;
+  format?: "percent" | "hours";
 };
 
-export function MiniTrendChart({ points, valueKey, tone, label, eyebrow, valueFormatter = formatPercent }: TrendChartProps) {
+const FORMATTERS: Record<string, (v: number | null) => string> = {
+  percent: formatPercent,
+  hours: formatHoursAsShort,
+};
+
+export function MiniTrendChart({ points, valueKey, tone, label, eyebrow, format = "percent" }: TrendChartProps) {
+  const valueFormatter = FORMATTERS[format] ?? formatPercent;
   const values = points.map((p) => p[valueKey]);
   const latest = values.at(-1) ?? null;
   const path = buildLinePath(values);
