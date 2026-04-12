@@ -90,9 +90,9 @@ export default function LoginPage() {
 
         <div className="auth-login-footer auth-login-footer-minimal">
           <span>¿Necesitas acceso para una nueva tienda?</span>
-          <Link className="table-link table-link-strong" href="/signup">
+          <a className="table-link table-link-strong" href="https://brandeate.es/#reservar" target="_blank" rel="noopener noreferrer">
             Ponte en contacto con nosotros
-          </Link>
+          </a>
         </div>
       </section>
     </div>
