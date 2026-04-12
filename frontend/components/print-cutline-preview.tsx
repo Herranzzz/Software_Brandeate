@@ -100,18 +100,6 @@ export function PrintCutlinePreview({ srcs, variantTitle, orderId, printVariant 
     lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   }, []);
 
-  const onWheel = useCallback((e: WheelEvent) => {
-    e.preventDefault();
-    setZoom(z => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z - e.deltaY * 0.001)));
-  }, []);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    stage.addEventListener("wheel", onWheel, { passive: false });
-    return () => stage.removeEventListener("wheel", onWheel);
-  }, [onWheel]);
-
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!dragging.current || !stageRef.current) return;
@@ -150,34 +138,49 @@ export function PrintCutlinePreview({ srcs, variantTitle, orderId, printVariant 
     setDlState("loading");
     setDlError(null);
     try {
+      // 1. Create job
       const createRes = await fetch("/api/orders/bulk/download-designs/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ order_ids: [orderId] }),
       });
-      if (!createRes.ok) throw new Error("No se pudo iniciar la descarga.");
-      let job = await createRes.json();
+      if (!createRes.ok) {
+        const txt = await createRes.text().catch(() => "");
+        try { const j = JSON.parse(txt); throw new Error(j.detail || "No se pudo iniciar la descarga."); } catch { throw new Error("No se pudo iniciar la descarga."); }
+      }
+      let job = await createRes.json() as { job_id: string; status: string; error?: string };
 
-      const deadline = Date.now() + 60_000;
+      // 2. Poll until done
+      const deadline = Date.now() + 120_000;
       while (job.status !== "done") {
-        if (job.status === "failed") throw new Error(job.error || "La descarga falló.");
-        if (Date.now() > deadline) throw new Error("La descarga tardó demasiado.");
+        if (job.status === "failed") throw new Error(job.error || "La descarga falló en el servidor.");
+        if (Date.now() > deadline) throw new Error("La descarga tardó demasiado. Inténtalo de nuevo.");
         await sleep(1200);
         const pollRes = await fetch(`/api/orders/bulk/download-designs/jobs/${job.job_id}`, { cache: "no-store" });
-        if (!pollRes.ok) throw new Error("Error consultando el progreso.");
-        job = await pollRes.json();
+        if (!pollRes.ok) throw new Error("Error consultando el progreso de la descarga.");
+        job = await pollRes.json() as { job_id: string; status: string; error?: string };
       }
 
+      // 3. Get signed download token
       const urlRes = await fetch(`/api/orders/bulk/download-designs/jobs/${job.job_id}/download-url`, { method: "POST" });
-      if (!urlRes.ok) throw new Error("No se pudo generar el enlace.");
-      const { token } = await urlRes.json();
+      if (!urlRes.ok) throw new Error("No se pudo generar el enlace de descarga.");
+      const { token } = await urlRes.json() as { token: string };
 
+      // 4. Fetch file as blob and trigger download (avoids browser navigation issues)
+      const dlRes = await fetch(
+        `/api/orders/bulk/download-designs/jobs/${job.job_id}/download?token=${encodeURIComponent(token)}`,
+        { cache: "no-store" },
+      );
+      if (!dlRes.ok) throw new Error("No se pudo descargar el archivo.");
+      const blob = await dlRes.blob();
+      const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = `/api/orders/bulk/download-designs/jobs/${job.job_id}/download?token=${encodeURIComponent(token)}`;
-      a.download = "";
+      a.href = objectUrl;
+      a.download = `diseño-pedido-${orderId}.zip`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
 
       setDlState("done");
       setTimeout(() => setDlState("idle"), 3000);

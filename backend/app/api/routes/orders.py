@@ -1222,8 +1222,9 @@ def _unique_name(base: str, ext: str, used: set[str]) -> str:
         counter += 1
 
 
-_30X40_PATTERN = re.compile(r'30\s*[xX×*]\s*40', re.IGNORECASE)
-_18X24_PATTERN = re.compile(r'18\s*[xX×*]\s*24', re.IGNORECASE)
+_30X40_PATTERN  = re.compile(r'30\s*[xX×*]\s*40', re.IGNORECASE)
+_18X24_PATTERN  = re.compile(r'18\s*[xX×*]\s*24', re.IGNORECASE)
+_CUT_MARGIN_MM  = 20  # 2 cm cut margin for A3 print PDFs
 
 
 def _detect_print_variant(item: "OrderItem") -> str | None:

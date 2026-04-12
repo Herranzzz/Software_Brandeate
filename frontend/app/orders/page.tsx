@@ -34,6 +34,16 @@ function readBooleanParam(value?: string) {
   return undefined;
 }
 
+function quickFilterToApiParams(quick?: string): Record<string, string | boolean | undefined> {
+  switch (quick) {
+    case "has_incident":      return { has_incident: true };
+    case "in_production":     return { production_status: "in_production" };
+    case "not_prepared":      return { is_prepared: false };
+    case "delivered":         return { status: "delivered" };
+    default:                  return {};
+  }
+}
+
 
 export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const params = await searchParams;
@@ -41,15 +51,18 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const perPage = Math.min(Math.max(Number(params.per_page ?? "100") || 100, 1), 250);
   const view = params.view === "batches" ? "batches" : "queue";
 
+  const quickParams = quickFilterToApiParams(params.quick);
+
   const [userResult, ordersResult, shopsResult, batchesResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchOrders({
       shop_id: params.shop_id,
       is_personalized: readBooleanParam(params.is_personalized),
       design_status: params.design_status,
-      production_status: params.production_status,
-      status: params.status,
-      has_incident: readBooleanParam(params.has_incident),
+      production_status: (params.production_status ?? quickParams.production_status) as string | undefined,
+      status: (params.status ?? quickParams.status) as string | undefined,
+      has_incident: params.has_incident !== undefined ? readBooleanParam(params.has_incident) : quickParams.has_incident as boolean | undefined,
+      is_prepared: params.is_prepared !== undefined ? readBooleanParam(params.is_prepared) : quickParams.is_prepared as boolean | undefined,
       priority: params.priority,
       sku: params.sku,
       variant_title: params.variant_title,

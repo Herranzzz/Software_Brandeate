@@ -554,12 +554,20 @@ export function OrdersWorkbench({
   function toggleQuickFilter(filter: QuickFilterKey | "all") {
     if (filter === "all") {
       setActiveFilters([]);
+      replaceParams({ quick: null, page: "1" });
       return;
     }
 
-    setActiveFilters((current) =>
-      current.includes(filter) ? current.filter((entry) => entry !== filter) : [...current, filter],
-    );
+    const isActive = activeFilters.includes(filter);
+    if (isActive) {
+      // Deselect: remove from local state and clear from URL
+      setActiveFilters((current) => current.filter((entry) => entry !== filter));
+      replaceParams({ quick: null, page: "1" });
+    } else {
+      // Select: set as single active filter and update URL for server-side fetch
+      setActiveFilters([filter]);
+      replaceParams({ quick: filter, page: "1" });
+    }
   }
 
   const selectedOrders = useMemo(

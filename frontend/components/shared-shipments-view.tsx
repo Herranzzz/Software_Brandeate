@@ -43,6 +43,9 @@ type SharedShipmentsViewProps = {
   syncSlot?: ReactNode;
   syncHint?: string;
   shopFieldHelp?: string;
+  hideBanner?: boolean;
+  hideAttentionTable?: boolean;
+  footerSlot?: ReactNode;
 };
 
 type CompatibleAttention = {
@@ -258,6 +261,9 @@ export function SharedShipmentsView({
   syncSlot,
   syncHint = "Selecciona una tienda.",
   shopFieldHelp,
+  hideBanner = false,
+  hideAttentionTable = false,
+  footerSlot,
 }: SharedShipmentsViewProps) {
   const orderBasePath = basePath.startsWith("/portal") ? "/portal/orders" : "/orders";
   const selectedIntegration =
@@ -343,7 +349,7 @@ export function SharedShipmentsView({
     <div className="exp-page">
 
       {/* ── Critical alert banner ───────────────────────────────── */}
-      {criticalCount > 0 && (
+      {criticalCount > 0 && !hideBanner && (
         <div className={`exp-alert-banner${criticalCount >= 10 ? " is-critical" : " is-warning"}`}>
           <span className="exp-alert-banner-icon">{criticalCount >= 10 ? "🚨" : "⚠️"}</span>
           <div className="exp-alert-banner-content">
@@ -699,8 +705,10 @@ export function SharedShipmentsView({
 
       {/* Carrier comparison removed — single-carrier mode */}
 
+      {footerSlot ?? null}
+
       {/* ── Attention table ────────────────────────────────────── */}
-      <div className="card exp-table-card" id="attention-table">
+      {!hideAttentionTable && <div className="card exp-table-card" id="attention-table">
         <div className="exp-section-head">
           <div>
             <span className="eyebrow">Cola operativa</span>
@@ -745,7 +753,7 @@ export function SharedShipmentsView({
             <p>No hay expediciones en riesgo en el periodo seleccionado.</p>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
