@@ -1243,8 +1243,34 @@ def _is_30x40_product(item: "OrderItem") -> bool:
     return _detect_print_variant(item) == "30x40"
 
 
+def _image_has_white_background(pil_img: object) -> bool:
+    """Return True if the image has a predominantly white/light background.
+
+    Samples corners and edge midpoints. If ≥70% of sampled pixels are
+    near-white (all RGB channels > 230), the image is considered white-bg.
+    """
+    w, h = pil_img.size  # type: ignore[union-attr]
+    rgb = pil_img.convert("RGB")  # type: ignore[union-attr]
+    sample_points = [
+        (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),          # corners
+        (w // 2, 0), (0, h // 2), (w - 1, h // 2), (w // 2, h - 1),  # edge midpoints
+        (w // 4, 0), (3 * w // 4, 0),                              # top edge quarters
+        (0, h // 4), (w - 1, h // 4),                              # side edge quarters
+    ]
+    white_count = sum(
+        1 for x, y in sample_points
+        if all(ch > 230 for ch in rgb.getpixel((x, y)))
+    )
+    return white_count >= len(sample_points) * 0.7
+
+
 def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
-    """Embed a design image into an A3 PDF with a 2cm cut/trim line."""
+    """Embed a design image into an A3 PDF with a 2cm cut/trim line.
+
+    White-background designs are fitted within the usable area (below the cut
+    line, i.e. top 2 cm stays blank). Full/dark-background designs bleed
+    across the entire A3 sheet.
+    """
     from PIL import Image as PilImage
     from reportlab.lib.pagesizes import A3
     from reportlab.lib import colors
@@ -1254,7 +1280,7 @@ def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
     PT_PER_MM = 2.834645669
     page_w, page_h = A3  # portrait: 841.89 × 1190.55 pt
 
-    margin_pt = _CUT_MARGIN_MM * PT_PER_MM  # 56.69 pt
+    margin_pt = _CUT_MARGIN_MM * PT_PER_MM  # 56.69 pt (~20 mm)
 
     # Open via Pillow so format is always detected regardless of file extension
     pil_img = PilImage.open(image_path).convert("RGB")
@@ -1262,17 +1288,18 @@ def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
 
     c = Canvas(output_path, pagesize=A3)
 
-    # Draw image filling the full page (no padding — bleed to edges)
-    c.drawImage(
-        img_reader,
-        0, 0,
-        width=page_w,
-        height=page_h,
-        preserveAspectRatio=False,  # fill full A3
-    )
+    # cut_y: Y position of the cut line (reportlab origin is bottom-left)
+    cut_y = page_h - margin_pt  # 2 cm from the top
 
-    # Draw cut line ONLY at the top — 2cm from top edge
-    cut_y = page_h - margin_pt  # reportlab y=0 is bottom
+    if _image_has_white_background(pil_img):
+        # White background: design fills exactly the usable area below the
+        # cut line. The 2 cm above the cut line is left blank (white paper).
+        c.drawImage(img_reader, 0, 0, width=page_w, height=cut_y, preserveAspectRatio=False)
+    else:
+        # Full/dark background: full-bleed across the entire A3 page.
+        c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
+
+    # Draw cut line at top — 2 cm from top edge
     c.setStrokeColor(colors.red)
     c.setLineWidth(0.7)
     c.setDash(8, 4)
