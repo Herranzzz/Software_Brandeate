@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -203,7 +204,7 @@ class AnalyticsOverviewRead(BaseModel):
     operational: AnalyticsOperationalMetricsRead
     personalization: AnalyticsPersonalizationMetricsRead
     shipping: AnalyticsShippingMetricsRead
-    charts: dict[str, list[AnalyticsBreakdownItemRead] | list[AnalyticsSeriesPointRead]]
+    charts: dict[str, Any]
     shipping_status_distribution: list[AnalyticsBreakdownItemRead] = []
     shipping_performance_by_day: list[AnalyticsShippingPerformancePointRead] = []
     attention: AnalyticsAttentionMetricsRead = AnalyticsAttentionMetricsRead()

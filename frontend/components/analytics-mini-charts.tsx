@@ -216,6 +216,51 @@ export function DailyBarsChart({ points }: BarChartProps) {
   );
 }
 
+/* ── HourlyBarsChart ────────────────────────────────────────────────── */
+
+type HourlyPoint = { hour: number; total: number };
+
+export function HourlyBarsChart({ points }: { points: HourlyPoint[] }) {
+  const max = Math.max(...points.map((p) => p.total), 1);
+  const total = points.reduce((s, p) => s + p.total, 0);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const active = hoverIdx !== null ? points[hoverIdx] : null;
+
+  return (
+    <div className="exp-mini-chart">
+      <div className="exp-mini-chart-head">
+        <span className="exp-mini-eyebrow">Volumen</span>
+        <strong className="exp-mini-value" style={{ color: "#ef4444" }}>
+          {active ? formatCount(active.total) : formatCount(total)}
+        </strong>
+      </div>
+      <p className="exp-mini-label">
+        {active ? `${String(active.hour).padStart(2, "0")}:00 – ${String(active.hour + 1).padStart(2, "0")}:00` : "Pedidos por hora"}
+      </p>
+      <div className="exp-mini-bars-wrap">
+        {points.map((p, i) => (
+          <div
+            className={`exp-mini-bar-col${hoverIdx === i ? " is-hover" : ""}`}
+            key={`h-${p.hour}`}
+            onMouseEnter={() => setHoverIdx(i)}
+            onMouseLeave={() => setHoverIdx(null)}
+          >
+            <div
+              className="exp-mini-bar"
+              style={{ height: `${Math.max(p.total > 0 ? 8 : 2, (p.total / max) * 100)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="exp-mini-axis">
+        {[0, 6, 12, 18].map((h) => (
+          <span key={h}>{String(h).padStart(2, "0")}h</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── DualBarsChart ──────────────────────────────────────────────────── */
 
 export function DualBarsChart({ points }: BarChartProps) {

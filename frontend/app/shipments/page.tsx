@@ -47,7 +47,7 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
     params.shipping_status === "delivered"
       ? params.shipping_status
       : "all";
-  const period = (params.period === "30d" || params.period === "ytd" || params.period === "custom" ? params.period : "7d") as ShipmentPeriod;
+  const period = (["1d", "ayer", "7d", "30d", "ytd", "custom"].includes(params.period ?? "") ? params.period : "7d") as ShipmentPeriod;
   const defaultRange = period === "custom" ? getDefaultShipmentDateRange() : getShipmentDateRange(period);
   const dateFrom = params.date_from ?? defaultRange.dateFrom;
   const dateTo = params.date_to ?? defaultRange.dateTo;

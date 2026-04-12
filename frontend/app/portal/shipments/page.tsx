@@ -23,7 +23,7 @@ export default async function PortalShipmentsPage({ searchParams }: PortalShipme
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const params = (await searchParams) ?? {};
   const tenantScope = resolveTenantScope(shops, readValue(params.shop_id));
-  const period = (readValue(params.period) === "30d" || readValue(params.period) === "ytd" || readValue(params.period) === "custom"
+  const period = (["1d", "ayer", "7d", "30d", "ytd", "custom"].includes(readValue(params.period) ?? "")
     ? readValue(params.period)
     : "7d") as ShipmentPeriod;
   const shippingStatusRaw = readValue(params.shipping_status);

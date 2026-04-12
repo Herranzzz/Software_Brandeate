@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { MiniTrendChart, DailyBarsChart, DualBarsChart } from "@/components/analytics-mini-charts";
+import { MiniTrendChart, DailyBarsChart, DualBarsChart, HourlyBarsChart } from "@/components/analytics-mini-charts";
 import { EmptyState } from "@/components/empty-state";
 import { ShipmentDonut, type ShipmentSegment } from "@/components/shipment-donut";
 import { formatDateTime } from "@/lib/format";
@@ -24,7 +24,7 @@ export type ShipmentQuickFilter =
   | "incident"
   | "stalled";
 
-export type ShipmentPeriod = "7d" | "30d" | "ytd" | "custom";
+export type ShipmentPeriod = "1d" | "ayer" | "7d" | "30d" | "ytd" | "custom";
 
 type SharedShipmentsViewProps = {
   basePath: string;
@@ -99,7 +99,9 @@ export function getDefaultShipmentDateRange() {
 export function getShipmentDateRange(period: ShipmentPeriod, today = new Date()) {
   const end = new Date(today);
   const start = new Date(today);
-  if (period === "30d") start.setDate(end.getDate() - 29);
+  if (period === "1d") { /* start = end = today */ }
+  else if (period === "ayer") { start.setDate(end.getDate() - 1); end.setDate(end.getDate() - 1); }
+  else if (period === "30d") start.setDate(end.getDate() - 29);
   else if (period === "ytd") start.setMonth(0, 1);
   else start.setDate(end.getDate() - 6);
   return { dateFrom: toDateInputValue(start), dateTo: toDateInputValue(end) };
@@ -110,6 +112,8 @@ function getRangeShortcuts(dateTo: string) {
   const yearStart = new Date(end);
   yearStart.setMonth(0, 1);
   return [
+    { label: "Hoy",         value: "1d"     as ShipmentPeriod, ...getShipmentDateRange("1d", end) },
+    { label: "Ayer",        value: "ayer"   as ShipmentPeriod, ...getShipmentDateRange("ayer", end) },
     { label: "7 días",      value: "7d"     as ShipmentPeriod, ...getShipmentDateRange("7d", end) },
     { label: "30 días",     value: "30d"    as ShipmentPeriod, ...getShipmentDateRange("30d", end) },
     { label: "Este año",    value: "ytd"    as ShipmentPeriod, dateFrom: toDateInputValue(yearStart), dateTo: toDateInputValue(end) },
@@ -672,7 +676,10 @@ export function SharedShipmentsView({
 
       {/* ── Charts strip ───────────────────────────────────────── */}
       <div className="exp-charts-strip">
-        <DailyBarsChart points={performancePoints} />
+        {(period === "1d" || period === "ayer") && analytics.charts.orders_by_hour?.length
+          ? <HourlyBarsChart points={analytics.charts.orders_by_hour} />
+          : <DailyBarsChart points={performancePoints} />
+        }
         <DualBarsChart  points={performancePoints} />
         <MiniTrendChart
           points={performancePoints}

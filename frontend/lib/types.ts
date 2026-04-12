@@ -587,6 +587,7 @@ export type AnalyticsOverview = {
   flow: AnalyticsFlow;
   charts: {
     orders_by_day: AnalyticsSeriesPoint[];
+    orders_by_hour?: { hour: number; total: number }[];
     personalization_mix: AnalyticsBreakdownItem[];
     status_distribution: AnalyticsBreakdownItem[];
     orders_by_shop: AnalyticsBreakdownItem[];

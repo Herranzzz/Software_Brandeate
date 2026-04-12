@@ -542,6 +542,8 @@ def build_analytics_overview(
             total_hours_list.append(hours)
 
     orders_by_day_counter: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "personalized": 0, "standard": 0, "delivered": 0, "exception": 0})
+    orders_by_hour_counter: dict[int, int] = defaultdict(int)
+    is_single_day = filters.date_from is not None and filters.date_from == filters.date_to
     shipping_performance_by_day: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
             "created_shipments": 0,
@@ -577,6 +579,9 @@ def build_analytics_overview(
         date_key = (_to_business_date(order.created_at) or now.date()).isoformat()
         orders_by_day_counter[date_key]["total"] += 1
         orders_by_day_counter[date_key]["personalized" if order.is_personalized else "standard"] += 1
+        if is_single_day and order.created_at is not None:
+            hour = order.created_at.astimezone(BUSINESS_TZ).hour
+            orders_by_hour_counter[hour] += 1
 
         order_status_val = _safe_text(_enum_value(order.status), "unknown")
         if order_status_val == "delivered":
@@ -805,6 +810,10 @@ def build_analytics_overview(
             }
             for item in carrier_performance
         ],
+        "orders_by_hour": (
+            [{"hour": h, "total": orders_by_hour_counter.get(h, 0)} for h in range(24)]
+            if is_single_day else []
+        ),
     }
 
     rankings = {

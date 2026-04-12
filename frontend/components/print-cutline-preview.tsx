@@ -146,7 +146,9 @@ export function PrintCutlinePreview({ srcs, variantTitle, orderId, printVariant 
       });
       if (!createRes.ok) {
         const txt = await createRes.text().catch(() => "");
-        try { const j = JSON.parse(txt); throw new Error(j.detail || "No se pudo iniciar la descarga."); } catch { throw new Error("No se pudo iniciar la descarga."); }
+        let msg = "No se pudo iniciar la descarga.";
+        try { const j = JSON.parse(txt); if (typeof j.detail === "string" && j.detail) msg = j.detail; } catch { /* ignore */ }
+        throw new Error(msg);
       }
       let job = await createRes.json() as { job_id: string; status: string; error?: string };
 
@@ -163,7 +165,12 @@ export function PrintCutlinePreview({ srcs, variantTitle, orderId, printVariant 
 
       // 3. Get signed download token
       const urlRes = await fetch(`/api/orders/bulk/download-designs/jobs/${job.job_id}/download-url`, { method: "POST" });
-      if (!urlRes.ok) throw new Error("No se pudo generar el enlace de descarga.");
+      if (!urlRes.ok) {
+        const urlTxt = await urlRes.text().catch(() => "");
+        let urlMsg = "No se pudo generar el enlace de descarga.";
+        try { const j = JSON.parse(urlTxt); if (typeof j.detail === "string" && j.detail) urlMsg = j.detail; } catch { /* ignore */ }
+        throw new Error(urlMsg);
+      }
       const { token } = await urlRes.json() as { token: string };
 
       // 4. Fetch file as blob and trigger download (avoids browser navigation issues)
