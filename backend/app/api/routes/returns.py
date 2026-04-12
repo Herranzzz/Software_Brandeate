@@ -2,12 +2,14 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel
 from psycopg.errors import UndefinedTable
 from sqlalchemy import func, select
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_accessible_shop_ids, get_db, resolve_shop_scope
+from app.models import Order
 from app.models.return_ import Return, ReturnStatus
 from app.schemas.return_ import ReturnBulkResult, ReturnBulkStatusUpdate, ReturnCreate, ReturnRead, ReturnUpdate
 
@@ -261,3 +263,46 @@ def _push_return_status_tags(*, db: Session, ret: Return, new_status: ReturnStat
             new_status,
             exc,
         )
+
+
+class PublicReturnRequest(BaseModel):
+    order_external_id: str
+    customer_email: str
+    reason: str
+    notes: str | None = None
+
+
+@router.post("/request-public", status_code=status.HTTP_201_CREATED)
+def create_public_return_request(
+    body: PublicReturnRequest,
+    db: Session = Depends(get_db),
+):
+    """Allow end customers to request a return without authentication."""
+    order = db.scalar(
+        select(Order).where(
+            Order.external_id == body.order_external_id,
+            Order.customer_email == body.customer_email,
+        )
+    )
+    if order is None:
+        raise HTTPException(status_code=404, detail="No encontramos el pedido con esos datos.")
+
+    # Check if return already exists
+    existing = db.scalar(
+        select(Return).where(Return.order_id == order.id, Return.status != "cancelled")
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Ya existe una solicitud de devolución para este pedido.")
+
+    new_return = Return(
+        order_id=order.id,
+        shop_id=order.shop_id,
+        reason=body.reason,
+        notes=body.notes,
+        status="pending",
+    )
+    db.add(new_return)
+    db.commit()
+    db.refresh(new_return)
+
+    return {"id": new_return.id, "status": "pending", "message": "Solicitud de devolución recibida. Nos pondremos en contacto contigo."}

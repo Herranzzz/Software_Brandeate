@@ -1,5 +1,6 @@
 import { DashboardEmployeeMetrics } from "@/components/dashboard-employee-metrics";
 import Link from "next/link";
+import { SlaAlertsBanner } from "@/components/sla-alerts-banner";
 
 import { SharedDashboardView } from "@/components/shared-dashboard-view";
 import type { ShipmentSegment } from "@/components/shipment-donut";
@@ -270,6 +271,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           Parte de los datos no se pudieron cargar. Mostramos la información disponible.
         </div>
       ) : null}
+      <SlaAlertsBanner basePath="/orders" />
       <SharedDashboardView
       chart={chart}
       donutSegments={donutSegments}

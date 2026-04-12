@@ -725,6 +725,50 @@ def export_orders_csv(
     )
 
 
+@router.get("/sla-alerts")
+def get_sla_alerts(
+    shop_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+):
+    """Return count of orders with breached SLA."""
+    from datetime import timedelta
+
+    scope = resolve_shop_scope(shop_id, accessible_shop_ids)
+
+    cutoff_3d = datetime.now(timezone.utc) - timedelta(days=3)
+    cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
+
+    base_q = (
+        select(func.count())
+        .select_from(Order)
+        .outerjoin(Shipment, Shipment.order_id == Order.id)
+        .where(Order.status.notin_(["delivered", "cancelled"]))
+    )
+    if scope is not None:
+        base_q = base_q.where(Order.shop_id.in_(scope))
+
+    # Orders without shipment for 3+ days
+    no_shipment_3d = db.scalar(
+        base_q.where(Shipment.id == None).where(Order.created_at < cutoff_3d)
+    ) or 0
+
+    # In transit 7+ days
+    stalled_transit = db.scalar(
+        base_q.where(
+            Shipment.shipping_status.in_(["in_transit", "picked_up"]),
+            Shipment.created_at < cutoff_7d,
+        )
+    ) or 0
+
+    return {
+        "no_shipment_3d": no_shipment_3d,
+        "stalled_transit_7d": stalled_transit,
+        "total_alerts": no_shipment_3d + stalled_transit,
+    }
+
+
 @router.get("/{order_id}", response_model=OrderDetailRead)
 def get_order(
     order_id: int,
@@ -1636,3 +1680,70 @@ from pydantic import BaseModel as _BaseModel  # noqa: E402
 
 class BulkDesignDownloadRequest(_BaseModel):
     order_ids: list[int]
+
+
+@router.get("/{order_id}/delivery-prediction")
+def get_delivery_prediction(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+):
+    """Predict delivery risk based on historical shipping performance."""
+    from datetime import timedelta
+
+    order = db.scalar(
+        select(Order)
+        .options(selectinload(Order.shipment).selectinload(Shipment.tracking_events))
+        .where(Order.id == order_id)
+    )
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=403, detail="Shop access denied")
+
+    shipment = order.shipment
+    if not shipment:
+        return {"risk": "unknown", "risk_pct": 0, "message": "Sin envío creado", "estimated_delivery": None}
+
+    if shipment.shipping_status == "delivered":
+        return {"risk": "none", "risk_pct": 0, "message": "Entregado", "estimated_delivery": None}
+
+    # Calculate days in transit
+    created = shipment.created_at
+    if created is None:
+        return {"risk": "unknown", "risk_pct": 0, "message": "Sin fecha de envío", "estimated_delivery": None}
+
+    days_in_transit = (datetime.now(timezone.utc) - created).days
+
+    # Heuristic: based on typical CTT delivery windows
+    # National: 1-3 days, International: 4-8 days
+    is_international = False
+    if order.shipping_country_code and order.shipping_country_code.upper() not in ("ES", "PT"):
+        is_international = True
+
+    expected_days = 8 if is_international else 3
+
+    if days_in_transit <= expected_days:
+        risk_pct = min(30, int((days_in_transit / expected_days) * 30))
+        risk = "low"
+        msg = f"En plazo ({days_in_transit}/{expected_days} días)"
+    elif days_in_transit <= expected_days * 1.5:
+        risk_pct = min(70, 30 + int(((days_in_transit - expected_days) / (expected_days * 0.5)) * 40))
+        risk = "medium"
+        msg = f"Atención: {days_in_transit} días en tránsito (esperado: {expected_days})"
+    else:
+        risk_pct = min(95, 70 + int(((days_in_transit - expected_days * 1.5) / expected_days) * 25))
+        risk = "high"
+        msg = f"Alto riesgo: {days_in_transit} días en tránsito (esperado: {expected_days})"
+
+    estimated = created + timedelta(days=expected_days)
+
+    return {
+        "risk": risk,
+        "risk_pct": risk_pct,
+        "message": msg,
+        "estimated_delivery": estimated.isoformat(),
+        "days_in_transit": days_in_transit,
+        "expected_days": expected_days,
+    }

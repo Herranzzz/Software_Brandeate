@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { PortalQuickActions } from "@/components/portal-quick-actions";
+import { SlaAlertsBanner } from "@/components/sla-alerts-banner";
 import { PortalSyncButton } from "@/components/portal-sync-button";
 import { SharedDashboardView } from "@/components/shared-dashboard-view";
 import type { ShipmentSegment } from "@/components/shipment-donut";
@@ -247,6 +248,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
           Parte de los datos no se pudieron cargar. Mostramos la información disponible para seguir operando.
         </div>
       ) : null}
+      <SlaAlertsBanner basePath="/portal/orders" />
       <SharedDashboardView
       chart={chart}
       chartLinkHref={`/portal/orders${shopQuery}`}

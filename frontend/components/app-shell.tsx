@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import { useLayoutState } from "@/components/layout-state-provider";
 import type { User } from "@/lib/types";
@@ -244,7 +245,7 @@ export function AppShell({ children, currentUser }: AppShellProps) {
     "--tenant-accent-soft": "rgba(var(--accent-rgb), 0.14)",
   } as CSSProperties;
 
-  if (pathname.startsWith("/tracking/") || pathname.startsWith("/tenant/")) {
+  if (pathname.startsWith("/tracking/") || pathname.startsWith("/tenant/") || pathname.startsWith("/returns-request")) {
     return <div className="public-shell">{children}</div>;
   }
   if (pathname.startsWith("/portal")) {
@@ -297,6 +298,7 @@ export function AppShell({ children, currentUser }: AppShellProps) {
 
         {/* Footer */}
         <div className="tenant-sidebar-footer">
+          <NotificationBell />
           <button
             className="tenant-nav-link admin-sidebar-logout"
             onClick={toggleTheme}

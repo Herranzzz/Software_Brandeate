@@ -1047,3 +1047,19 @@ export async function upsertCarrierConfig(body: {
   });
   return parseResponse<CarrierConfig>(res);
 }
+
+
+// Notifications
+export async function fetchNotifications(limit = 20): Promise<Array<{
+  id: number;
+  action: string;
+  summary: string;
+  entity_type: string;
+  entity_id: number;
+  created_at: string | null;
+  actor_name: string | null;
+}>> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/activity/notifications?limit=${limit}`), { headers, cache: "no-store" });
+  return parseResponse(res);
+}
