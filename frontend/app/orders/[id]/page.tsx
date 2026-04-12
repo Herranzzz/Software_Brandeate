@@ -373,7 +373,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
   const shipmentStatusColor = getShipmentStatusColor(order.shipment?.shipping_status);
 
   return (
-    <div className="stack">
+    <div className="stack" style={{ gap: 10 }}>
       <Breadcrumbs items={[
         { label: "Pedidos", href: "/orders" },
         { label: `#${order.external_id}` },
