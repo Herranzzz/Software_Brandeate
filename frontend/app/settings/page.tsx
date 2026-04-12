@@ -7,7 +7,7 @@ import { ShippingRulesManager } from "@/components/shipping-rules-manager";
 import { ShopifySyncPanel } from "@/components/shopify-sync-panel";
 import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
-import { CarrierSettingsPanel } from "@/components/carrier-settings-panel";
+
 import { SettingsTabs } from "@/components/settings-tabs";
 import { fetchOrders, fetchShops, fetchShopifyIntegrations } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
@@ -22,7 +22,6 @@ const ADMIN_TABS = [
   { id: "branding",      label: "Branding",       icon: "🎨" },
   { id: "team",          label: "Equipo",         icon: "👥" },
   { id: "webhooks",      label: "Webhooks",       icon: "🔔" },
-  { id: "carriers",      label: "Carriers",       icon: "🚛" },
   { id: "sustainability",label: "Sostenibilidad", icon: "🌱" },
 ];
 
@@ -71,7 +70,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         }
         eyebrow="Ajustes"
         title="Configuración del sistema"
-        description="Gestiona tiendas, integraciones, transportistas, equipo y todos los ajustes operativos de Brandeate."
+        description="Gestiona tiendas, integraciones, equipo y los ajustes operativos de Brandeate."
       />
 
       <SettingsTabs tabs={ADMIN_TABS} />
@@ -267,31 +266,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                   <span className="eyebrow" style={{ marginBottom: 8, display: "block" }}>{shop.name}</span>
                 )}
                 <WebhookSettingsPanel shopId={shop.id} />
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* ── Carriers ─────────────────────────────────────────────── */}
-      {activeTab === "carriers" && shops.length > 0 && (
-        <Card className="stack settings-section-card">
-          <div className="settings-section-head">
-            <div>
-              <span className="eyebrow">🚛 Transportistas</span>
-              <h3 className="section-title section-title-small">Configuración de carriers</h3>
-              <p className="subtitle">
-                Activa o desactiva integraciones de transportista por tienda.
-              </p>
-            </div>
-          </div>
-          <div className="stack">
-            {shops.map((shop) => (
-              <div key={shop.id}>
-                {shops.length > 1 && (
-                  <span className="eyebrow" style={{ marginBottom: 8, display: "block" }}>{shop.name}</span>
-                )}
-                <CarrierSettingsPanel shopId={shop.id} />
               </div>
             ))}
           </div>

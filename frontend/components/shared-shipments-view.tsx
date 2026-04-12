@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { MiniTrendChart, DailyBarsChart, DualBarsChart } from "@/components/analytics-mini-charts";
 import { EmptyState } from "@/components/empty-state";
 import { ShipmentDonut, type ShipmentSegment } from "@/components/shipment-donut";
 import { formatDateTime } from "@/lib/format";
@@ -42,19 +43,6 @@ type SharedShipmentsViewProps = {
   syncSlot?: ReactNode;
   syncHint?: string;
   shopFieldHelp?: string;
-};
-
-type TrendChartProps = {
-  points: AnalyticsShippingPerformancePoint[];
-  valueKey: "on_time_delivery_rate" | "avg_transit_hours" | "avg_total_hours";
-  tone: "blue" | "green" | "red";
-  label: string;
-  eyebrow: string;
-  valueFormatter?: (value: number | null) => string;
-};
-
-type DualBarChartProps = {
-  points: AnalyticsShippingPerformancePoint[];
 };
 
 type CompatibleAttention = {
@@ -246,115 +234,6 @@ function normalizeAnalyticsOverview(analytics: AnalyticsOverview) {
   };
 }
 
-/* ── Charts ───────────────────────────────────────────────────────── */
-
-function buildLinePath(values: Array<number | null>, width = 280, height = 72) {
-  const filtered = values.filter((v): v is number => v !== null && !Number.isNaN(v));
-  if (filtered.length === 0) return "";
-  const max = Math.max(...filtered, 1);
-  const step = values.length > 1 ? width / (values.length - 1) : width;
-  return values
-    .map((v, i) => {
-      const sv = v ?? 0;
-      const x = i * step;
-      const y = height - (sv / max) * height * 0.9;
-      return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
-    })
-    .join(" ");
-}
-
-function MiniTrendChart({ points, valueKey, tone, label, eyebrow, valueFormatter = formatPercent }: TrendChartProps) {
-  const values = points.map((p) => p[valueKey]);
-  const latest = values.at(-1) ?? null;
-  const path = buildLinePath(values);
-  const colorMap = { blue: "#3b82f6", green: "#10b981", red: "#ef4444" };
-  const softMap  = { blue: "#eff6ff", green: "#f0fdf4", red: "#fef2f2" };
-  const color = colorMap[tone];
-  const soft  = softMap[tone];
-  return (
-    <div className="exp-mini-chart">
-      <div className="exp-mini-chart-head">
-        <span className="exp-mini-eyebrow">{eyebrow}</span>
-        <strong className="exp-mini-value" style={{ color }}>{valueFormatter(latest)}</strong>
-      </div>
-      <p className="exp-mini-label">{label}</p>
-      <div className="exp-mini-svg-wrap" style={{ background: soft }}>
-        <svg aria-hidden="true" viewBox="0 0 280 72" preserveAspectRatio="none" width="100%" height="72">
-          {path ? (
-            <>
-              <path d={`${path} L 280 72 L 0 72 Z`} fill={color} fillOpacity="0.12" stroke="none" />
-              <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-            </>
-          ) : (
-            <text x="140" y="40" textAnchor="middle" fill="#9ca3af" fontSize="12">Sin datos</text>
-          )}
-        </svg>
-      </div>
-      <div className="exp-mini-axis">
-        {points.slice(-4).map((p) => (
-          <span key={`${valueKey}-${p.date}`}>{formatShortDate(p.date)}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DailyBarsChart({ points }: DualBarChartProps) {
-  const max = Math.max(...points.map((p) => p.created_shipments), 1);
-  return (
-    <div className="exp-mini-chart">
-      <div className="exp-mini-chart-head">
-        <span className="exp-mini-eyebrow">Volumen</span>
-        <strong className="exp-mini-value" style={{ color: "#ef4444" }}>
-          {formatCount(points.reduce((s, p) => s + p.created_shipments, 0))}
-        </strong>
-      </div>
-      <p className="exp-mini-label">Expediciones por día</p>
-      <div className="exp-mini-bars-wrap">
-        {points.slice(-14).map((p) => (
-          <div className="exp-mini-bar-col" key={`day-${p.date}`}>
-            <div
-              className="exp-mini-bar"
-              style={{ height: `${Math.max(p.created_shipments > 0 ? 8 : 2, (p.created_shipments / max) * 100)}%` }}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="exp-mini-axis">
-        {points.slice(-4).map((p) => <span key={`ax-${p.date}`}>{formatShortDate(p.date)}</span>)}
-      </div>
-    </div>
-  );
-}
-
-function DualBarsChart({ points }: DualBarChartProps) {
-  const max = Math.max(...points.flatMap((p) => [p.delivered_orders, p.exception_orders]), 1);
-  return (
-    <div className="exp-mini-chart">
-      <div className="exp-mini-chart-head">
-        <span className="exp-mini-eyebrow">Calidad</span>
-        <strong className="exp-mini-value" style={{ color: "#10b981" }}>
-          {formatCount(points.reduce((s, p) => s + p.delivered_orders, 0))}
-        </strong>
-      </div>
-      <p className="exp-mini-label">Entregadas vs incidencias</p>
-      <div className="exp-mini-bars-wrap is-dual">
-        {points.slice(-14).map((p) => (
-          <div className="exp-mini-bar-col" key={`dual-${p.date}`}>
-            <div className="exp-mini-bar is-green"
-              style={{ height: `${Math.max(p.delivered_orders > 0 ? 6 : 2, (p.delivered_orders / max) * 100)}%` }} />
-            <div className="exp-mini-bar is-red"
-              style={{ height: `${Math.max(p.exception_orders > 0 ? 6 : 1, (p.exception_orders / max) * 60)}%` }} />
-          </div>
-        ))}
-      </div>
-      <div className="exp-mini-axis">
-        {points.slice(-4).map((p) => <span key={`dax-${p.date}`}>{formatShortDate(p.date)}</span>)}
-      </div>
-    </div>
-  );
-}
-
 function getStageBadgeModifier(stage: string) {
   const tone = STATUS_META[stage]?.tone ?? "slate";
   return `is-${tone}`;
@@ -458,8 +337,6 @@ export function SharedShipmentsView({
     (shipping.delivered_orders ?? 0) +
     (shipping.exception_orders ?? 0),
   );
-
-  const carrierData = analytics.shipping.carrier_performance ?? [];
 
   /* ── Render ── */
   return (
@@ -820,93 +697,7 @@ export function SharedShipmentsView({
         />
       </div>
 
-      {/* ── Carrier performance ────────────────────────────────── */}
-      {carrierData.length > 0 && (
-        <div className="card exp-carrier-section">
-          <div className="exp-section-head">
-            <div>
-              <span className="eyebrow">Transportistas</span>
-              <h2 className="exp-card-title">Rendimiento por carrier</h2>
-            </div>
-            <span className="exp-table-count">
-              <strong>{carrierData.length}</strong> carrier{carrierData.length !== 1 ? "s" : ""} activos
-            </span>
-          </div>
-          <div className="exp-carrier-table-wrap">
-            <table className="exp-carrier-table">
-              <thead>
-                <tr>
-                  <th>Carrier</th>
-                  <th className="exp-th-num">Envíos</th>
-                  <th className="exp-th-num">Entregados</th>
-                  <th>Tasa entrega</th>
-                  <th className="exp-th-num">Transit medio</th>
-                  <th>Incidencias</th>
-                  <th>Valoración</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...carrierData]
-                  .sort((a, b) => b.shipments - a.shipments)
-                  .map((carrier) => {
-                    const deliveryRate =
-                      carrier.shipments > 0
-                        ? (carrier.delivered_orders / carrier.shipments) * 100
-                        : 0;
-                    const incidentRate = carrier.incident_rate ?? 0;
-                    const scoreClass =
-                      incidentRate < 1 && deliveryRate >= 95 ? "is-green" :
-                      incidentRate > 4 || deliveryRate < 82 ? "is-red"   : "is-orange";
-                    const scoreLabel =
-                      scoreClass === "is-green" ? "Excelente" :
-                      scoreClass === "is-red"   ? "Revisar"   : "Normal";
-                    return (
-                      <tr className="exp-carrier-row" key={carrier.carrier}>
-                        <td>
-                          <div className="exp-carrier-name-cell">
-                            <span className="exp-carrier-badge">
-                              {carrier.carrier.slice(0, 2).toUpperCase()}
-                            </span>
-                            <span className="exp-carrier-name">{carrier.carrier}</span>
-                          </div>
-                        </td>
-                        <td className="exp-td-num">{formatCount(carrier.shipments)}</td>
-                        <td className="exp-td-num">{formatCount(carrier.delivered_orders)}</td>
-                        <td>
-                          <div className="exp-carrier-rate-wrap">
-                            <div className="exp-carrier-rate-bar">
-                              <div
-                                className={`exp-carrier-rate-fill ${scoreClass}`}
-                                style={{ width: `${deliveryRate}%` }}
-                              />
-                            </div>
-                            <span className={`exp-carrier-rate-pct ${scoreClass}`}>
-                              {deliveryRate.toFixed(0)}%
-                            </span>
-                          </div>
-                        </td>
-                        <td className="exp-td-num">
-                          {formatHoursAsShort(carrier.avg_delivery_hours)}
-                        </td>
-                        <td>
-                          <span className={`exp-carrier-incident-pill ${
-                            incidentRate > 4 ? "is-red" :
-                            incidentRate > 1 ? "is-orange" : "is-green"
-                          }`}>
-                            {incidentRate.toFixed(1)}%
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`exp-carrier-score-pill ${scoreClass}`}>{scoreLabel}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {/* Carrier comparison removed — single-carrier mode */}
 
       {/* ── Attention table ────────────────────────────────────── */}
       <div className="card exp-table-card" id="attention-table">

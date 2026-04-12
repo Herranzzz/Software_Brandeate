@@ -581,14 +581,22 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                       </span>
                     </div>
                   )}
-                  {order.shipment.shipping_cost != null && (
+                  {order.shipment.shipping_weight_declared != null && (
                     <div className="order-kv-item">
-                      <span className="order-kv-label">Coste envío</span>
-                      <span className="order-kv-value">
-                        {new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(order.shipment.shipping_cost)}
-                      </span>
+                      <span className="order-kv-label">Peso declarado</span>
+                      <span className="order-kv-value">{order.shipment.shipping_weight_declared} kg</span>
                     </div>
                   )}
+                  <div className="order-kv-item order-kv-item-accent">
+                    <span className="order-kv-label">Coste envío</span>
+                    <span className="order-kv-value">
+                      {order.shipment.shipping_cost != null
+                        ? new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(order.shipment.shipping_cost)
+                        : order.shipping_rate_amount != null
+                          ? new Intl.NumberFormat("es-ES", { style: "currency", currency: order.shipping_rate_currency ?? "EUR" }).format(order.shipping_rate_amount)
+                          : "Pendiente"}
+                    </span>
+                  </div>
                   <div className="order-kv-item">
                     <span className="order-kv-label">Shopify sync</span>
                     <span className="order-kv-value">

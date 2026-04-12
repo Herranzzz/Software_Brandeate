@@ -404,6 +404,22 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
                   <span className="kv-label">Tramo</span>
                   <div>{order.shipment.weight_tier_label ?? "No definido"}</div>
                 </div>
+                {order.shipment.shipping_weight_declared != null && (
+                  <div className="kv-row">
+                    <span className="kv-label">Peso</span>
+                    <div>{order.shipment.shipping_weight_declared} kg</div>
+                  </div>
+                )}
+                <div className="kv-row">
+                  <span className="kv-label">Coste envío</span>
+                  <div style={{ fontWeight: 600 }}>
+                    {order.shipment.shipping_cost != null
+                      ? new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(order.shipment.shipping_cost)
+                      : order.shipping_rate_amount != null
+                        ? new Intl.NumberFormat("es-ES", { style: "currency", currency: order.shipping_rate_currency ?? "EUR" }).format(order.shipping_rate_amount)
+                        : "Pendiente"}
+                  </div>
+                </div>
                 <div className="kv-row">
                   <span className="kv-label">Tracking oficial</span>
                   <div>

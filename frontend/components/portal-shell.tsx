@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { type CSSProperties, type ReactNode, type SVGProps } from "react";
 
 import { LogoutButton } from "@/components/logout-button";
-import { NotificationBell } from "@/components/notification-bell";
+
 import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import { useLayoutState } from "@/components/layout-state-provider";
 import { getTenantBranding } from "@/lib/tenant-branding";
@@ -285,7 +285,6 @@ export function PortalShell({ children, user, shops }: PortalShellProps) {
 
         <div className="tenant-sidebar-footer">
           <div className="tenant-chip" title={user.role}>{user.role}</div>
-          <NotificationBell />
           <button
             className="tenant-nav-link admin-sidebar-logout"
             onClick={toggleTheme}

@@ -8,6 +8,7 @@ import { ShopCatalogManager } from "@/components/shop-catalog-manager";
 import { TenantShopifyPanel } from "@/components/tenant-shopify-panel";
 import { PortalTrackingSettings } from "@/components/portal-tracking-settings";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
+import { PortalBillingPanel } from "@/components/portal-billing-panel";
 import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
 import { SettingsTabs } from "@/components/settings-tabs";
 import { fetchMyClientAccounts, fetchShopCatalogProducts, fetchShopifyIntegrations, fetchOrders } from "@/lib/api";
@@ -16,11 +17,12 @@ import { fetchMyShops, requirePortalUser } from "@/lib/auth";
 import { resolveTenantScope } from "@/lib/tenant-scope";
 
 const PORTAL_TABS = [
-  { id: "account",        label: "Mi cuenta",     icon: "🔐" },
-  { id: "shopify",        label: "Shopify",        icon: "🔗" },
-  { id: "tracking",       label: "Tracking",       icon: "📦" },
-  { id: "webhooks",       label: "Webhooks",       icon: "🔔" },
-  { id: "sustainability", label: "Sostenibilidad", icon: "🌱" },
+  { id: "account",        label: "Mi cuenta",      icon: "🔐" },
+  { id: "shopify",        label: "Shopify",         icon: "🔗" },
+  { id: "tracking",       label: "Tracking",        icon: "📦" },
+  { id: "billing",        label: "Facturación",     icon: "💰" },
+  { id: "webhooks",       label: "Webhooks",        icon: "🔔" },
+  { id: "sustainability", label: "Sostenibilidad",  icon: "🌱" },
 ];
 
 type PortalSettingsPageProps = {
@@ -205,6 +207,22 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
             </Card>
           )}
         </div>
+      )}
+
+      {/* ── Facturación ─────────────────────────────────────────── */}
+      {activeTab === "billing" && (
+        <Card className="stack settings-section-card portal-glass-card">
+          <div className="settings-section-head">
+            <div>
+              <span className="eyebrow">💰 Facturación</span>
+              <h3 className="section-title section-title-small">Costes de envío</h3>
+              <p className="subtitle">
+                Desglose real de lo que cuesta tu servicio logístico: por mes, por tramo de peso y coste medio por envío.
+              </p>
+            </div>
+          </div>
+          <PortalBillingPanel orders={sustainabilityOrders} />
+        </Card>
       )}
 
       {/* ── Webhooks ─────────────────────────────────────────────── */}
