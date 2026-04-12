@@ -265,6 +265,28 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     : buildChart(orders, rangeDays);
   const donutSegments = analytics ? buildDonutSegmentsFromAnalytics(analytics) : buildDonutSegments(orders);
 
+  const timeFilters = buildTimeFilters(range, params.shop_id, employeePeriod);
+
+  const pendingOrders = analytics
+    ? (analytics.shipping.pending_orders ?? 0)
+    : orders.filter((o) => o.status === "pending").length;
+  const readyToShipOrders = analytics
+    ? (analytics.flow.orders_prepared ?? 0)
+    : orders.filter((o) => o.status === "ready_to_ship").length;
+  const shippedOrders = analytics
+    ? analytics.kpis.shipped_orders
+    : orders.filter((o) => o.status === "shipped").length;
+  const deliveredOrders = analytics
+    ? analytics.kpis.delivered_orders
+    : orders.filter((o) => o.status === "delivered").length;
+  const withShipment = analytics
+    ? Math.max(analytics.kpis.total_orders - analytics.operational.orders_without_shipment, 0)
+    : orders.filter((o) => o.shipment).length;
+  const openIncidents = analytics ? analytics.kpis.open_incidents : openIncidentsList.length;
+  const urgentIncidents   = openIncidentsList.filter((i) => i.priority === "urgent" || i.priority === "high").length;
+  const blockedOrders = analytics ? (analytics.operational.blocked_orders ?? 0) : 0;
+  const overdueSlaOrders = analytics ? (analytics.operational.overdue_sla_orders ?? 0) : 0;
+
   const ordersPerDay = analytics?.charts.orders_by_day ?? [];
   const perfByDay = analytics?.shipping_performance_by_day ?? [];
   const avgDeliveryHours = analytics
@@ -306,27 +328,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       tone: "orange" as const,
     },
   ] : undefined;
-  const timeFilters = buildTimeFilters(range, params.shop_id, employeePeriod);
-
-  const pendingOrders = analytics
-    ? (analytics.shipping.pending_orders ?? 0)
-    : orders.filter((o) => o.status === "pending").length;
-  const readyToShipOrders = analytics
-    ? (analytics.flow.orders_prepared ?? 0)
-    : orders.filter((o) => o.status === "ready_to_ship").length;
-  const shippedOrders = analytics
-    ? analytics.kpis.shipped_orders
-    : orders.filter((o) => o.status === "shipped").length;
-  const deliveredOrders = analytics
-    ? analytics.kpis.delivered_orders
-    : orders.filter((o) => o.status === "delivered").length;
-  const withShipment = analytics
-    ? Math.max(analytics.kpis.total_orders - analytics.operational.orders_without_shipment, 0)
-    : orders.filter((o) => o.shipment).length;
-  const openIncidents = analytics ? analytics.kpis.open_incidents : openIncidentsList.length;
-  const urgentIncidents   = openIncidentsList.filter((i) => i.priority === "urgent" || i.priority === "high").length;
-  const blockedOrders = analytics ? (analytics.operational.blocked_orders ?? 0) : 0;
-  const overdueSlaOrders = analytics ? (analytics.operational.overdue_sla_orders ?? 0) : 0;
 
   return (
     <div className="stack">
