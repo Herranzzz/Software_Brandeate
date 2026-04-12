@@ -175,11 +175,13 @@
 
 html {
   font-size: 16px;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--text);
   font-family:
@@ -22321,12 +22323,20 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 @media (max-width: 768px) {
 
+  /* ── Prevent horizontal scroll globally on mobile ──── */
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
   /* ── Shell layout: hide sidebar, full-width content ── */
   .tenant-shell,
   .tenant-shell-collapsed,
   :root[data-sidebar-collapsed="true"] .tenant-shell {
     grid-template-columns: 1fr !important;
     gap: 0 !important;
+    max-width: 100vw;
+    overflow-x: hidden;
   }
 
   .tenant-sidebar {
@@ -22337,10 +22347,15 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   .dashboard-main-admin,
   .tenant-main {
     padding: 16px 14px 90px !important;
+    max-width: 100vw;
+    overflow-x: hidden;
+    box-sizing: border-box;
   }
 
   .tenant-content {
     padding-bottom: 0;
+    overflow-x: hidden;
+    max-width: 100%;
   }
 
   /* ── Bottom tab bar ──────────────────────────────────── */
@@ -22526,6 +22541,44 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
     padding: 12px 0 8px;
     border-top: 1px solid var(--border);
     flex-shrink: 0;
+  }
+
+  /* ── Contain wide elements that cause horizontal scroll ── */
+  .table-wrap,
+  .exp-table-wrap,
+  .portal-recent-table-wrap,
+  .employees-table-wrap,
+  .shipping-rules-table-wrap,
+  .sct-table-card,
+  .inv-table-wrap,
+  .rpt-table-wrap,
+  .ship-control-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+
+  /* Override min-width on tables inside scrollable wrappers */
+  .table-wrap .table,
+  .exp-table-wrap .table,
+  .portal-recent-table-wrap .portal-recent-table,
+  .employees-table-wrap .table,
+  .shipping-rules-table-wrap .table,
+  .inv-table-wrap .table,
+  .rpt-table-wrap .table {
+    min-width: 640px;
+  }
+
+  /* Ensure stack/grid containers don't overflow */
+  .stack,
+  .exp-page,
+  .dash-v2-page,
+  .admin-dashboard,
+  [class*="-page"],
+  [class*="-grid"],
+  [class*="-strip"] {
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   /* ── Page-level layout fixes ─────────────────────────── */
