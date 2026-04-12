@@ -1229,6 +1229,11 @@ _CUT_MARGIN_MM = 20.0  # 2cm cut line from edge
 
 
 def _is_30x40_product(item: "OrderItem") -> bool:
+    # Check variant title first (most reliable: "30x40", "30 X 40 cm", etc.)
+    variant = (item.variant_title or "").strip()
+    if _30X40_PATTERN.search(variant):
+        return True
+    # Fallback: check product name/title
     name = (item.name or item.title or "").strip()
     return bool(_30X40_PATTERN.search(name))
 
