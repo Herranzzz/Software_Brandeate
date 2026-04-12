@@ -20447,66 +20447,55 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   color: var(--muted);
 }
 
-/* ─── Portal Quick Actions ───────────────────────────────────────────────── */
-.portal-quick-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-3);
-}
-
-.portal-quick-action-card {
+/* ─── Portal Quick Actions (pill bar) ────────────────────────────────────── */
+.pqa-bar {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.pqa-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: 99px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
   text-decoration: none;
-  color: var(--text-primary);
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
   cursor: pointer;
 }
 
-.portal-quick-action-card:hover {
+.pqa-pill:hover {
+  background: var(--accent);
   border-color: var(--accent);
-  box-shadow: 0 4px 12px rgba(var(--accent-rgb, 99 102 241) / 0.12);
-  transform: translateY(-1px);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb, 99 102 241) / 0.25);
 }
 
-.pqa-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
+.pqa-pill-icon {
+  font-size: 0.875rem;
+  line-height: 1;
 }
 
-.pqa-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
+.pqa-pill-label {
+  line-height: 1;
 }
 
-.pqa-title {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.pqa-desc {
-  font-size: 0.8125rem;
-  color: var(--text-muted);
-}
-
-.pqa-arrow {
-  color: var(--text-muted);
-  font-size: 1rem;
-  flex-shrink: 0;
-  transition: transform 0.15s;
-}
-
-.portal-quick-action-card:hover .pqa-arrow {
-  transform: translateX(3px);
+@media (max-width: 480px) {
+  .pqa-bar {
+    gap: 6px;
+  }
+  .pqa-pill {
+    padding: 5px 10px;
+    font-size: 0.75rem;
+  }
 }
 
 /* ─── Bulk Order Actions ─────────────────────────────────────────────────── */

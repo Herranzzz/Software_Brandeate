@@ -1,57 +1,55 @@
 import Link from "next/link";
 
 type PortalQuickActionsProps = {
-  shopQuery: string; // e.g. "?shop_id=1" or ""
+  shopQuery: string;
 };
 
 const ACTIONS = [
   {
     icon: "📋",
-    title: "Mis pedidos",
-    description: "Consulta el estado de todos tus pedidos",
+    title: "Pedidos",
     href: (q: string) => `/portal/orders${q}`,
-    tone: "accent",
   },
   {
-    icon: "🚚",
-    title: "Analítica de envíos",
-    description: "Estado de expediciones y tracking",
+    icon: "📊",
+    title: "Analítica",
     href: (q: string) => `/portal/shipments${q}`,
-    tone: "blue",
   },
   {
     icon: "↩️",
-    title: "Nueva devolución",
-    description: "Solicita la gestión de una devolución",
+    title: "Devoluciones",
     href: (q: string) => `/portal/returns${q}`,
-    tone: "orange",
   },
   {
     icon: "⚠️",
-    title: "Reportar incidencia",
-    description: "Comunica un problema con un pedido",
+    title: "Incidencias",
     href: (q: string) => `/portal/incidencias${q}`,
-    tone: "danger",
+  },
+  {
+    icon: "📦",
+    title: "Inventario",
+    href: (q: string) => `/portal/inventory${q}`,
+  },
+  {
+    icon: "⚙️",
+    title: "Ajustes",
+    href: (q: string) => `/portal/settings${q ? q + "&tab=shopify" : "?tab=shopify"}`,
   },
 ];
 
 export function PortalQuickActions({ shopQuery }: PortalQuickActionsProps) {
   return (
-    <div className="portal-quick-actions">
+    <nav className="pqa-bar" aria-label="Accesos rápidos">
       {ACTIONS.map((action) => (
         <Link
           key={action.title}
-          className={`portal-quick-action-card pqa-${action.tone}`}
+          className="pqa-pill"
           href={action.href(shopQuery)}
         >
-          <span className="pqa-icon">{action.icon}</span>
-          <div className="pqa-copy">
-            <strong className="pqa-title">{action.title}</strong>
-            <span className="pqa-desc">{action.description}</span>
-          </div>
-          <span className="pqa-arrow">→</span>
+          <span className="pqa-pill-icon">{action.icon}</span>
+          <span className="pqa-pill-label">{action.title}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
