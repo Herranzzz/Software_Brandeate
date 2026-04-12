@@ -1294,9 +1294,8 @@ a.admin-orders-row:hover {
   justify-content: center;
   padding: 32px 24px;
   background:
-    radial-gradient(ellipse at 20% 50%, rgba(var(--accent-rgb), 0.09), transparent 52%),
-    radial-gradient(ellipse at 80% 20%, rgba(var(--accent-rgb), 0.06), transparent 42%),
-    radial-gradient(ellipse at 60% 85%, rgba(var(--accent-rgb), 0.04), transparent 38%),
+    radial-gradient(ellipse at 20% 50%, rgba(var(--accent-rgb), 0.05), transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(var(--accent-rgb), 0.04), transparent 40%),
     var(--bg);
 }
 
@@ -1594,25 +1593,21 @@ a.admin-orders-row:hover {
   line-height: 1.45;
 }
 
-.kpi-accent { background: color-mix(in srgb, var(--accent) 5%, var(--surface)); border-color: rgba(var(--accent-rgb), 0.18); }
 .kpi-accent::before { background: linear-gradient(90deg, var(--accent), var(--accent-strong)); }
 .kpi-accent .kpi-dot { background: var(--accent); }
-.kpi-accent:hover { border-color: rgba(var(--accent-rgb), 0.32); box-shadow: var(--shadow), 0 0 0 1px rgba(var(--accent-rgb), 0.10); }
+.kpi-accent:hover { border-color: rgba(var(--accent-rgb), 0.24); }
 
-.kpi-warning { background: color-mix(in srgb, var(--warning) 5%, var(--surface)); border-color: rgba(217, 119, 6, 0.18); }
 .kpi-warning::before { background: linear-gradient(90deg, var(--warning), #b45309); }
 .kpi-warning .kpi-dot { background: var(--warning); }
-.kpi-warning:hover { border-color: rgba(217, 119, 6, 0.32); }
+.kpi-warning:hover { border-color: rgba(217, 119, 6, 0.22); }
 
-.kpi-success { background: color-mix(in srgb, var(--success) 5%, var(--surface)); border-color: rgba(5, 150, 105, 0.18); }
 .kpi-success::before { background: linear-gradient(90deg, var(--success), #047857); }
 .kpi-success .kpi-dot { background: var(--success); }
-.kpi-success:hover { border-color: rgba(5, 150, 105, 0.32); }
+.kpi-success:hover { border-color: rgba(5, 150, 105, 0.22); }
 
-.kpi-danger { background: color-mix(in srgb, var(--danger) 5%, var(--surface)); border-color: rgba(220, 38, 38, 0.18); }
 .kpi-danger::before { background: linear-gradient(90deg, var(--danger), #b91c1c); }
 .kpi-danger .kpi-dot { background: var(--danger); }
-.kpi-danger:hover { border-color: rgba(220, 38, 38, 0.32); }
+.kpi-danger:hover { border-color: rgba(220, 38, 38, 0.22); }
 
 .dashboard-grid {
   display: grid;
@@ -9276,10 +9271,6 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   box-shadow: var(--shadow-soft);
 }
 
-:root[data-theme="dark"] .kpi-accent { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border-color: rgba(var(--accent-rgb), 0.25); }
-:root[data-theme="dark"] .kpi-warning { background: color-mix(in srgb, var(--warning) 10%, var(--surface)); border-color: rgba(251, 191, 36, 0.25); }
-:root[data-theme="dark"] .kpi-success { background: color-mix(in srgb, var(--success) 10%, var(--surface)); border-color: rgba(52, 211, 153, 0.25); }
-:root[data-theme="dark"] .kpi-danger { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border-color: rgba(248, 113, 113, 0.25); }
 
 :root[data-theme="dark"] .chart-card,
 :root[data-theme="dark"] .shipments-control-donut-card,
