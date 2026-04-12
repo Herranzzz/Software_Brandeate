@@ -18485,7 +18485,12 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   flex: 1;
   border-radius: 3px 3px 0 0;
   min-height: 3px;
-  transition: opacity .15s;
+  transition: opacity .15s, transform .1s;
+  cursor: default;
+}
+.dash-mini-chart-bar.is-hover {
+  transform: scaleY(1.06);
+  transform-origin: bottom;
 }
 
 .dash-mini-chart-hint {
@@ -18575,10 +18580,17 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   transition: opacity 150ms ease, transform 150ms ease;
 }
 
-.dash-chart-col-v2:hover .dash-chart-bar-v2 {
+.dash-chart-col-v2:hover .dash-chart-bar-v2,
+.dash-chart-col-v2.is-hover .dash-chart-bar-v2 {
   opacity: 1;
   transform: scaleX(1.06);
   background: linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 75%, transparent) 100%);
+}
+
+.dash-chart-col-v2:hover .dash-chart-val-label,
+.dash-chart-col-v2.is-hover .dash-chart-val-label {
+  color: var(--accent);
+  font-size: 0.75rem;
 }
 
 .dash-chart-day-label {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Card } from "@/components/card";
+import { DashVolumeChart, DashMiniSparklineCard } from "@/components/dashboard-charts";
 import { ShipmentDonut, type ShipmentSegment } from "@/components/shipment-donut";
 
 type DashboardTone = "accent" | "warning" | "danger" | "default" | "success" | "blue" | "purple";
@@ -128,7 +129,6 @@ export function SharedDashboardView({
   noteBody,
   noteActions,
 }: SharedDashboardViewProps) {
-  const maxValue = Math.max(1, ...chart.map((p) => p.value));
   const chartTotal = chart.reduce((s, p) => s + p.value, 0);
   const donutTotal = donutSegments?.reduce((sum, seg) => sum + seg.value, 0) ?? 0;
   const highPriorityIncidents = incidents.filter(
@@ -258,49 +258,13 @@ export function SharedDashboardView({
 
         {/* Daily / hourly orders chart */}
         <Card className="dash-chart-card dash-chart-card-v2">
-          <div className="dash-chart-header">
-            <div className="exp-section-head" style={{ marginBottom: 0 }}>
-              <div>
-                <span className="eyebrow">Volumen</span>
-                <h3 className="exp-card-title">{isHourly ? "Pedidos por hora" : "Pedidos por día"}</h3>
-              </div>
-            </div>
-            <div className="dash-chart-total">
-              <strong className="dash-chart-total-num">{chartTotal}</strong>
-              <span className="dash-chart-total-label">en el periodo</span>
-            </div>
-          </div>
-
-          <div className="dash-chart-bars-v2">
-            {chart.map((point, idx) => {
-              const pct = Math.max(point.value > 0 ? 8 : 2, (point.value / maxValue) * 100);
-              // Daily: show labels when ≤10 bars; hourly: show every 6h (0,6,12,18)
-              const showDayLabel  = !isHourly && chart.length <= 10;
-              const showHourLabel = isHourly && (idx % 6 === 0);
-              const axisLabel = isHourly
-                ? (showHourLabel ? point.day : "")
-                : (showDayLabel ? point.day : point.dayKey.slice(8));
-              return (
-                <div className="dash-chart-col-v2" key={point.dayKey}>
-                  <span className="dash-chart-val-label">{!isHourly && showDayLabel && point.value > 0 ? point.value : ""}</span>
-                  <div className="dash-chart-bar-wrap-v2">
-                    <div
-                      className="dash-chart-bar-v2"
-                      style={{ height: `${pct}%` }}
-                      title={`${point.day}: ${point.value} pedidos`}
-                    />
-                  </div>
-                  <span className="dash-chart-day-label">{axisLabel}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="dash-chart-footer-v2">
-            <Link className="exp-period-pill" href={chartLinkHref}>
-              {chartLinkLabel} →
-            </Link>
-          </div>
+          <DashVolumeChart
+            chart={chart}
+            isHourly={isHourly}
+            chartTotal={chartTotal}
+            chartLinkHref={chartLinkHref}
+            chartLinkLabel={chartLinkLabel}
+          />
         </Card>
 
       </section>
@@ -308,40 +272,9 @@ export function SharedDashboardView({
       {/* ── Mini metric charts ───────────────────────────────── */}
       {extraCharts && extraCharts.length > 0 && (
         <section className="dash-mini-charts-strip">
-          {extraCharts.map((mc) => {
-            const pts = mc.points ?? [];
-            const maxPt = Math.max(...pts, 1);
-            const toneColor: Record<string, string> = {
-              blue: "#3b82f6", green: "#10b981", red: "#ef4444",
-              orange: "#f97316", slate: "#94a3b8",
-            };
-            const color = toneColor[mc.tone ?? "blue"];
-            return (
-              <div className="dash-mini-chart-card" key={mc.label}>
-                <span className="dash-mini-chart-eyebrow">{mc.eyebrow}</span>
-                <strong className="dash-mini-chart-value" style={{ color }}>
-                  {mc.value === -1 ? mc.label : mc.value.toLocaleString("es-ES")}
-                </strong>
-                {mc.value !== -1 && <span className="dash-mini-chart-label">{mc.label}</span>}
-                {pts.length > 0 && (
-                  <div className="dash-mini-chart-bars">
-                    {pts.slice(-14).map((v, i) => (
-                      <div
-                        key={i}
-                        className="dash-mini-chart-bar"
-                        style={{
-                          height: `${Math.max(v > 0 ? 20 : 3, (v / maxPt) * 100)}%`,
-                          background: color,
-                          opacity: v > 0 ? 0.75 : 0.15,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-                <span className="dash-mini-chart-hint">{mc.hint}</span>
-              </div>
-            );
-          })}
+          {extraCharts.map((mc) => (
+            <DashMiniSparklineCard key={mc.eyebrow} {...mc} />
+          ))}
         </section>
       )}
 
