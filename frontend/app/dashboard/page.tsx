@@ -17,7 +17,7 @@ type DashboardPageProps = {
   }>;
 };
 
-type RangePreset = "today" | "7d" | "30d" | "90d";
+type RangePreset = "today" | "yesterday" | "7d" | "30d" | "90d";
 const INCIDENTS_SYNC_PERIOD_DAYS = 14;
 const BUSINESS_TZ = "Europe/Madrid";
 
@@ -27,13 +27,14 @@ function toBusinessDateString(d: Date): string {
 }
 
 function resolveRangePreset(value?: string): RangePreset {
-  if (value === "today" || value === "30d" || value === "90d") return value;
+  if (value === "today" || value === "yesterday" || value === "30d" || value === "90d") return value;
   return "7d";
 }
 
 function getRangeDays(range: RangePreset) {
   switch (range) {
     case "today":
+    case "yesterday":
       return 1;
     case "30d":
       return 30;
@@ -57,10 +58,11 @@ function isWithinLastDays(value: string, days: number) {
 function buildTimeFilters(range: RangePreset, shopId?: string, employeePeriod?: EmployeeMetricsPeriod) {
   const base = "/dashboard";
   const filters: Array<{ label: string; value: RangePreset }> = [
-    { label: "Hoy", value: "today" },
-    { label: "7 días", value: "7d" },
-    { label: "30 días", value: "30d" },
-    { label: "90 días", value: "90d" },
+    { label: "Hoy",     value: "today"     },
+    { label: "Ayer",    value: "yesterday" },
+    { label: "7 días",  value: "7d"        },
+    { label: "30 días", value: "30d"       },
+    { label: "90 días", value: "90d"       },
   ];
 
   return filters.map((filter) => {
@@ -160,14 +162,29 @@ function buildChart(orders: Awaited<ReturnType<typeof fetchOrders>>["orders"], d
   return points;
 }
 
-function resolveRangeDates(days: number) {
+function resolveRangeDates(range: RangePreset, days: number) {
   const now = new Date();
+  if (range === "yesterday") {
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yd = toBusinessDateString(yesterday);
+    return { dateFrom: yd, dateTo: yd };
+  }
   const from = new Date(now);
   from.setDate(from.getDate() - (days - 1));
   return {
     dateFrom: toBusinessDateString(from),
     dateTo: toBusinessDateString(now),
   };
+}
+
+function buildHourlyChart(analytics: AnalyticsOverview) {
+  const hourlyData = analytics.charts.orders_by_hour ?? [];
+  return hourlyData.map((point) => ({
+    dayKey: `h${point.hour}`,
+    day: `${String(point.hour).padStart(2, "0")}h`,
+    value: point.total,
+  }));
 }
 
 function buildChartFromAnalytics(analytics: AnalyticsOverview, days: number) {
@@ -190,7 +207,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const range = resolveRangePreset(params.range);
   const employeePeriod = resolveEmployeePeriod(params.employee_period);
   const rangeDays = getRangeDays(range);
-  const { dateFrom, dateTo } = resolveRangeDates(rangeDays);
+  const { dateFrom, dateTo } = resolveRangeDates(range, rangeDays);
   const incidentsLinkParams = new URLSearchParams({
     status: "open",
     period: "14d",
@@ -240,8 +257,51 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const orders = recentOrdersPayload.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
   const openIncidentsList = incidents;
   const activeShop = shops.find((shop) => String(shop.id) === params.shop_id);
-  const chart = analytics ? buildChartFromAnalytics(analytics, rangeDays) : buildChart(orders, rangeDays);
+  const isHourly = range === "today" || range === "yesterday";
+  const chart = analytics
+    ? (isHourly && (analytics.charts.orders_by_hour?.length ?? 0) > 0
+        ? buildHourlyChart(analytics)
+        : buildChartFromAnalytics(analytics, rangeDays))
+    : buildChart(orders, rangeDays);
   const donutSegments = analytics ? buildDonutSegmentsFromAnalytics(analytics) : buildDonutSegments(orders);
+
+  const ordersPerDay = analytics?.charts.orders_by_day ?? [];
+  const perfByDay = analytics?.shipping_performance_by_day ?? [];
+  const avgDeliveryHours = analytics
+    ? (analytics.flow.avg_order_to_delivered_hours ?? analytics.flow.avg_total_hours ?? null)
+    : null;
+  const avgDeliveryLabel = avgDeliveryHours === null
+    ? "—"
+    : avgDeliveryHours < 24
+      ? `${Math.round(avgDeliveryHours)}h`
+      : `${(avgDeliveryHours / 24).toFixed(1).replace(".", ",")}d`;
+
+  const extraCharts = analytics ? [
+    {
+      eyebrow: "Preparación",
+      label: "Etiquetas creadas",
+      value: analytics.flow.orders_prepared ?? readyToShipOrders,
+      hint: `${shippedOrders} ya expedidos`,
+      points: ordersPerDay.map((p) => p.total),
+      tone: "blue" as const,
+    },
+    {
+      eyebrow: "Resultado",
+      label: "Entregados",
+      value: deliveredOrders,
+      hint: "ciclo cerrado",
+      points: ordersPerDay.map((p) => p.delivered ?? 0),
+      tone: "green" as const,
+    },
+    {
+      eyebrow: "Tiempo medio entrega",
+      label: avgDeliveryLabel,
+      value: -1, // special: use label directly
+      hint: "pedido → entregado",
+      points: perfByDay.map((p) => Math.round(p.avg_total_hours ?? 0)),
+      tone: "orange" as const,
+    },
+  ] : undefined;
   const timeFilters = buildTimeFilters(range, params.shop_id, employeePeriod);
 
   const pendingOrders = analytics
@@ -274,6 +334,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       <SlaAlertsBanner basePath="/orders" />
       <SharedDashboardView
       chart={chart}
+      isHourly={isHourly}
+      extraCharts={extraCharts}
       donutSegments={donutSegments}
       chartLinkHref="/orders"
       chartLinkLabel="Ir a pedidos"
