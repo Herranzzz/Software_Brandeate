@@ -175,7 +175,7 @@ const navGroups = [
     items: [
       { href: "/dashboard", label: "Dashboard", icon: DashboardIcon },
       { href: "/orders", label: "Pedidos", icon: OrdersIcon },
-      { href: "/shipments", label: "Expediciones", icon: ShipmentsIcon },
+      { href: "/shipments", label: "Analítica", icon: ShipmentsIcon },
     ],
   },
   {
@@ -203,7 +203,6 @@ const navGroups = [
     items: [
       { href: "/inventario", label: "Inventario", icon: InventarioIcon },
       { href: "/reporting", label: "Informes", icon: ReportingIcon },
-      { href: "/sustainability", label: "Sostenibilidad", icon: SustainabilityAdminIcon },
     ],
   },
 ];

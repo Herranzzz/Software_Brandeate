@@ -9,6 +9,7 @@ import { ShopCatalogManager } from "@/components/shop-catalog-manager";
 import { TenantProfileForm } from "@/components/tenant-profile-form";
 import { TenantShopifyPanel } from "@/components/tenant-shopify-panel";
 import { PortalTrackingSettings } from "@/components/portal-tracking-settings";
+import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
 import { fetchMyClientAccounts, fetchShopCatalogProducts, fetchShopifyIntegrations, fetchOrders } from "@/lib/api";
 import type { Order } from "@/lib/types";
@@ -204,6 +205,19 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
               initialConfig={primaryShop.tracking_config ?? null}
               publicTrackingExample={null}
             />
+          </Card>
+
+          <Card className="stack settings-section-card portal-glass-card">
+            <div className="settings-section-head">
+              <div>
+                <span className="eyebrow">🔔 Integraciones</span>
+                <h3 className="section-title section-title-small">Webhooks de salida</h3>
+                <p className="subtitle">
+                  Notifica automáticamente a sistemas externos cuando ocurren eventos: cambios de estado, nuevos envíos o incidencias.
+                </p>
+              </div>
+            </div>
+            <WebhookSettingsPanel shopId={primaryShop.id} />
           </Card>
         </>
       ) : (

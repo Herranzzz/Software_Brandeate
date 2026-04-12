@@ -16,6 +16,7 @@ from app.models.shop_integration import ShopIntegration
 from app.models.shop_sync_event import ShopSyncEvent
 from app.models.user import User, UserRole, UserShop
 from app.models.webhook_endpoint import WebhookEndpoint
+from app.models.carrier_config import CarrierConfig
 
 __all__ = [
     "ActivityLog",
@@ -61,4 +62,5 @@ __all__ = [
     "InvoiceItem",
     "InvoiceStatus",
     "WebhookEndpoint",
+    "CarrierConfig",
 ]

@@ -28,6 +28,8 @@ import type {
   ShopCatalogProduct,
   ShopIntegration,
   ShopifyCatalogSyncResult,
+  CarrierInfo,
+  CarrierConfig,
 } from "@/lib/types";
 
 
@@ -1014,4 +1016,34 @@ export async function fetchInventorySyncStatus(): Promise<
   const headers = await buildAuthHeaders();
   const res = await fetch(apiUrl("/inventory/sync-status"), { headers });
   return parseResponse(res);
+}
+
+// Carriers
+export async function fetchAvailableCarriers(): Promise<CarrierInfo[]> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl("/carrier-configs/available"), { headers, cache: "no-store" });
+  return parseResponse<CarrierInfo[]>(res);
+}
+
+export async function fetchCarrierConfigs(shopId?: number): Promise<CarrierConfig[]> {
+  const headers = await buildAuthHeaders();
+  const url = shopId ? apiUrl(`/carrier-configs?shop_id=${shopId}`) : apiUrl("/carrier-configs");
+  const res = await fetch(url, { headers, cache: "no-store" });
+  return parseResponse<CarrierConfig[]>(res);
+}
+
+export async function upsertCarrierConfig(body: {
+  shop_id: number;
+  carrier_code: string;
+  is_enabled: boolean;
+  config_json?: Record<string, unknown> | null;
+}): Promise<CarrierConfig> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl("/carrier-configs"), {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  return parseResponse<CarrierConfig>(res);
 }

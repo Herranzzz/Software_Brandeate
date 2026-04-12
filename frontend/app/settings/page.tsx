@@ -5,9 +5,12 @@ import { PageHeader } from "@/components/page-header";
 import { ShopShippingSettingsForm } from "@/components/shop-shipping-settings-form";
 import { ShippingRulesManager } from "@/components/shipping-rules-manager";
 import { ShopifySyncPanel } from "@/components/shopify-sync-panel";
+import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
-import { fetchShops, fetchShopifyIntegrations } from "@/lib/api";
+import { CarrierSettingsPanel } from "@/components/carrier-settings-panel";
+import { fetchOrders, fetchShops, fetchShopifyIntegrations } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
+import type { Order } from "@/lib/types";
 import { formatDateTime } from "@/lib/format";
 import { getTenantBranding } from "@/lib/tenant-branding";
 import Link from "next/link";
@@ -31,14 +34,19 @@ function renderSyncSummary(summary: Record<string, unknown> | null) {
 
 
 export default async function SettingsPage() {
-  const [userResult, shopsResult, integrationsResult] = await Promise.allSettled([
+  const [userResult, shopsResult, integrationsResult, ordersResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchShops(),
     fetchShopifyIntegrations(),
+    fetchOrders({ page: 1, per_page: 500 }).catch(() => ({ orders: [] })),
   ]);
   if (userResult.status === "rejected") throw userResult.reason;
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
+  const sustainabilityOrders: Order[] =
+    ordersResult.status === "fulfilled" && ordersResult.value
+      ? ((ordersResult.value as { orders?: Order[] }).orders ?? [])
+      : [];
 
   return (
     <div className="stack">
@@ -242,6 +250,43 @@ export default async function SettingsPage() {
           </div>
         </Card>
       )}
+
+      {/* Carriers */}
+      {shops.length > 0 && (
+        <Card>
+          <div className="card-header">
+            <span className="eyebrow">Transportistas</span>
+            <h3 className="section-title section-title-small">Configuración de carriers</h3>
+            <p className="subtitle">
+              Activa o desactiva integraciones de transportista por tienda. Los carriers activos aparecerán en la selección de tarifas al gestionar envíos.
+            </p>
+          </div>
+          <div className="stack">
+            {shops.map((shop) => (
+              <div key={shop.id}>
+                {shops.length > 1 && (
+                  <span className="eyebrow" style={{ marginBottom: 8, display: "block" }}>{shop.name}</span>
+                )}
+                <CarrierSettingsPanel shopId={shop.id} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Sostenibilidad */}
+      <Card className="stack settings-section-card">
+        <div className="settings-section-head">
+          <div>
+            <span className="eyebrow">🌱 Sostenibilidad</span>
+            <h3 className="section-title section-title-small">Huella de carbono logística</h3>
+            <p className="subtitle">
+              Estimación de emisiones CO₂ por envío, comparativa de carriers y badge Brandeate Green por cliente.
+            </p>
+          </div>
+        </div>
+        <PortalSustainabilityPanel orders={sustainabilityOrders} />
+      </Card>
     </div>
   );
 }

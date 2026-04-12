@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from app.models import Order, ShippingRateQuote, ShippingQuoteSource
+from app.services.carriers import get_all_carriers
 
 
 @dataclass
@@ -34,53 +35,34 @@ class LiveRateQuoteData:
 
 
 def get_live_rates(context: LiveRateContext) -> list[LiveRateQuoteData]:
-    """Return mock quotes for now. Swap with carrier integrations later."""
-    base_amount = 4.9 if context.destination_country_code.upper() == "ES" else 9.5
-    if context.is_personalized:
-        base_amount += 1.2
-
-    weight_modifier = 0.0
-    if context.weight_kg:
-        weight_modifier = max(0.0, context.weight_kg - 1.0) * 0.7
-
-    return [
-        LiveRateQuoteData(
-            carrier="CTT",
-            service_code="C24",
-            service_name="CTT 24H",
-            delivery_type="home",
-            amount=round(base_amount + weight_modifier, 2),
-            currency="EUR",
-            estimated_days_min=1,
-            estimated_days_max=2,
-            weight_tier_code=context.weight_tier_code,
-            source=ShippingQuoteSource.mock,
-        ),
-        LiveRateQuoteData(
-            carrier="CTT",
-            service_code="C48",
-            service_name="CTT 48H",
-            delivery_type="home",
-            amount=round(base_amount - 0.8 + weight_modifier, 2),
-            currency="EUR",
-            estimated_days_min=2,
-            estimated_days_max=3,
-            weight_tier_code=context.weight_tier_code,
-            source=ShippingQuoteSource.mock,
-        ),
-        LiveRateQuoteData(
-            carrier="CTT",
-            service_code="CTT_PICKUP",
-            service_name="CTT Punto de recogida",
-            delivery_type="pickup_point",
-            amount=round(base_amount - 1.2 + weight_modifier, 2),
-            currency="EUR",
-            estimated_days_min=2,
-            estimated_days_max=4,
-            weight_tier_code=context.weight_tier_code,
-            source=ShippingQuoteSource.mock,
-        ),
-    ]
+    """Get rates from all configured/active carriers."""
+    results = []
+    for provider in get_all_carriers():
+        try:
+            quotes = provider.get_rates(
+                shop_id=context.shop_id,
+                weight_kg=context.weight_kg or 1.0,
+                destination_country=context.destination_country_code,
+                destination_postal_code=context.destination_postal_code,
+                destination_city=context.destination_city,
+                is_personalized=context.is_personalized or False,
+            )
+            for q in quotes:
+                results.append(LiveRateQuoteData(
+                    carrier=q.carrier_code.upper(),
+                    service_code=q.service_code,
+                    service_name=q.service_name,
+                    delivery_type=q.delivery_type,
+                    amount=q.amount,
+                    currency=q.currency,
+                    estimated_days_min=q.estimated_days_min,
+                    estimated_days_max=q.estimated_days_max,
+                    weight_tier_code=q.weight_tier_code or context.weight_tier_code,
+                    source=ShippingQuoteSource.ctt if q.carrier_code == "ctt" else ShippingQuoteSource.mock,
+                ))
+        except Exception:
+            continue
+    return results
 
 
 def store_quotes(

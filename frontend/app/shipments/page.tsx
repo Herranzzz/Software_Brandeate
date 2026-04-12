@@ -1,3 +1,4 @@
+import { PortalOrderSearch } from "@/components/portal-order-search";
 import { PortalSyncButton } from "@/components/portal-sync-button";
 import {
   SharedShipmentsView,
@@ -5,7 +6,7 @@ import {
   getShipmentDateRange,
   type ShipmentPeriod,
 } from "@/components/shared-shipments-view";
-import { fetchAnalyticsOverview, fetchShopifyIntegrations, fetchShops } from "@/lib/api";
+import { fetchAnalyticsOverview, fetchOrders, fetchShopifyIntegrations, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 
 type ShipmentsPageProps = {
@@ -15,6 +16,7 @@ type ShipmentsPageProps = {
     date_from?: string;
     date_to?: string;
     shipping_status?: string;
+    q?: string;
   }>;
 };
 
@@ -31,8 +33,9 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
   const defaultRange = period === "custom" ? getDefaultShipmentDateRange() : getShipmentDateRange(period);
   const dateFrom = params.date_from ?? defaultRange.dateFrom;
   const dateTo = params.date_to ?? defaultRange.dateTo;
+  const searchQuery = params.q?.trim() ?? "";
 
-  const [userResult, shopsResult, integrationsResult, analyticsResult] = await Promise.allSettled([
+  const [userResult, shopsResult, integrationsResult, analyticsResult, searchResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchShops(),
     fetchShopifyIntegrations(),
@@ -42,29 +45,52 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
       date_to: dateTo,
       shipping_status: shippingStatus === "all" ? undefined : shippingStatus,
     }),
+    searchQuery
+      ? fetchOrders({
+          page: 1,
+          per_page: 20,
+          q: searchQuery,
+          ...(params.shop_id ? { shop_id: Number(params.shop_id) } : {}),
+        })
+      : Promise.resolve(null),
   ]);
   if (userResult.status === "rejected") throw userResult.reason;
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
   const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : null;
+  const searchOrders =
+    searchResult.status === "fulfilled" && searchResult.value
+      ? searchResult.value.orders
+      : null;
 
   return (
-    <SharedShipmentsView
-      allowAllShops
-      analytics={analytics}
-      basePath="/shipments"
-      dateFrom={dateFrom}
-      dateTo={dateTo}
-      heroEyebrow="Expediciones"
-      integrations={integrations}
-      period={period}
-      selectedShopId={params.shop_id ?? ""}
-      selectedShippingStatus={shippingStatus}
-      shops={shops}
-      syncHint="Selecciona una tienda para sincronizar."
-      syncSlot={params.shop_id ? <PortalSyncButton shopId={Number(params.shop_id)} /> : undefined}
-      subtitle="Panorama global de envíos, SLA, aging y puntos de fricción, sin mesa operativa ni sesgo por muestreo."
-      title="Analytics de expediciones"
-    />
+    <div className="stack">
+      {/* Order search panel */}
+      <PortalOrderSearch
+        basePath="/shipments"
+        initialQuery={searchQuery}
+        orders={searchOrders}
+        selectedShopId={params.shop_id ? Number(params.shop_id) : null}
+      />
+
+      {/* Analytics view */}
+      <SharedShipmentsView
+        allowAllShops
+        analytics={analytics}
+        basePath="/shipments"
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        heroEyebrow="Analítica"
+        integrations={integrations}
+        period={period}
+        selectedShopId={params.shop_id ?? ""}
+        selectedShippingStatus={shippingStatus}
+        shops={shops}
+        syncHint="Selecciona una tienda para sincronizar."
+        syncSlot={params.shop_id ? <PortalSyncButton shopId={Number(params.shop_id)} /> : undefined}
+        subtitle="Panorama global de envíos, SLA, aging y puntos de fricción, sin mesa operativa ni sesgo por muestreo."
+        title="Analítica de expediciones"
+      />
+    </div>
   );
 }

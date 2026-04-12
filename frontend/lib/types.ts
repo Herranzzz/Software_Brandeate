@@ -946,3 +946,20 @@ export type ActivityLog = {
   detail_json: Record<string, unknown> | null;
   created_at: string;
 };
+
+export type CarrierInfo = {
+  code: string;
+  name: string;
+  supports_live_rates: boolean;
+  supports_label_creation: boolean;
+  supports_tracking: boolean;
+};
+
+export type CarrierConfig = {
+  id: number;
+  shop_id: number;
+  carrier_code: string;
+  carrier_name: string;
+  is_enabled: boolean;
+  config_json: Record<string, unknown> | null;
+};
