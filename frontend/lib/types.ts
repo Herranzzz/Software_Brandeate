@@ -298,6 +298,8 @@ export type TrackingConfig = {
   discount_text?: string;
   message?: string;
   display_name?: string;
+  review_url?: string;
+  review_label?: string;
 };
 
 export type ShopShippingSettings = {

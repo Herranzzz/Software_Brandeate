@@ -30,6 +30,8 @@ export function PortalTrackingSettings({
   const [discountText, setDiscountText] = useState(initialConfig?.discount_text ?? "");
   const [message, setMessage] = useState(initialConfig?.message ?? "");
   const [displayName, setDisplayName] = useState(initialConfig?.display_name ?? "");
+  const [reviewUrl, setReviewUrl] = useState(initialConfig?.review_url ?? "");
+  const [reviewLabel, setReviewLabel] = useState(initialConfig?.review_label ?? "");
 
   function handleSave() {
     startTransition(async () => {
@@ -43,6 +45,8 @@ export function PortalTrackingSettings({
           discount_text: discountText.trim() || undefined,
           message: message.trim() || undefined,
           display_name: displayName.trim() || undefined,
+          review_url: reviewUrl.trim() || undefined,
+          review_label: reviewLabel.trim() || undefined,
         };
         await updateShopTrackingConfig(shopId, config);
         toast("Configuración de tracking guardada", "success");
@@ -143,6 +147,37 @@ export function PortalTrackingSettings({
           value={message}
         />
         <small className="table-secondary">Aparece encima del botón CTA.</small>
+      </div>
+
+      {/* ── Reseñas ─────────────────────────────────────────── */}
+      <div className="trk-settings-divider">
+        <span>⭐ Solicitar reseña al entregar</span>
+      </div>
+      <p className="table-secondary" style={{ marginTop: -8 }}>
+        Cuando el pedido esté entregado, se mostrará una pantalla pidiendo al cliente que deje una reseña.
+      </p>
+      <div className="crm-form-grid">
+        <div className="field">
+          <label htmlFor="trk-review-url">URL de reseñas</label>
+          <input
+            id="trk-review-url"
+            onChange={(e) => setReviewUrl(e.target.value)}
+            placeholder="https://g.page/r/tu-negocio/review"
+            type="url"
+            value={reviewUrl}
+          />
+          <small className="table-secondary">Google Reviews, Trustpilot, tu web… Deja vacío para no mostrar la pantalla de reseña.</small>
+        </div>
+        <div className="field">
+          <label htmlFor="trk-review-label">Texto del botón de reseña</label>
+          <input
+            id="trk-review-label"
+            onChange={(e) => setReviewLabel(e.target.value)}
+            placeholder="Dejar reseña en Google"
+            value={reviewLabel}
+          />
+          <small className="table-secondary">Por defecto: &quot;Dejar una reseña&quot;.</small>
+        </div>
       </div>
 
       <div className="actions-row">

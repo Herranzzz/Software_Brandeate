@@ -37,7 +37,6 @@ export function TrackingCTASection({ shopSlug, shopName, accentColor, branding, 
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    // Prefer localStorage config (set via portal settings), fall back to static branding
     try {
       const raw = localStorage.getItem(CTA_STORAGE_KEY);
       if (raw) {
@@ -46,12 +45,11 @@ export function TrackingCTASection({ shopSlug, shopName, accentColor, branding, 
         if (local) { setConfig(local); return; }
       }
     } catch { /* ignore */ }
-    // Fall back to static branding from tenant-branding.ts
     if (branding) setConfig(branding);
   }, [shopSlug, branding]);
 
   if (!config) return null;
-  const hasAnything = config.ctaUrl || config.discountCode || config.message;
+  const hasAnything = config.ctaUrl || config.discountCode || config.message || (isDelivered && config.reviewUrl);
   if (!hasAnything) return null;
 
   async function copyCode(code: string) {
@@ -62,44 +60,61 @@ export function TrackingCTASection({ shopSlug, shopName, accentColor, branding, 
 
   return (
     <section className="trk-cta-section" style={{ "--tracking-accent": accentColor } as React.CSSProperties}>
-      {config.message && (
-        <p className="trk-cta-message">{config.message}</p>
-      )}
 
-      {!config.message && isDelivered && (
-        <p className="trk-cta-message">
-          Gracias por tu compra en <strong>{shopName}</strong>. Esperamos verte pronto.
-        </p>
-      )}
-
-      {config.ctaUrl && (
-        <a
-          className="trk-cta-btn"
-          href={config.ctaUrl}
-          rel="noreferrer"
-          target="_blank"
-        >
-          {config.ctaLabel ?? "Volver a la tienda"} →
-        </a>
-      )}
-
-      {config.discountCode && (
-        <div className="trk-discount-block">
-          <p className="trk-discount-text">
-            {config.discountText ?? "Usa este código en tu próximo pedido"}
-          </p>
-          <div className="trk-discount-code-row">
-            <code className="trk-discount-code">{config.discountCode}</code>
-            <button
-              className="trk-discount-copy"
-              onClick={() => void copyCode(config.discountCode!)}
-              type="button"
-            >
-              {copied ? <CheckIcon /> : <CopyIcon />}
-              {copied ? "Copiado" : "Copiar código"}
-            </button>
+      {/* ── Review prompt — only when delivered + reviewUrl set ── */}
+      {isDelivered && config.reviewUrl && (
+        <div className="trk-review-card">
+          <div className="trk-review-stars">
+            {"⭐".repeat(5)}
           </div>
+          <h3 className="trk-review-title">¿Te ha gustado tu compra?</h3>
+          <p className="trk-review-sub">Tu opinión ayuda a otros clientes y nos ayuda a mejorar.</p>
+          <a
+            className="trk-review-btn"
+            href={config.reviewUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            {config.reviewLabel ?? "Dejar una reseña"} →
+          </a>
         </div>
+      )}
+
+      {/* ── Standard CTA block ─────────────────────────────────── */}
+      {(config.message || config.ctaUrl || config.discountCode) && (
+        <>
+          {config.message && (
+            <p className="trk-cta-message">{config.message}</p>
+          )}
+          {!config.message && isDelivered && (
+            <p className="trk-cta-message">
+              Gracias por tu compra en <strong>{shopName}</strong>. Esperamos verte pronto.
+            </p>
+          )}
+          {config.ctaUrl && (
+            <a className="trk-cta-btn" href={config.ctaUrl} rel="noreferrer" target="_blank">
+              {config.ctaLabel ?? "Volver a la tienda"} →
+            </a>
+          )}
+          {config.discountCode && (
+            <div className="trk-discount-block">
+              <p className="trk-discount-text">
+                {config.discountText ?? "Usa este código en tu próximo pedido"}
+              </p>
+              <div className="trk-discount-code-row">
+                <code className="trk-discount-code">{config.discountCode}</code>
+                <button
+                  className="trk-discount-copy"
+                  onClick={() => void copyCode(config.discountCode!)}
+                  type="button"
+                >
+                  {copied ? <CheckIcon /> : <CopyIcon />}
+                  {copied ? "Copiado" : "Copiar código"}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </section>
   );

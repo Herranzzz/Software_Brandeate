@@ -6,6 +6,8 @@ export type TrackingCTA = {
   ctaUrl?: string;
   discountCode?: string;
   discountText?: string;
+  reviewUrl?: string;
+  reviewLabel?: string;
 };
 
 export type TenantBranding = {
@@ -79,6 +81,8 @@ export function getTenantBranding(
         discountCode: trackingConfig.discount_code,
         discountText: trackingConfig.discount_text,
         message: trackingConfig.message,
+        reviewUrl: trackingConfig.review_url,
+        reviewLabel: trackingConfig.review_label,
       }
     : overrides.tracking;
 
