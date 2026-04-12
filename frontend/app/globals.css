@@ -3534,13 +3534,13 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .pcl-corner-tl { top: -1px; left: 0; border-width: 0 0 0 2px; height: 8px; width: 0; }
 .pcl-corner-tr { top: -1px; right: 0; border-width: 0 2px 0 0; height: 8px; width: 0; }
 
-/* 18x24 full-bleed crosshair cut lines (grey dashed) */
+/* 18x24 cut lines (red dashed, same style as A3) */
 .pcl-cutline-h {
   position: absolute;
   left: 0;
   right: 0;
   height: 0;
-  border-top: 1px dashed rgba(100, 100, 100, 0.7);
+  border-top: 1.5px dashed #e53935;
   pointer-events: none;
   transform: translateY(-50%);
 }
@@ -3549,7 +3549,7 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   top: 0;
   bottom: 0;
   width: 0;
-  border-left: 1px dashed rgba(100, 100, 100, 0.7);
+  border-left: 1.5px dashed #e53935;
   pointer-events: none;
   transform: translateX(-50%);
 }

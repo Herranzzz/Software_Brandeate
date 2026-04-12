@@ -1316,9 +1316,9 @@ def _generate_a4_print_pdf(image_path: str, output_path: str) -> None:
     c.drawImage(img_reader, x0, y0, width=dw, height=dh, preserveAspectRatio=False)
 
     # Only 2 cut lines needed (other two sides are the paper edge)
-    c.setStrokeColor(colors.Color(0.4, 0.4, 0.4))
-    c.setLineWidth(0.5)
-    c.setDash(6, 4)
+    c.setStrokeColor(colors.Color(0.898, 0.224, 0.208))  # #e53935 red, same as A3
+    c.setLineWidth(0.7)
+    c.setDash(8, 4)
 
     # Right vertical cut (full page height)
     c.line(dw, 0, dw, page_h)
