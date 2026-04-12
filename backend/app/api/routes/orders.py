@@ -1267,50 +1267,75 @@ def _image_has_white_background(pil_img: object) -> bool:
 def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
     """Embed a design image into an A3 PDF with a 2cm cut/trim line.
 
-    White-background designs are fitted within the usable area (below the cut
-    line, i.e. top 2 cm stays blank). Full/dark-background designs bleed
-    across the entire A3 sheet.
+    Orientation is detected from the image itself (landscape vs portrait).
+    - Portrait  → cut line at TOP  (2 cm from top edge, horizontal)
+    - Landscape → cut line at RIGHT (2 cm from right edge, vertical)
+
+    White-background designs are scaled to fill only the usable area up to
+    the cut line. Full/dark-background designs bleed across the entire page.
     """
     from PIL import Image as PilImage
-    from reportlab.lib.pagesizes import A3
+    from reportlab.lib.pagesizes import A3, landscape as rl_landscape
     from reportlab.lib import colors
     from reportlab.pdfgen.canvas import Canvas
     from reportlab.lib.utils import ImageReader
 
     PT_PER_MM = 2.834645669
-    page_w, page_h = A3  # portrait: 841.89 × 1190.55 pt
+    A3_portrait_w, A3_portrait_h = A3  # 841.89 × 1190.55 pt
 
-    margin_pt = _CUT_MARGIN_MM * PT_PER_MM  # 56.69 pt (~20 mm)
-
-    # Open via Pillow so format is always detected regardless of file extension
     pil_img = PilImage.open(image_path).convert("RGB")
     img_reader = ImageReader(pil_img)
 
-    c = Canvas(output_path, pagesize=A3)
-
-    # cut_y: Y position of the cut line (reportlab origin is bottom-left)
-    cut_y = page_h - margin_pt  # 2 cm from the top
-
-    if _image_has_white_background(pil_img):
-        # White background: design fills exactly the usable area below the
-        # cut line. The 2 cm above the cut line is left blank (white paper).
-        c.drawImage(img_reader, 0, 0, width=page_w, height=cut_y, preserveAspectRatio=False)
-    else:
-        # Full/dark background: full-bleed across the entire A3 page.
-        c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
-
-    # Draw cut line at top — 2 cm from top edge
-    c.setStrokeColor(colors.red)
-    c.setLineWidth(0.7)
-    c.setDash(8, 4)
-    c.line(0, cut_y, page_w, cut_y)
-
-    # Small tick marks at the corners of the top cut line
+    img_w, img_h = pil_img.size
+    is_landscape_img = img_w > img_h
+    is_white_bg = _image_has_white_background(pil_img)
+    margin_pt = _CUT_MARGIN_MM * PT_PER_MM  # ~56.69 pt (2 cm)
     tick = 5 * PT_PER_MM
-    c.setDash()
-    c.setLineWidth(0.7)
-    c.line(0, cut_y, 0, cut_y - tick)
-    c.line(page_w, cut_y, page_w, cut_y - tick)
+
+    if is_landscape_img:
+        # ── Landscape A3: 420 × 297 mm (1190.55 × 841.89 pt) ──────────────
+        page_w, page_h = rl_landscape(A3)
+        c = Canvas(output_path, pagesize=(page_w, page_h))
+        cut_x = page_w - margin_pt  # 2 cm from the RIGHT edge
+
+        if is_white_bg:
+            # Design fills up to the cut line; right 2 cm stays blank
+            c.drawImage(img_reader, 0, 0, width=cut_x, height=page_h, preserveAspectRatio=False)
+        else:
+            # Full bleed
+            c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
+
+        # Vertical cut line 2 cm from the right
+        c.setStrokeColor(colors.red)
+        c.setLineWidth(0.7)
+        c.setDash(8, 4)
+        c.line(cut_x, 0, cut_x, page_h)
+        # Tick marks at top-right and bottom-right corners
+        c.setDash()
+        c.line(cut_x, page_h, cut_x + tick, page_h)
+        c.line(cut_x, 0,      cut_x + tick, 0)
+    else:
+        # ── Portrait A3: 297 × 420 mm (841.89 × 1190.55 pt) ───────────────
+        page_w, page_h = A3_portrait_w, A3_portrait_h
+        c = Canvas(output_path, pagesize=A3)
+        cut_y = page_h - margin_pt  # 2 cm from the TOP (reportlab y=0 is bottom)
+
+        if is_white_bg:
+            # Design fills up to the cut line; top 2 cm stays blank
+            c.drawImage(img_reader, 0, 0, width=page_w, height=cut_y, preserveAspectRatio=False)
+        else:
+            # Full bleed
+            c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
+
+        # Horizontal cut line 2 cm from the top
+        c.setStrokeColor(colors.red)
+        c.setLineWidth(0.7)
+        c.setDash(8, 4)
+        c.line(0, cut_y, page_w, cut_y)
+        # Tick marks at top-left and top-right corners
+        c.setDash()
+        c.line(0,      cut_y, 0,      cut_y - tick)
+        c.line(page_w, cut_y, page_w, cut_y - tick)
 
     c.save()
 
