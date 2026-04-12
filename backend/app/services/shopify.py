@@ -1923,6 +1923,52 @@ def sync_shopify_shop(
         _release_shop_sync_lock(shop_id)
 
 
+def _sync_product_variants(
+    *,
+    db: Session,
+    product: "ShopCatalogProduct",
+    variants: "list[ShopifyCatalogVariantPayload]",
+    existing_variants: "dict[str, ShopCatalogVariant]",
+    now: datetime,
+) -> None:
+    """Upsert ShopCatalogVariant rows for a single product."""
+    incoming_ids: set[str] = set()
+    for variant in variants:
+        vid = variant.external_variant_id
+        if not vid:
+            continue
+        incoming_ids.add(vid)
+        existing = existing_variants.get(vid)
+        if existing is None:
+            new_variant = ShopCatalogVariant(
+                shop_id=product.shop_id,
+                product_id=product.id,
+                provider=product.provider,
+                external_product_id=product.external_product_id,
+                external_variant_id=vid,
+                sku=variant.sku,
+                title=variant.title,
+                option_values_json=variant.option_values,
+                external_created_at=variant.created_at,
+                external_updated_at=variant.updated_at,
+                synced_at=now,
+            )
+            db.add(new_variant)
+            existing_variants[vid] = new_variant
+        else:
+            existing.sku = variant.sku
+            existing.title = variant.title
+            existing.option_values_json = variant.option_values
+            existing.external_updated_at = variant.updated_at
+            existing.synced_at = now
+
+    # Remove variants that have been deleted from Shopify for this product
+    for variant in list(product.variants):
+        if variant.external_variant_id not in incoming_ids:
+            db.delete(variant)
+            existing_variants.pop(variant.external_variant_id, None)
+
+
 def sync_shopify_catalog_for_shop(db: Session, shop_id: int) -> ShopifyCatalogSyncResult:
     integration = db.scalar(
         select(ShopIntegration).where(
