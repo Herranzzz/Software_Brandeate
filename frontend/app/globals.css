@@ -12315,11 +12315,16 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   transform: translateY(-2px);
 }
 
+.exp-kpi-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .exp-kpi-emoji {
-  font-size: 1.35rem;
+  font-size: 1.2rem;
   line-height: 1;
-  display: block;
-  margin-bottom: 2px;
+  flex-shrink: 0;
 }
 
 .exp-kpi-label {
@@ -21892,6 +21897,47 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   text-align: center;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+/* ── Shipment status filter pills ────────────────────────────── */
+.sh-status-filters {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  background: var(--surface-soft);
+}
+
+.sh-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 130ms, border-color 130ms, color 130ms;
+  white-space: nowrap;
+}
+
+.sh-status-pill:hover {
+  background: var(--surface-strong);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.sh-status-pill.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(var(--accent-rgb), 0.28);
 }
 
 /* Pagination */

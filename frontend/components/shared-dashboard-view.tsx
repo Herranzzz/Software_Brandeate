@@ -201,8 +201,10 @@ export function SharedDashboardView({
       <section className="dash-kpi-strip">
         {kpis.map((item) => (
           <article className={`exp-kpi-card ${KPI_COLOR_MAP[item.tone]}`} key={item.label}>
-            {item.emoji && <span className="exp-kpi-emoji">{item.emoji}</span>}
-            <span className="exp-kpi-label">{item.label}</span>
+            <div className="exp-kpi-header">
+              {item.emoji && <span className="exp-kpi-emoji">{item.emoji}</span>}
+              <span className="exp-kpi-label">{item.label}</span>
+            </div>
             <strong className="exp-kpi-value">{item.value}</strong>
             <small className="exp-kpi-hint">{item.delta}</small>
           </article>

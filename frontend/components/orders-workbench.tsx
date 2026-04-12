@@ -554,7 +554,7 @@ export function OrdersWorkbench({
   function toggleQuickFilter(filter: QuickFilterKey | "all") {
     if (filter === "all") {
       setActiveFilters([]);
-      replaceParams({ quick: null, page: "1" });
+      replaceParams({ quick: null, page: "1", per_page: null });
       return;
     }
 
@@ -562,11 +562,11 @@ export function OrdersWorkbench({
     if (isActive) {
       // Deselect: remove from local state and clear from URL
       setActiveFilters((current) => current.filter((entry) => entry !== filter));
-      replaceParams({ quick: null, page: "1" });
+      replaceParams({ quick: null, page: "1", per_page: null });
     } else {
-      // Select: set as single active filter and update URL for server-side fetch
+      // Select: fetch up to 250 so all matching orders are visible
       setActiveFilters([filter]);
-      replaceParams({ quick: filter, page: "1" });
+      replaceParams({ quick: filter, page: "1", per_page: "250" });
     }
   }
 
@@ -711,7 +711,7 @@ export function OrdersWorkbench({
                   if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
                   searchDebounceRef.current = setTimeout(() => {
                     setPage(1);
-                    replaceParams({ q: value || null, page: "1" });
+                    replaceParams({ q: value || null, page: "1", per_page: value ? "250" : null });
                   }, 400);
                 }}
                 placeholder="Pedido, cliente, SKU, variante, tracking"

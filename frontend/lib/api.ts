@@ -116,6 +116,7 @@ export async function fetchOrders(params?: {
   variant_title?: string;
   channel?: string;
   carrier?: string;
+  shipping_status?: string;
   q?: string;
   page?: string | number;
   per_page?: string | number;
@@ -164,6 +165,9 @@ export async function fetchOrders(params?: {
   }
   if (params?.carrier) {
     searchParams.set("carrier", String(params.carrier));
+  }
+  if (params?.shipping_status) {
+    searchParams.set("shipping_status", String(params.shipping_status));
   }
   if (params?.q) {
     searchParams.set("q", params.q);

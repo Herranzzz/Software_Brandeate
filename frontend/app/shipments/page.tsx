@@ -40,13 +40,11 @@ function getShippingLabel(status?: string | null) {
 
 export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps) {
   const params = await searchParams;
-  const shippingStatus =
-    params.shipping_status === "picked_up" ||
-    params.shipping_status === "in_transit" ||
-    params.shipping_status === "out_for_delivery" ||
-    params.shipping_status === "delivered"
-      ? params.shipping_status
-      : "all";
+  const VALID_STATUSES = ["label_created", "picked_up", "in_transit", "out_for_delivery", "delivered", "exception"] as const;
+  type ValidStatus = typeof VALID_STATUSES[number];
+  const shippingStatus: ValidStatus | "all" = VALID_STATUSES.includes(params.shipping_status as ValidStatus)
+    ? (params.shipping_status as ValidStatus)
+    : "all";
   const period = (["1d", "ayer", "7d", "30d", "ytd", "custom"].includes(params.period ?? "") ? params.period : "7d") as ShipmentPeriod;
   const defaultRange = period === "custom" ? getDefaultShipmentDateRange() : getShipmentDateRange(period);
   const dateFrom = params.date_from ?? defaultRange.dateFrom;
@@ -68,6 +66,7 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
       page: ordersPage,
       per_page: 50,
       q: searchQuery || undefined,
+      shipping_status: shippingStatus === "all" ? undefined : shippingStatus,
       ...(params.shop_id ? { shop_id: Number(params.shop_id) } : {}),
     }),
   ]);
@@ -164,6 +163,28 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
               ? `${totalOrderCount} resultado${totalOrderCount !== 1 ? "s" : ""} para «${searchQuery}»`
               : `${totalOrderCount} pedidos`}
           </span>
+        </div>
+
+        {/* Status filter pills */}
+        <div className="sh-status-filters">
+          {([
+            { key: "all",              label: "Todos",        emoji: "📦" },
+            { key: "label_created",    label: "Etiqueta",     emoji: "🏷️" },
+            { key: "picked_up",        label: "Recogido",     emoji: "🚚" },
+            { key: "in_transit",       label: "En tránsito",  emoji: "📡" },
+            { key: "out_for_delivery", label: "En reparto",   emoji: "🚛" },
+            { key: "delivered",        label: "Entregado",    emoji: "✅" },
+            { key: "exception",        label: "Incidencia",   emoji: "🚨" },
+          ] as const).map((s) => (
+            <Link
+              key={s.key}
+              href={buildOrderListUrl({ shipping_status: s.key === "all" ? undefined : s.key, page: "1" })}
+              className={`sh-status-pill${shippingStatus === s.key ? " is-active" : ""}`}
+            >
+              <span>{s.emoji}</span>
+              <span>{s.label}</span>
+            </Link>
+          ))}
         </div>
 
         {/* Table */}
