@@ -1,11 +1,11 @@
 import Link from "next/link";
 
-import { EmployeePortalWorkspace } from "@/components/employee-portal-workspace";
+import { PortalQuickActions } from "@/components/portal-quick-actions";
 import { PortalSyncButton } from "@/components/portal-sync-button";
 import { PortalTenantControl } from "@/components/portal-tenant-control";
 import { SharedDashboardView } from "@/components/shared-dashboard-view";
 import type { ShipmentSegment } from "@/components/shipment-donut";
-import { fetchAnalyticsOverview, fetchEmployeeWorkspace, fetchIncidents, fetchOrders, fetchShopifyIntegrations } from "@/lib/api";
+import { fetchAnalyticsOverview, fetchIncidents, fetchOrders, fetchShopifyIntegrations } from "@/lib/api";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { getTenantBranding } from "@/lib/tenant-branding";
@@ -175,7 +175,6 @@ function buildChartFromAnalytics(analytics: AnalyticsOverview, days: number) {
 export default async function PortalPage({ searchParams }: PortalPageProps) {
   const [userResult, shopsResult] = await Promise.allSettled([requirePortalUser(), fetchMyShops()]);
   if (userResult.status === "rejected") throw userResult.reason;
-  const currentUser = userResult.value;
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const params = await searchParams;
   const range = resolveRangePreset(params.range);
@@ -184,7 +183,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
   const tenantScope = resolveTenantScope(shops, params.shop_id);
   const branding = getTenantBranding(tenantScope.selectedShop ?? shops[0]);
 
-  const [ordersResultSettled, incidentsResult, integrationsResult, workspaceResult, analyticsResult] = await Promise.allSettled([
+  const [ordersResultSettled, incidentsResult, integrationsResult, analyticsResult] = await Promise.allSettled([
     fetchOrders(
       tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId, page: 1, per_page: 30 } : { page: 1, per_page: 30 },
       { cacheSeconds: 30 },
@@ -196,7 +195,6 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       include_historical: false,
     }),
     fetchShopifyIntegrations(),
-    fetchEmployeeWorkspace(),
     fetchAnalyticsOverview({
       ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
       date_from: dateFrom,
@@ -210,13 +208,11 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       : { orders: [], totalCount: 0 };
   const incidents = incidentsResult.status === "fulfilled" ? incidentsResult.value : [];
   const integrations = integrationsResult.status === "fulfilled" ? integrationsResult.value : [];
-  const workspace = workspaceResult.status === "fulfilled" ? workspaceResult.value : null;
   const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : null;
   const hasPartialDataError =
     ordersResultSettled.status === "rejected" ||
     incidentsResult.status === "rejected" ||
     integrationsResult.status === "rejected" ||
-    workspaceResult.status === "rejected" ||
     analyticsResult.status === "rejected";
 
   const orders = ordersResult.orders.filter((order) => isWithinLastDays(order.created_at, rangeDays));
@@ -305,8 +301,8 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
           </Link>
         </>
       }
-      noteBody="Usa este panel como centro de control de tu cuenta: revisa pedidos nuevos, detecta bloqueos antes del packing y entra rápido a expediciones cuando necesites validar tracking y salidas."
-      noteTitle="Empuja la operativa"
+      noteBody="Este panel te da visibilidad total sobre el estado de tus pedidos y envíos. Usa los accesos directos para entrar rápido a lo que necesites gestionar."
+      noteTitle="Centro de control"
       recentOrders={orders.slice(0, 6).map((order) => ({
         id: order.id,
         label: order.external_id,
@@ -317,7 +313,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       recentOrdersLinkHref={`/portal/orders${shopQuery}`}
       recentOrdersLinkLabel="Ver todos"
       recentOrdersTitle="Últimos pedidos"
-      subtitle="Misma base visual que admin, pero afinada para que tu jornada arranque con foco, contexto y atajos útiles."
+      subtitle="Centro de control de tu cuenta: pedidos, expediciones, incidencias y estado en tiempo real."
       title={`Centro de control · ${branding.displayName}`}
       topContent={
         <>
@@ -335,13 +331,7 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
               ) : null
             }
           />
-          {workspace ? (
-            <EmployeePortalWorkspace
-              selectedShopId={tenantScope.selectedShopId}
-              user={currentUser}
-              workspace={workspace}
-            />
-          ) : null}
+          <PortalQuickActions shopQuery={shopQuery} />
         </>
       }
       />

@@ -20446,3 +20446,171 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   font-size: 0.75rem;
   color: var(--muted);
 }
+
+/* ─── Portal Quick Actions ───────────────────────────────────────────────── */
+.portal-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.portal-quick-action-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+  cursor: pointer;
+}
+
+.portal-quick-action-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(var(--accent-rgb, 99 102 241) / 0.12);
+  transform: translateY(-1px);
+}
+
+.pqa-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.pqa-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pqa-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pqa-desc {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.pqa-arrow {
+  color: var(--text-muted);
+  font-size: 1rem;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.portal-quick-action-card:hover .pqa-arrow {
+  transform: translateX(3px);
+}
+
+/* ─── Bulk Order Actions ─────────────────────────────────────────────────── */
+.bulk-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.bulk-actions-count {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.form-select-sm {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.button-sm {
+  padding: var(--space-1) var(--space-3);
+  font-size: 0.875rem;
+  height: 32px;
+}
+
+/* ─── Settings Tabs Navigation ───────────────────────────────────────────── */
+.settings-tabs-nav {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  flex-wrap: wrap;
+  position: sticky;
+  top: 64px;
+  z-index: 10;
+}
+
+.settings-tab-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.settings-tab-link:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.settings-tab-active {
+  background: var(--accent);
+  color: #fff !important;
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb, 99 102 241) / 0.3);
+}
+
+.settings-tab-active:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.settings-tab-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.settings-tab-label {
+  font-size: 0.875rem;
+}
+
+@media (max-width: 640px) {
+  .settings-tabs-nav {
+    top: 56px;
+    gap: 2px;
+  }
+  .settings-tab-label {
+    display: none;
+  }
+  .settings-tab-icon {
+    font-size: 1.125rem;
+  }
+  .settings-tab-link {
+    padding: var(--space-2);
+  }
+}

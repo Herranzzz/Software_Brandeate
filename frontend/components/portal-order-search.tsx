@@ -9,6 +9,8 @@ type Props = {
   initialQuery: string;
   orders: Order[] | null;
   selectedShopId?: number | null;
+  /** Base path for order detail links. Defaults to basePath replacing "shipments" with "orders". */
+  orderDetailBasePath?: string;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -37,7 +39,8 @@ const SHIPPING_COLORS: Record<string, string> = {
   exception: "is-red",
 };
 
-export function PortalOrderSearch({ basePath, initialQuery, orders, selectedShopId }: Props) {
+export function PortalOrderSearch({ basePath, initialQuery, orders, selectedShopId, orderDetailBasePath }: Props) {
+  const orderBase = orderDetailBasePath ?? basePath.replace("shipments", "orders");
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
   const [isPending, startTransition] = useTransition();
@@ -121,7 +124,7 @@ export function PortalOrderSearch({ basePath, initialQuery, orders, selectedShop
                 return (
                   <a
                     className="portal-order-search-item"
-                    href={`/portal/orders/${order.id}`}
+                    href={`${orderBase}/${order.id}`}
                     key={order.id}
                   >
                     <div className="portal-order-search-item-main">
