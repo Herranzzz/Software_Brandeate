@@ -9,7 +9,7 @@ interface PrintCutlinePreviewProps {
   printVariant?: "30x40" | "18x24";
 }
 
-// Page dimensions per variant
+// Page dimensions per variant (mm)
 const PAGE_DIMS = {
   "30x40": { w: 297, h: 420 },  // A3
   "18x24": { w: 210, h: 297 },  // A4
@@ -21,9 +21,6 @@ const DESIGN_DIMS = {
   "18x24": { w: 180, h: 240 },  // centred on A4
 } as const;
 
-const DEFAULT_MARGIN_MM = 20;
-const A3_W = 297;
-const A3_H = 420;
 const SNAP_THRESHOLD = 3;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
@@ -56,18 +53,19 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
   const lastPos = useRef({ x: 0, y: 0 });
   const stageRef = useRef<HTMLDivElement>(null);
 
-  const page = PAGE_DIMS[printVariant];
+  const page   = PAGE_DIMS[printVariant];
   const design = DESIGN_DIMS[printVariant];
-
-  // For 30x40: top-only cut line (design fills page). For 18x24: full rect cut line centred.
   const is18x24 = printVariant === "18x24";
-  const cutLeft   = ((page.w - design.w) / 2 / page.w) * 100;
-  const cutTop    = ((page.h - design.h) / 2 / page.h) * 100;
-  const cutRight  = cutLeft;
-  const cutBottom = cutTop;
 
-  const marginPctW = (DEFAULT_MARGIN_MM / A3_W) * 100;
-  const marginPctH = (DEFAULT_MARGIN_MM / A3_H) * 100;
+  // Cut line positions as % of page
+  const cutLeft   = ((page.w - design.w) / 2 / page.w) * 100;  // 0 for 30x40, ~7.14% for 18x24
+  const cutTop    = ((page.h - design.h) / 2 / page.h) * 100;  // 0 for 30x40, ~9.6%  for 18x24
+
+  // Top-only cut margin for 30x40 (2cm from top of A3)
+  const margin2cmPct = (20 / page.h) * 100;
+
+  const marginPctW = cutLeft;
+  const marginPctH = cutTop;
   const snapPoints = getSnapPoints(marginPctW, marginPctH);
 
   const trySnap = useCallback((x: number, y: number) => {
@@ -142,7 +140,6 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
     setDlState("loading");
     setDlError(null);
     try {
-      // 1. Create job
       const createRes = await fetch("/api/orders/bulk/download-designs/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -151,7 +148,6 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
       if (!createRes.ok) throw new Error("No se pudo iniciar la descarga.");
       let job = await createRes.json();
 
-      // 2. Poll until done
       const deadline = Date.now() + 60_000;
       while (job.status !== "done") {
         if (job.status === "failed") throw new Error(job.error || "La descarga falló.");
@@ -162,12 +158,10 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
         job = await pollRes.json();
       }
 
-      // 3. Get download URL
       const urlRes = await fetch(`/api/orders/bulk/download-designs/jobs/${job.job_id}/download-url`, { method: "POST" });
       if (!urlRes.ok) throw new Error("No se pudo generar el enlace.");
       const { token } = await urlRes.json();
 
-      // 4. Trigger download
       const a = document.createElement("a");
       a.href = `/api/orders/bulk/download-designs/jobs/${job.job_id}/download?token=${encodeURIComponent(token)}`;
       a.download = "";
@@ -185,6 +179,9 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
 
   const reset = () => { setOffset({ x: 0, y: 0 }); setZoom(1); setSnapping(false); };
 
+  const pdfLabel = is18x24 ? "↓ Descargar PDF A4" : "↓ Descargar PDF A3";
+  const pageLabel = is18x24 ? "A4 · 18×24 cm" : "A3 · 30×40 cm";
+
   return (
     <div className="pcl-wrap">
       <div className="pcl-header">
@@ -200,11 +197,16 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
           onClick={handleDownload}
           disabled={dlState === "loading"}
         >
-          {dlState === "loading" ? "Generando…" : dlState === "done" ? "✓ Descargado" : "↓ Descargar PDF A3"}
+          {dlState === "loading" ? "Generando…" : dlState === "done" ? "✓ Descargado" : pdfLabel}
         </button>
       </div>
 
-      <div className="pcl-stage" ref={stageRef}>
+      {/* Stage: aspect ratio matches the physical page */}
+      <div
+        className="pcl-stage"
+        ref={stageRef}
+        style={{ aspectRatio: `${page.w} / ${page.h}` }}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}
@@ -214,19 +216,35 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
           style={{
             transform: `translate(${offset.x}%, ${offset.y}%) scale(${zoom})`,
             transformOrigin: "center center",
+            // For 18x24: image fills inner design area; for 30x40: fills full page
+            width:  is18x24 ? `${(design.w / page.w) * 100}%` : "100%",
+            height: is18x24 ? `${(design.h / page.h) * 100}%` : "100%",
+            top:    is18x24 ? `${cutTop}%` : "0",
+            left:   is18x24 ? `${cutLeft}%` : "0",
+            position: "absolute",
           }}
           onMouseDown={onMouseDown}
           onTouchStart={onTouchStart}
         />
 
-        {/* Cut line — top edge only */}
-        <div className="pcl-cutline-top" style={{ top: `${marginPctH}%` }}>
-          <span className="pcl-corner pcl-corner-tl" />
-          <span className="pcl-corner pcl-corner-tr" />
-        </div>
+        {is18x24 ? (
+          /* 18x24: full rectangle crosshair cut lines (grey dashed) */
+          <>
+            <div className="pcl-cutline-h" style={{ top: `${cutTop}%` }} />
+            <div className="pcl-cutline-h" style={{ top: `${100 - cutTop}%` }} />
+            <div className="pcl-cutline-v" style={{ left: `${cutLeft}%` }} />
+            <div className="pcl-cutline-v" style={{ left: `${100 - cutLeft}%` }} />
+          </>
+        ) : (
+          /* 30x40: top-only red cut line at 2cm from top */
+          <div className="pcl-cutline-top" style={{ top: `${margin2cmPct}%` }}>
+            <span className="pcl-corner pcl-corner-tl" />
+            <span className="pcl-corner pcl-corner-tr" />
+          </div>
+        )}
 
         {snapping && <div className="pcl-snap-badge">⊕ Encajado</div>}
-        <div className="pcl-badge">2 cm</div>
+        <div className="pcl-badge">{pageLabel}</div>
       </div>
 
       {dlState === "error" && dlError && (

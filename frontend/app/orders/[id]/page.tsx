@@ -534,23 +534,6 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             </div>
           </Card>
 
-          {/* ── Print cut-line preview (30x40 → A3, 18x24 → A4) ──── */}
-          {designPreviewUrl && primaryItem?.variant_title && (
-            /30\s*[xX×*]\s*40/i.test(primaryItem.variant_title) ||
-            /18\s*[xX×*]\s*24/i.test(primaryItem.variant_title)
-          ) && (
-            <Card className="stack">
-              <PrintCutlinePreview
-                src={designPreviewUrl}
-                variantTitle={primaryItem.variant_title}
-                orderId={order.id}
-                printVariant={
-                  /18\s*[xX×*]\s*24/i.test(primaryItem.variant_title ?? "") ? "18x24" : "30x40"
-                }
-              />
-            </Card>
-          )}
-
           {/* ── Shipment ───────────────────────────────────────────── */}
           <Card className={`stack order-shipment-card order-shipment-card-${shipmentStatusColor}`}>
             <SectionTitle eyebrow="Envío" title="Estado del envío" />
@@ -746,27 +729,50 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         {/* ── Aside ──────────────────────────────────────────────── */}
         <aside className="stack">
 
-          {/* Design preview */}
-          {primaryItemSummary && designPreviewUrl && (
-            <Card className="stack">
-              <SectionTitle eyebrow="Diseño" title="Render de personalización" />
-              <div className="shipment-product-card">
-                <div className="shipment-product-copy">
-                  <span className="kv-label">Producto</span>
-                  <div className="shipment-product-name">{primaryItemSummary.productName}</div>
-                  <div className="shipment-product-variant">{primaryItemSummary.variantName}</div>
-                </div>
-                <div className="shipment-render-preview">
-                  <DesignPreviewWithValidation
-                    alt={`Render de ${primaryItemSummary.productName}`}
-                    itemId={primaryItem!.id}
-                    orderId={order.id}
+          {(() => {
+            const variantTitle = primaryItem?.variant_title ?? "";
+            const is18x24 = /18\s*[xX×*]\s*24/i.test(variantTitle);
+            const is30x40 = /30\s*[xX×*]\s*40/i.test(variantTitle);
+            const isPrintVariant = designPreviewUrl && (is18x24 || is30x40);
+
+            if (isPrintVariant) {
+              return (
+                <Card className="stack">
+                  <PrintCutlinePreview
                     src={designPreviewUrl}
+                    variantTitle={variantTitle || null}
+                    orderId={order.id}
+                    printVariant={is18x24 ? "18x24" : "30x40"}
                   />
-                </div>
-              </div>
-            </Card>
-          )}
+                </Card>
+              );
+            }
+
+            if (primaryItemSummary && designPreviewUrl) {
+              return (
+                <Card className="stack">
+                  <SectionTitle eyebrow="Diseño" title="Render de personalización" />
+                  <div className="shipment-product-card">
+                    <div className="shipment-product-copy">
+                      <span className="kv-label">Producto</span>
+                      <div className="shipment-product-name">{primaryItemSummary.productName}</div>
+                      <div className="shipment-product-variant">{primaryItemSummary.variantName}</div>
+                    </div>
+                    <div className="shipment-render-preview">
+                      <DesignPreviewWithValidation
+                        alt={`Render de ${primaryItemSummary.productName}`}
+                        itemId={primaryItem!.id}
+                        orderId={order.id}
+                        src={designPreviewUrl}
+                      />
+                    </div>
+                  </div>
+                </Card>
+              );
+            }
+
+            return null;
+          })()}
 
           {/* Incidents alert */}
           {openIncidents.length > 0 && (
