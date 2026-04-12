@@ -12,6 +12,7 @@ type DashboardKpi = {
   value: string;
   delta: string;
   tone: DashboardTone;
+  emoji?: string;
 };
 
 type DashboardChartPoint = {
@@ -200,6 +201,7 @@ export function SharedDashboardView({
       <section className="dash-kpi-strip">
         {kpis.map((item) => (
           <article className={`exp-kpi-card ${KPI_COLOR_MAP[item.tone]}`} key={item.label}>
+            {item.emoji && <span className="exp-kpi-emoji">{item.emoji}</span>}
             <span className="exp-kpi-label">{item.label}</span>
             <strong className="exp-kpi-value">{item.value}</strong>
             <small className="exp-kpi-hint">{item.delta}</small>

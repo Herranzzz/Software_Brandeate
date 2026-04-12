@@ -396,12 +396,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       incidentsLinkLabel="Ver incidencias"
       incidentsTitle="Incidencias recientes"
       kpis={[
-        { label: "Pendientes",           value: String(pendingOrders),     delta: "esperando revisión",              tone: "accent"  },
-        { label: "Listos para enviar",   value: String(readyToShipOrders), delta: "esperando recogida",              tone: "warning" },
-        { label: "Enviados",             value: String(shippedOrders),     delta: `${withShipment} con tracking`,    tone: "blue"    },
-        { label: "Entregados",           value: String(deliveredOrders),   delta: "ciclo cerrado",                   tone: "success" },
-        { label: "Incidencias abiertas", value: String(openIncidents),     delta: `${urgentIncidents} prioritarias`, tone: "danger"  },
-        ...(blockedOrders > 0 ? [{ label: "Bloqueados",      value: String(blockedOrders),     delta: "pedidos retenidos",               tone: "danger" as const }] : []),
+        { label: "Pendientes",           value: String(pendingOrders),     delta: "esperando revisión",              tone: "accent",  emoji: "⏳" },
+        { label: "Listos para enviar",   value: String(readyToShipOrders), delta: "esperando recogida",              tone: "warning", emoji: "📦" },
+        { label: "Enviados",             value: String(shippedOrders),     delta: `${withShipment} con tracking`,    tone: "blue",    emoji: "🚚" },
+        { label: "Entregados",           value: String(deliveredOrders),   delta: "ciclo cerrado",                   tone: "success", emoji: "✅" },
+        { label: "Incidencias abiertas", value: String(openIncidents),     delta: `${urgentIncidents} prioritarias`, tone: "danger",  emoji: "🚨" },
+        ...(blockedOrders > 0 ? [{ label: "Bloqueados", value: String(blockedOrders), delta: "pedidos retenidos", tone: "danger" as const, emoji: "🔒" }] : []),
       ]}
       noteActions={
         <>

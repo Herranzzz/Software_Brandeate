@@ -12315,6 +12315,13 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   transform: translateY(-2px);
 }
 
+.exp-kpi-emoji {
+  font-size: 1.35rem;
+  line-height: 1;
+  display: block;
+  margin-bottom: 2px;
+}
+
 .exp-kpi-label {
   font-size: 0.67rem;
   font-weight: 700;
