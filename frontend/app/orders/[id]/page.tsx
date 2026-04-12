@@ -16,6 +16,7 @@ import { OrderActionModals } from "@/components/order-action-modals";
 import { OrderIncidentsPanel } from "@/components/order-incidents-panel";
 import { PersonalizationBadge } from "@/components/personalization-badge";
 import { DesignPreviewWithValidation } from "@/components/design-preview-with-validation";
+import { PrintCutlinePreview } from "@/components/print-cutline-preview";
 import { SectionTitle } from "@/components/section-title";
 import { StatusBadge } from "@/components/status-badge";
 import { ShippingOptionsPanel } from "@/components/shipping-options-panel";
@@ -747,6 +748,16 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                   />
                 </div>
               </div>
+            </Card>
+          )}
+
+          {/* Print cut-line preview (30x40 variants) */}
+          {designPreviewUrl && primaryItem?.variant_title && /30\s*[xX×*]\s*40/i.test(primaryItem.variant_title) && (
+            <Card className="stack">
+              <PrintCutlinePreview
+                src={designPreviewUrl}
+                variantTitle={primaryItem.variant_title}
+              />
             </Card>
           )}
 
