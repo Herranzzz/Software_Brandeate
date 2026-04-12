@@ -1293,10 +1293,7 @@ a.admin-orders-row:hover {
   align-items: center;
   justify-content: center;
   padding: 32px 24px;
-  background:
-    radial-gradient(ellipse at 20% 50%, rgba(var(--accent-rgb), 0.05), transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgba(var(--accent-rgb), 0.04), transparent 40%),
-    var(--bg);
+  background: var(--bg);
 }
 
 .auth-login-minimal-card {
