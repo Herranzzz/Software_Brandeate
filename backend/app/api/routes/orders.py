@@ -1566,6 +1566,38 @@ def _run_bulk_design_job(job_id: str) -> None:
                 job["updated_at"] = _now_ts()
             return
 
+        # Mark successfully downloaded print orders as "in_production"
+        downloaded_order_ids = {
+            r["order_id"] for r in results
+            if r.get("status") == "ok" and r.get("order_id")
+        }
+        if downloaded_order_ids:
+            try:
+                print_orders = db.scalars(
+                    select(Order)
+                    .options(selectinload(Order.items))
+                    .where(Order.id.in_(downloaded_order_ids))
+                ).all()
+                for ord_ in print_orders:
+                    # Only advance orders that have a print variant (30x40 / 18x24)
+                    has_print_variant = any(
+                        _detect_print_variant(it) is not None for it in (ord_.items or [])
+                    )
+                    if has_print_variant and ord_.production_status == ProductionStatus.pending_personalization:
+                        ord_.production_status = ProductionStatus.in_production
+                        log_activity(
+                            db,
+                            entity_type="order",
+                            entity_id=ord_.id,
+                            shop_id=ord_.shop_id,
+                            action="status_changed",
+                            actor=None,
+                            summary="Diseño descargado — pedido marcado como En producción",
+                        )
+                db.commit()
+            except Exception:
+                pass  # Non-critical — don't fail the download job
+
         with _design_jobs_lock:
             job = _design_jobs.get(job_id)
             if job is None:

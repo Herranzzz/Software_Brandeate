@@ -55,24 +55,26 @@ type OrdersWorkbenchProps = {
 
 type QuickFilterKey =
   | "has_incident"
+  | "not_downloaded"
+  | "in_production"
   | "not_prepared"
   | "prepared"
   | "label_no_update"
   | "shipping_in_transit"
   | "shipping_out_for_delivery"
   | "shipping_exception"
-  | "overdue_sla"
   | "delivered";
 
 const quickFilterMeta: Array<{ key: QuickFilterKey; label: string }> = [
-  { key: "has_incident",              label: "⚠️ Con incidencia" },
+  { key: "not_downloaded",            label: "⬇ No descargados" },
+  { key: "in_production",             label: "🖨 En producción" },
   { key: "not_prepared",              label: "🔧 No preparados" },
   { key: "prepared",                  label: "✅ Listo para enviar" },
   { key: "label_no_update",           label: "📦 Etiqueta sin avances" },
   { key: "shipping_in_transit",       label: "🚚 En tránsito" },
   { key: "shipping_out_for_delivery", label: "🚛 En reparto" },
   { key: "shipping_exception",        label: "🚨 Excepción carrier" },
-  { key: "overdue_sla",               label: "⏰ SLA vencido" },
+  { key: "has_incident",              label: "⚠️ Con incidencia" },
   { key: "delivered",                 label: "✓ Entregado" },
 ];
 
@@ -229,6 +231,14 @@ function getOperationalStatusMeta(order: Order) {
     };
   }
 
+  if (order.production_status === "in_production") {
+    return {
+      label: "En producción",
+      className: "badge badge-status badge-status-in-production",
+      rowStatus: "printed",
+    };
+  }
+
   return {
     label: "Sin preparar",
     className: "badge badge-status badge-status-pending",
@@ -295,18 +305,18 @@ function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
         order.shipment?.shipping_status === "exception"
       );
 
-    case "overdue_sla": {
-      if (!order.shipment?.expected_delivery_date) return false;
-      // Compare date-only (no time component)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const deliveryDate = new Date(order.shipment.expected_delivery_date + "T00:00:00");
+    case "not_downloaded":
+      // Has no shipment and design hasn't been downloaded (production_status still at initial state)
       return (
-        deliveryDate < today &&
+        !order.shipment &&
+        order.status !== "shipped" &&
         order.status !== "delivered" &&
-        order.shipment.shipping_status !== "delivered"
+        (order.production_status === "pending_personalization" || !order.production_status)
       );
-    }
+
+    case "in_production":
+      // Design downloaded, currently being printed (not yet packed/shipped)
+      return order.production_status === "in_production";
 
     case "delivered":
       return (

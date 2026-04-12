@@ -534,6 +534,23 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             </div>
           </Card>
 
+          {/* ── Print cut-line preview (30x40 → A3, 18x24 → A4) ──── */}
+          {designPreviewUrl && primaryItem?.variant_title && (
+            /30\s*[xX×*]\s*40/i.test(primaryItem.variant_title) ||
+            /18\s*[xX×*]\s*24/i.test(primaryItem.variant_title)
+          ) && (
+            <Card className="stack">
+              <PrintCutlinePreview
+                src={designPreviewUrl}
+                variantTitle={primaryItem.variant_title}
+                orderId={order.id}
+                printVariant={
+                  /18\s*[xX×*]\s*24/i.test(primaryItem.variant_title ?? "") ? "18x24" : "30x40"
+                }
+              />
+            </Card>
+          )}
+
           {/* ── Shipment ───────────────────────────────────────────── */}
           <Card className={`stack order-shipment-card order-shipment-card-${shipmentStatusColor}`}>
             <SectionTitle eyebrow="Envío" title="Estado del envío" />
@@ -748,23 +765,6 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                   />
                 </div>
               </div>
-            </Card>
-          )}
-
-          {/* Print cut-line preview (30x40 → A3, 18x24 → A4) */}
-          {designPreviewUrl && primaryItem?.variant_title && (
-            /30\s*[xX×*]\s*40/i.test(primaryItem.variant_title) ||
-            /18\s*[xX×*]\s*24/i.test(primaryItem.variant_title)
-          ) && (
-            <Card className="stack">
-              <PrintCutlinePreview
-                src={designPreviewUrl}
-                variantTitle={primaryItem.variant_title}
-                orderId={order.id}
-                printVariant={
-                  /18\s*[xX×*]\s*24/i.test(primaryItem.variant_title ?? "") ? "18x24" : "30x40"
-                }
-              />
             </Card>
           )}
 

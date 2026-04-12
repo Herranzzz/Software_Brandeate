@@ -1475,6 +1475,15 @@ a.admin-orders-row:hover {
 .table-row[data-status="transit"] td:first-child::before  { background: #3b82f6; }
 .table-row[data-status="ready"] td:first-child::before    { background: var(--warning); }
 .table-row[data-status="pending"] td:first-child::before  { background: var(--border-strong); }
+.table-row[data-status="printed"] td:first-child::before  { background: #7c3aed; }
+.table-row[data-status="printed"] { background: rgba(124, 58, 237, 0.03); }
+.table-row[data-status="printed"]:hover td { background: rgba(124, 58, 237, 0.05); }
+
+.badge-status-in-production {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+  border-color: rgba(124, 58, 237, 0.25);
+}
 
 .table-link {
   color: var(--accent);
