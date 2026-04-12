@@ -90,31 +90,64 @@ def get_pickup_points(
     def _str(v: object) -> str:
         return str(v).strip() if v is not None else ""
 
-    def _hours(pt: dict) -> list[str] | None:
-        raw = pt.get("schedule") or pt.get("opening_hours") or pt.get("hours")
-        if isinstance(raw, list):
-            return [str(h) for h in raw] or None
-        if isinstance(raw, str) and raw.strip():
-            return [raw.strip()]
-        return None
+    def _format_hours(raw_hours: list[dict]) -> list[str]:
+        """Convert CTT opening_hours array to readable strings like 'LUN 13:00-19:00'."""
+        day_map = {
+            "MON": "Lun", "TUE": "Mar", "WED": "Mié",
+            "THU": "Jue", "FRI": "Vie", "SAT": "Sáb", "SUN": "Dom",
+        }
+        lines = []
+        for entry in raw_hours:
+            day = day_map.get(entry.get("day_of_week", ""), entry.get("day_of_week", ""))
+            for slot in entry.get("hours", []):
+                lines.append(f"{day} {slot.get('from', '')}–{slot.get('to', '')}")
+        return lines or []
 
-    points = [
-        PickupPoint(
-            id=_str(pt.get("code") or pt.get("id") or pt.get("distribution_point_code") or i),
-            name=_str(pt.get("name") or pt.get("description") or pt.get("commercial_name") or f"Punto CTT {i}"),
-            address1=_str(pt.get("address") or pt.get("address1") or pt.get("street") or ""),
-            address2=_str(pt.get("address2") or pt.get("address_complement")) or None,
-            city=_str(pt.get("city") or pt.get("town") or pt.get("municipality") or payload.destination_city or ""),
+    def _parse_point(i: int, pt: dict) -> PickupPoint:
+        addr = pt.get("address") or {}
+        # address may be a nested dict or a flat string
+        if isinstance(addr, dict):
+            addr_str = _str(addr.get("address") or addr.get("street") or addr.get("address1") or "")
+            city = _str(addr.get("town") or addr.get("city") or payload.destination_city or "")
+            postal = _str(addr.get("postal_code") or addr.get("zip_code") or payload.destination_postal_code)
+            country = _str(addr.get("country_code") or addr.get("country") or payload.destination_country_code)
+            gps = addr.get("gps_location") or {}
+            lat = float(gps["latitude"]) if gps.get("latitude") is not None else None
+            lng = float(gps["longitude"]) if gps.get("longitude") is not None else None
+        else:
+            addr_str = _str(addr)
+            city = _str(pt.get("city") or pt.get("town") or payload.destination_city or "")
+            postal = _str(pt.get("postal_code") or payload.destination_postal_code)
+            country = _str(pt.get("country_code") or payload.destination_country_code)
+            lat = float(pt["latitude"]) if pt.get("latitude") is not None else None
+            lng = float(pt["longitude"]) if pt.get("longitude") is not None else None
+
+        raw_oh = pt.get("opening_hours") or []
+        if isinstance(raw_oh, list) and raw_oh and isinstance(raw_oh[0], dict) and "day_of_week" in raw_oh[0]:
+            hours = _format_hours(raw_oh) or None
+        elif isinstance(raw_oh, list):
+            hours = [str(h) for h in raw_oh] or None
+        elif isinstance(raw_oh, str) and raw_oh.strip():
+            hours = [raw_oh.strip()]
+        else:
+            hours = None
+
+        return PickupPoint(
+            id=_str(pt.get("organic_point_code") or pt.get("code") or pt.get("id") or str(i)),
+            name=_str(pt.get("point_name") or pt.get("name") or pt.get("commercial_name") or f"Punto CTT {i}"),
+            address1=addr_str or "—",
+            address2=_str(pt.get("address2")) or None,
+            city=city,
             province=_str(pt.get("province") or pt.get("region")) or None,
-            postal_code=_str(pt.get("postal_code") or pt.get("zip_code") or payload.destination_postal_code),
-            country_code=_str(pt.get("country_code") or pt.get("country") or payload.destination_country_code),
+            postal_code=postal,
+            country_code=country,
             carrier=payload.carrier,
-            latitude=float(pt["latitude"]) if pt.get("latitude") is not None else None,
-            longitude=float(pt["longitude"]) if pt.get("longitude") is not None else None,
-            opening_hours=_hours(pt),
+            latitude=lat,
+            longitude=lng,
+            opening_hours=hours,
         )
-        for i, pt in enumerate(raw_points)
-    ]
+
+    points = [_parse_point(i, pt) for i, pt in enumerate(raw_points)]
 
     return PickupPointResponse(points=points, generated_at=datetime.now(timezone.utc))
 
