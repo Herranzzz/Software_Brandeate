@@ -380,6 +380,8 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
             <SectionTitle eyebrow="🚚 Envío" title="Shipment" />
             {order.shipment ? (
               <div className="kv">
+
+                {/* — Identificación — */}
                 <div className="kv-row">
                   <span className="kv-label">Carrier</span>
                   <div>{order.shipment.carrier}</div>
@@ -388,26 +390,123 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
                   <span className="kv-label">Tracking</span>
                   <div>{order.shipment.tracking_number}</div>
                 </div>
-                <div className="kv-row">
-                  <span className="kv-label">Creado</span>
-                  <div>{formatDateTime(order.shipment.label_created_at ?? order.shipment.created_at)}</div>
-                </div>
-                <div className="kv-row">
-                  <span className="kv-label">Estado envío</span>
-                  <div>{order.shipment.shipping_status_detail ?? order.shipment.shipping_status ?? "Etiqueta creada"}</div>
-                </div>
+                {order.shipment.provider_reference && (
+                  <div className="kv-row">
+                    <span className="kv-label">Referencia CTT</span>
+                    <div className="table-secondary">{order.shipment.provider_reference}</div>
+                  </div>
+                )}
                 <div className="kv-row">
                   <span className="kv-label">Servicio</span>
                   <div>{order.shipment.shipping_type_code ?? "CTT 24"}</div>
                 </div>
                 <div className="kv-row">
-                  <span className="kv-label">Tramo</span>
+                  <span className="kv-label">Etiqueta creada</span>
+                  <div>{formatDateTime(order.shipment.label_created_at ?? order.shipment.created_at)}</div>
+                </div>
+
+                {/* — Estado — */}
+                <div className="kv-row">
+                  <span className="kv-label">Estado envío</span>
+                  <div>{order.shipment.shipping_status_detail ?? order.shipment.shipping_status ?? "Etiqueta creada"}</div>
+                </div>
+                {order.shipment.ctt_info?.incident_type_name && (
+                  <div className="kv-row">
+                    <span className="kv-label" style={{ color: "var(--color-warning, #c05)" }}>Incidencia CTT</span>
+                    <div style={{ color: "var(--color-warning, #c05)" }}>
+                      {order.shipment.ctt_info.incident_type_name}
+                      {order.shipment.ctt_info.incident_type_code ? ` (${order.shipment.ctt_info.incident_type_code})` : ""}
+                      {order.shipment.ctt_info.incident_type_desc ? (
+                        <div className="table-secondary" style={{ marginTop: 2 }}>{order.shipment.ctt_info.incident_type_desc}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+                {order.shipment.ctt_info?.management_type && (
+                  <div className="kv-row">
+                    <span className="kv-label">Gestión disponible</span>
+                    <div>{order.shipment.ctt_info.management_type}</div>
+                  </div>
+                )}
+
+                {/* — Peso — */}
+                <div className="kv-row">
+                  <span className="kv-label">Tramo de peso</span>
                   <div>{order.shipment.weight_tier_label ?? "No definido"}</div>
                 </div>
                 {order.shipment.shipping_weight_declared != null && (
                   <div className="kv-row">
-                    <span className="kv-label">Peso</span>
+                    <span className="kv-label">Peso declarado</span>
                     <div>{order.shipment.shipping_weight_declared} kg</div>
+                  </div>
+                )}
+                {(order.shipment.final_weight != null || order.shipment.ctt_info?.final_weight != null) && (
+                  <div className="kv-row">
+                    <span className="kv-label">Peso final CTT</span>
+                    <div style={{ fontWeight: 600 }}>
+                      {(order.shipment.final_weight ?? order.shipment.ctt_info?.final_weight)} kg
+                      <span className="table-secondary" style={{ fontWeight: 400, marginLeft: 6 }}>tasado por CTT</span>
+                    </div>
+                  </div>
+                )}
+                {order.shipment.package_count != null && (
+                  <div className="kv-row">
+                    <span className="kv-label">Bultos</span>
+                    <div>{order.shipment.package_count}</div>
+                  </div>
+                )}
+
+                {/* — Fechas — */}
+                {order.shipment.ctt_info?.committed_delivery_datetime && (
+                  <div className="kv-row">
+                    <span className="kv-label">Compromiso CTT</span>
+                    <div>{order.shipment.ctt_info.committed_delivery_datetime}</div>
+                  </div>
+                )}
+                {order.shipment.expected_delivery_date && (
+                  <div className="kv-row">
+                    <span className="kv-label">Entrega estimada</span>
+                    <div>{order.shipment.expected_delivery_date}</div>
+                  </div>
+                )}
+                {order.shipment.ctt_info?.reported_delivery_date && (
+                  <div className="kv-row">
+                    <span className="kv-label">Fecha comunicada</span>
+                    <div>{order.shipment.ctt_info.reported_delivery_date}</div>
+                  </div>
+                )}
+                {order.shipment.ctt_info?.delivery_date && (
+                  <div className="kv-row">
+                    <span className="kv-label">Entrega real</span>
+                    <div style={{ fontWeight: 600 }}>{order.shipment.ctt_info.delivery_date}</div>
+                  </div>
+                )}
+
+                {/* — Ruta — */}
+                {order.shipment.detected_zone && (
+                  <div className="kv-row">
+                    <span className="kv-label">Zona</span>
+                    <div>{order.shipment.detected_zone}</div>
+                  </div>
+                )}
+                {order.shipment.ctt_info?.origin && (
+                  <div className="kv-row">
+                    <span className="kv-label">Origen CTT</span>
+                    <div>{order.shipment.ctt_info.origin}</div>
+                  </div>
+                )}
+                {order.shipment.ctt_info?.destination && (
+                  <div className="kv-row">
+                    <span className="kv-label">Destino CTT</span>
+                    <div>{order.shipment.ctt_info.destination}</div>
+                  </div>
+                )}
+
+                {/* — Regla y coste — */}
+                {order.shipment.shipping_rule_name && (
+                  <div className="kv-row">
+                    <span className="kv-label">Regla de envío</span>
+                    <div className="table-secondary">{order.shipment.shipping_rule_name}</div>
                   </div>
                 )}
                 <div className="kv-row">
@@ -420,12 +519,34 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
                         : "Pendiente"}
                   </div>
                 </div>
+
+                {/* — Shopify sync — */}
+                <div className="kv-row">
+                  <span className="kv-label">Shopify fulfillment</span>
+                  <div>
+                    {order.shipment.shopify_sync_status === "success"
+                      ? `Sincronizado${order.shipment.shopify_synced_at ? ` · ${formatDateTime(order.shipment.shopify_synced_at)}` : ""}`
+                      : order.shipment.shopify_sync_status === "failed"
+                        ? <span style={{ color: "var(--color-warning, #c05)" }}>Error en sync{order.shipment.shopify_sync_error ? `: ${order.shipment.shopify_sync_error}` : ""}</span>
+                        : order.shipment.shopify_sync_status ?? "Pendiente"}
+                  </div>
+                </div>
+
+                {/* — Último sync CTT — */}
+                {order.shipment.ctt_info?.last_synced_at && (
+                  <div className="kv-row">
+                    <span className="kv-label">Último sync CTT</span>
+                    <div className="table-secondary">{formatDateTime(order.shipment.ctt_info.last_synced_at)}</div>
+                  </div>
+                )}
+
+                {/* — Links — */}
                 <div className="kv-row">
                   <span className="kv-label">Tracking oficial</span>
                   <div>
                     {order.shipment.tracking_url ? (
                       <a className="table-link table-link-strong" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">
-                        Abrir tracking del carrier
+                        Abrir tracking CTT
                       </a>
                     ) : "Pendiente"}
                   </div>

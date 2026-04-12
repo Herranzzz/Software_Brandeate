@@ -50,8 +50,27 @@ export type Shipment = {
   weight_tier_code: string | null;
   weight_tier_label: string | null;
   shipping_weight_declared: number | null;
+  final_weight: number | null;
   package_count: number | null;
   provider_payload_json?: unknown;
+  ctt_info?: {
+    item_count?: number | null;
+    traffic_type_code?: string | null;
+    client_reference?: string | null;
+    final_weight?: number | null;
+    declared_weight?: number | null;
+    committed_delivery_datetime?: string | null;
+    reported_delivery_date?: string | null;
+    delivery_date?: string | null;
+    incident_type_name?: string | null;
+    incident_type_code?: string | null;
+    incident_type_desc?: string | null;
+    allow_managements?: boolean | null;
+    management_type?: string | null;
+    origin?: string | null;
+    destination?: string | null;
+    last_synced_at?: string | null;
+  };
   expected_ship_date: string | null;
   expected_delivery_date: string | null;
   shipping_cost: number | null;

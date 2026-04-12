@@ -45,6 +45,7 @@ class Shipment(Base):
     weight_tier_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     weight_tier_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
     shipping_weight_declared: Mapped[float | None] = mapped_column(Float, nullable=True)
+    final_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     package_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     provider_payload_json: Mapped[dict | list | None] = mapped_column(json_type, nullable=True)
     expected_ship_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)

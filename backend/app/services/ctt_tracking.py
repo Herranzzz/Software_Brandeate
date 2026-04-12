@@ -111,6 +111,12 @@ def sync_shipment_tracking(
     if events_created > 0:
         changed = True
 
+    # Update final_weight from CTT payload (may change until shipment is finalized)
+    extracted_final_weight = _extract_final_weight(payload)
+    if extracted_final_weight is not None and shipment.final_weight != extracted_final_weight:
+        shipment.final_weight = extracted_final_weight
+        changed = True
+
     # Update expected delivery date: prefer date from CTT payload, fall back to label+2bd estimate
     if shipment.shipping_status not in ("delivered", "exception"):
         extracted_date = _extract_expected_delivery_date(payload)
@@ -665,6 +671,119 @@ def _tracking_event_exists(shipment: Shipment, event: ParsedTrackingEvent) -> bo
         ):
             return True
     return False
+
+
+def _extract_final_weight(payload: dict[str, Any]) -> float | None:
+    """Extract the CTT-measured final weight from the tracking payload."""
+    if not isinstance(payload, dict):
+        return None
+
+    weight_keys = ("final_weight", "finalWeight", "real_weight", "realWeight", "billed_weight", "billedWeight", "charged_weight")
+
+    def _search(value: Any, depth: int = 0) -> float | None:
+        if depth > 6:
+            return None
+        if isinstance(value, dict):
+            for key in weight_keys:
+                raw = value.get(key)
+                if raw is not None:
+                    try:
+                        return float(raw)
+                    except (TypeError, ValueError):
+                        pass
+            for v in value.values():
+                result = _search(v, depth + 1)
+                if result is not None:
+                    return result
+        elif isinstance(value, list):
+            for item in value:
+                result = _search(item, depth + 1)
+                if result is not None:
+                    return result
+        return None
+
+    return _search(payload)
+
+
+def extract_ctt_info(provider_payload_json: dict | list | None) -> dict[str, Any]:
+    """Extract a curated set of CTT data fields from provider_payload_json for display."""
+    result: dict[str, Any] = {}
+    if not isinstance(provider_payload_json, dict):
+        return result
+
+    latest = provider_payload_json.get("latest_tracking_sync")
+    if not isinstance(latest, dict):
+        return result
+
+    payload = latest.get("payload", {})
+    if not isinstance(payload, dict):
+        return result
+
+    def _get(*keys: str, root: dict = payload) -> Any:
+        for key in keys:
+            val = root.get(key)
+            if val is not None:
+                return val
+        return None
+
+    # Basic shipment info
+    if v := _get("item_count", "itemCount", "package_count", "packageCount"):
+        result["item_count"] = v
+    if v := _get("traffic_type_code", "trafficTypeCode"):
+        result["traffic_type_code"] = v
+    if v := _get("client_reference", "clientReference"):
+        result["client_reference"] = v
+
+    # Weights
+    if v := _get("final_weight", "finalWeight", "real_weight", "billedWeight"):
+        try:
+            result["final_weight"] = float(v)
+        except (TypeError, ValueError):
+            pass
+    if v := _get("declared_weight", "declaredWeight"):
+        try:
+            result["declared_weight"] = float(v)
+        except (TypeError, ValueError):
+            pass
+
+    # Dates
+    if v := _get("committed_delivery_datetime", "committedDeliveryDatetime", "commitment_date", "commitmentDate", "committed_date"):
+        result["committed_delivery_datetime"] = str(v)
+    if v := _get("reported_delivery_date", "reportedDeliveryDate"):
+        result["reported_delivery_date"] = str(v)
+    if v := _get("delivery_date", "deliveryDate"):
+        result["delivery_date"] = str(v)
+
+    # Incident
+    if v := _get("incident_type_name", "incidentTypeName"):
+        result["incident_type_name"] = str(v)
+    if v := _get("incident_type_code", "incidentTypeCode"):
+        result["incident_type_code"] = str(v)
+    if v := _get("incident_type_desc", "incidentTypeDesc", "incident_description"):
+        result["incident_type_desc"] = str(v)
+
+    # Management
+    if v := _get("allow_managements", "allowManagements"):
+        result["allow_managements"] = bool(v)
+    if v := _get("management_type", "managementType"):
+        result["management_type"] = str(v)
+
+    # Origin / destination
+    origin_parts = [_get("origin_name", "originName"), _get("origin_province_name", "originProvinceName")]
+    origin = ", ".join(p for p in origin_parts if p)
+    if origin:
+        result["origin"] = origin
+
+    destin_parts = [_get("destin_name", "destinName"), _get("destin_province_name", "destinProvinceName")]
+    destin = ", ".join(p for p in destin_parts if p)
+    if destin:
+        result["destination"] = destin
+
+    # Sync meta
+    if v := latest.get("synced_at"):
+        result["last_synced_at"] = str(v)
+
+    return result
 
 
 def _truncate_payload(value: dict[str, Any]) -> dict[str, Any]:

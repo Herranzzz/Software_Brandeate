@@ -1,6 +1,7 @@
 from datetime import date, datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TrackingEventCreate(BaseModel):
@@ -71,7 +72,9 @@ class ShipmentSummaryRead(BaseModel):
     weight_tier_code: str | None
     weight_tier_label: str | None
     shipping_weight_declared: float | None
+    final_weight: float | None = None
     package_count: int | None
+    provider_payload_json: dict | list | None = None
     expected_ship_date: date | None = None
     expected_delivery_date: date | None = None
     shipping_cost: float | None = None
@@ -86,6 +89,14 @@ class ShipmentSummaryRead(BaseModel):
 
 class ShipmentRead(ShipmentSummaryRead):
     events: list[TrackingEventRead] = Field(default_factory=list)
+    ctt_info: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _populate_ctt_info(self) -> "ShipmentRead":
+        from app.services.ctt_tracking import extract_ctt_info
+        raw = getattr(self, "provider_payload_json", None)
+        object.__setattr__(self, "ctt_info", extract_ctt_info(raw))
+        return self
 
 
 class ShipmentCostUpdate(BaseModel):
