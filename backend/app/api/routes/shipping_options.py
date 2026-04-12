@@ -15,6 +15,7 @@ from app.schemas.shipping_options import (
     PickupPointResponse,
     ShippingOptionSelection,
 )
+from app.services.ctt import CTTError, get_pickup_points as ctt_get_pickup_points
 from app.services.shipping_options import LiveRateContext, apply_shipping_selection, get_live_rates, store_quotes
 
 
@@ -75,35 +76,44 @@ def get_pickup_points(
     if accessible_shop_ids is not None and payload.shop_id not in accessible_shop_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
 
+    try:
+        raw_points = ctt_get_pickup_points(
+            postal_code=payload.destination_postal_code,
+            country_code=payload.destination_country_code,
+        )
+    except CTTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"CTT API error: {exc}",
+        ) from exc
+
+    def _str(v: object) -> str:
+        return str(v).strip() if v is not None else ""
+
+    def _hours(pt: dict) -> list[str] | None:
+        raw = pt.get("schedule") or pt.get("opening_hours") or pt.get("hours")
+        if isinstance(raw, list):
+            return [str(h) for h in raw] or None
+        if isinstance(raw, str) and raw.strip():
+            return [raw.strip()]
+        return None
+
     points = [
         PickupPoint(
-            id="CTT-OVD-001",
-            name="CTT Punto Oviedo Centro",
-            address1="Calle San Francisco 12",
-            address2=None,
-            city=payload.destination_city or "Oviedo",
-            province="Asturias",
-            postal_code=payload.destination_postal_code,
-            country_code=payload.destination_country_code,
+            id=_str(pt.get("code") or pt.get("id") or pt.get("distribution_point_code") or i),
+            name=_str(pt.get("name") or pt.get("description") or pt.get("commercial_name") or f"Punto CTT {i}"),
+            address1=_str(pt.get("address") or pt.get("address1") or pt.get("street") or ""),
+            address2=_str(pt.get("address2") or pt.get("address_complement")) or None,
+            city=_str(pt.get("city") or pt.get("town") or pt.get("municipality") or payload.destination_city or ""),
+            province=_str(pt.get("province") or pt.get("region")) or None,
+            postal_code=_str(pt.get("postal_code") or pt.get("zip_code") or payload.destination_postal_code),
+            country_code=_str(pt.get("country_code") or pt.get("country") or payload.destination_country_code),
             carrier=payload.carrier,
-            latitude=43.3603,
-            longitude=-5.8448,
-            opening_hours=["L-V 09:00-19:00", "S 10:00-14:00"],
-        ),
-        PickupPoint(
-            id="CTT-OVD-002",
-            name="CTT Punto Oviedo Norte",
-            address1="Av. de Galicia 25",
-            address2="Local 4",
-            city=payload.destination_city or "Oviedo",
-            province="Asturias",
-            postal_code=payload.destination_postal_code,
-            country_code=payload.destination_country_code,
-            carrier=payload.carrier,
-            latitude=43.375,
-            longitude=-5.858,
-            opening_hours=["L-V 08:30-18:30"],
-        ),
+            latitude=float(pt["latitude"]) if pt.get("latitude") is not None else None,
+            longitude=float(pt["longitude"]) if pt.get("longitude") is not None else None,
+            opening_hours=_hours(pt),
+        )
+        for i, pt in enumerate(raw_points)
     ]
 
     return PickupPointResponse(points=points, generated_at=datetime.now(timezone.utc))

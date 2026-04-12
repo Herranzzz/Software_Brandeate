@@ -243,3 +243,52 @@ def get_pod(
         if exc.code == 404:
             return None
         raise CTTError(f"Get POD failed ({exc.code}): {exc.read().decode()}") from exc
+
+
+def get_pickup_points(
+    postal_code: str,
+    country_code: str = "ES",
+    page_limit: int = 20,
+) -> list[dict]:
+    """Search CTT PUDO (pickup) points by postal code prefix.
+
+    Uses CTT distribution-points v2.0 API.
+    Returns a list of raw point dicts from the API.
+    """
+    token = get_token()
+    params = urlencode({"page_limit": page_limit, "page_offsets": 0})
+    url = (
+        f"{_base_url()}/integrations/delivery/v1.0"
+        f"/distribution-points/v2.0/search?{params}"
+    )
+    body = json.dumps({
+        "area": {
+            "postal_code": postal_code,
+            "country_code": country_code,
+        },
+        "type": "OFFLINE",
+        "services": [],
+    }).encode()
+
+    req = request.Request(
+        url,
+        data=body,
+        headers=_api_headers(token=token, include_content_type=True),
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, context=_ssl_context()) as resp:
+            raw = resp.read()
+    except error.HTTPError as exc:
+        raise CTTError(
+            f"Get pickup points failed ({exc.code}): {exc.read().decode()}"
+        ) from exc
+
+    payload = json.loads(raw)
+    # Response may be list or dict with a key containing the list
+    if isinstance(payload, list):
+        return payload
+    for key in ("distribution_points", "points", "data", "items", "results"):
+        if isinstance(payload.get(key), list):
+            return payload[key]
+    return []

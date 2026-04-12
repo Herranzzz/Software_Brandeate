@@ -3841,14 +3841,34 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 .detail-grid {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+  gap: 14px;
   align-items: start;
 }
 
 .detail-grid > .stack,
 .detail-grid > aside {
   align-self: start;
+  gap: 10px;
+}
+
+/* Compact cards inside detail-grid */
+.detail-grid .card {
+  padding: 16px 18px;
+}
+
+.detail-grid .card.stack {
+  gap: 14px;
+}
+
+/* Tighter section titles inside detail cards */
+.detail-grid .card .section-title-eyebrow {
+  margin-bottom: 1px;
+}
+
+/* Tighter kv rows */
+.detail-grid .kv + .kv {
+  margin-top: 4px;
 }
 
 .order-hero-card {
