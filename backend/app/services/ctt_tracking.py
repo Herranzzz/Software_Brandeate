@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -110,6 +110,18 @@ def sync_shipment_tracking(
 
     if events_created > 0:
         changed = True
+
+    # Update expected delivery date: prefer date from CTT payload, fall back to label+2bd estimate
+    if shipment.shipping_status not in ("delivered", "exception"):
+        extracted_date = _extract_expected_delivery_date(payload)
+        if extracted_date is not None:
+            if shipment.expected_delivery_date != extracted_date:
+                shipment.expected_delivery_date = extracted_date
+                changed = True
+        elif shipment.expected_delivery_date is None:
+            shipment.expected_delivery_date = _fallback_delivery_date(shipment)
+            if shipment.expected_delivery_date is not None:
+                changed = True
 
     shopify_sync_status: str | None = None
     if push_to_shopify:
@@ -343,6 +355,83 @@ def map_ctt_tracking_status(raw_status: str | None) -> str:
     if any(token in status for token in ("transit", "tránsito", "transito", "sorting", "clasificado", "hub", "linehaul", "route", "encaminado", "in distribution")):
         return "in_transit"
     return "in_transit"
+
+
+def _extract_expected_delivery_date(payload: dict[str, Any]) -> date | None:
+    """Try to extract an estimated delivery date from the CTT payload."""
+    if not isinstance(payload, dict):
+        return None
+
+    # Keys CTT may use for expected/committed delivery date
+    date_keys = (
+        "expected_delivery_date",
+        "estimatedDeliveryDate",
+        "estimated_delivery_date",
+        "prevision_date",
+        "previsionDate",
+        "delivery_date",
+        "deliveryDate",
+        "commitment_date",
+        "commitmentDate",
+        "CommitedDate",
+        "commited_date",
+        "eta",
+        "ETA",
+    )
+
+    def _search(value: Any, depth: int = 0) -> date | None:
+        if depth > 6:
+            return None
+        if isinstance(value, dict):
+            for key in date_keys:
+                raw = value.get(key)
+                if raw is not None:
+                    parsed = _parse_date_value(raw)
+                    if parsed is not None:
+                        return parsed
+            for v in value.values():
+                result = _search(v, depth + 1)
+                if result is not None:
+                    return result
+        elif isinstance(value, list):
+            for item in value:
+                result = _search(item, depth + 1)
+                if result is not None:
+                    return result
+        return None
+
+    return _search(payload)
+
+
+def _parse_date_value(value: Any) -> date | None:
+    """Parse a date from a string or datetime-like value."""
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()[:10]  # take YYYY-MM-DD prefix
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _fallback_delivery_date(shipment: Shipment) -> date | None:
+    """Compute an estimated delivery date from label creation date + 2 business days."""
+    ref = shipment.label_created_at or shipment.created_at
+    if ref is None:
+        return None
+    from_date = ref.date() if isinstance(ref, datetime) else ref
+    # Default: 2 business days
+    result = from_date
+    added = 0
+    while added < 2:
+        result += timedelta(days=1)
+        if result.weekday() < 5:
+            added += 1
+    return result
 
 
 def extract_tracking_events(payload: dict[str, Any]) -> list[ParsedTrackingEvent]:

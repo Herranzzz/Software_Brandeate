@@ -13,6 +13,7 @@ type OrdersPageProps = {
     production_status?: string;
     status?: string;
     has_incident?: string;
+    is_prepared?: string;
     priority?: string;
     sku?: string;
     variant_title?: string;
