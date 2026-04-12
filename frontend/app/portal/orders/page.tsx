@@ -24,12 +24,11 @@ type PortalOrdersPageProps = {
 };
 
 const quickFilterOptions: Array<{ key: PortalOrderQuickFilter; label: string; icon: string }> = [
-  { key: "all",              label: "Todos",       icon: "📋" },
-  { key: "personalized",     label: "Personaliz.", icon: "🎨" },
-  { key: "standard",         label: "Estándar",    icon: "📦" },
-  { key: "design_available", label: "Diseño OK",   icon: "✅" },
+  { key: "all",              label: "Todos",        icon: "📋" },
+  { key: "standard",         label: "Estándar",     icon: "📦" },
+  { key: "design_available", label: "Diseño OK",    icon: "✅" },
   { key: "pending_asset",    label: "Pend. asset",  icon: "⏳" },
-  { key: "incident",         label: "Incidencia",  icon: "⚠️" },
+  { key: "incident",         label: "Incidencia",   icon: "⚠️" },
   { key: "not_prepared",     label: "No preparado", icon: "🔧" },
 ];
 
@@ -50,12 +49,25 @@ function formatCompact(dateStr: string) {
   return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
 }
 
-function getFirstProduct(order: Order) {
-  const item = order.items[0];
-  if (!item) return { name: "—", variant: "" };
-  const name = item.title ?? item.name ?? "—";
-  const variant = item.variant_title ?? "";
-  return { name: name.length > 40 ? `${name.slice(0, 38)}…` : name, variant };
+function getProductLines(order: Order) {
+  return order.items.map((item) => {
+    const name = item.title ?? item.name ?? "—";
+    const variant = item.variant_title ?? "";
+    return {
+      name: name.length > 44 ? `${name.slice(0, 42)}…` : name,
+      variant,
+    };
+  });
+}
+
+function getProductionStatusMeta(status: string | null | undefined): { label: string; cls: string } | null {
+  switch (status) {
+    case "in_production":          return { label: "En producción",  cls: "po-prod-pill po-prod-in-production" };
+    case "packed":                 return { label: "Empaquetado",    cls: "po-prod-pill po-prod-packed" };
+    case "completed":              return { label: "Completado",     cls: "po-prod-pill po-prod-completed" };
+    case "pending_personalization":
+    default:                       return null;
+  }
 }
 
 function getShippingStatusMeta(order: Order) {
@@ -177,17 +189,19 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
             <tbody>
               {orders.map((order) => {
                 const stage = clientOrderStageMeta[getClientOrderStage(order)];
-                const product = getFirstProduct(order);
+                const productLines = getProductLines(order);
+                const prodStatusMeta = getProductionStatusMeta(order.production_status);
                 const shippingMeta = getShippingStatusMeta(order);
                 const trackingNum = order.shipment?.tracking_number ?? null;
                 const hasIncident = order.has_open_incident || order.open_incidents_count > 0;
-                const extraItems = order.items.length - 1;
+                const rawId = String(order.external_id ?? "");
+                const displayId = rawId.startsWith("#") ? rawId : `#${rawId}`;
 
                 return (
                   <tr className={`po-row${hasIncident ? " po-row-alert" : ""}`} key={order.id}>
                     <td className="po-td po-td-id">
                       <Link className="po-link" href={`/portal/orders/${order.id}`}>
-                        #{order.external_id}
+                        {displayId}
                       </Link>
                     </td>
                     <td className="po-td po-td-customer">
@@ -195,14 +209,24 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
                     </td>
                     <td className="po-td po-td-date">{formatCompact(order.created_at)}</td>
                     <td className="po-td po-td-product">
-                      <span className="po-product-name">{product.name}</span>
-                      {product.variant && <span className="po-product-variant">{product.variant}</span>}
-                      {extraItems > 0 && <span className="po-product-extra">+{extraItems}</span>}
+                      <div className="po-product-lines">
+                        {productLines.map((line, i) => (
+                          <div className="po-product-line" key={i}>
+                            <span className="po-product-name">{line.name}</span>
+                            {line.variant && <span className="po-product-variant">{line.variant}</span>}
+                          </div>
+                        ))}
+                      </div>
                     </td>
                     <td className="po-td">
-                      <span className={stage.badgeClassName} style={{ fontSize: "0.7rem", padding: "2px 8px" }}>
-                        {stage.label}
-                      </span>
+                      <div className="po-status-stack">
+                        <span className={stage.badgeClassName} style={{ fontSize: "0.7rem", padding: "2px 8px" }}>
+                          {stage.label}
+                        </span>
+                        {prodStatusMeta && (
+                          <span className={prodStatusMeta.cls}>{prodStatusMeta.label}</span>
+                        )}
+                      </div>
                     </td>
                     <td className="po-td">
                       <span className={`po-ship-pill po-ship-${shippingMeta.tone}`}>

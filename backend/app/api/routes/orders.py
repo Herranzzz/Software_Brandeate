@@ -1288,44 +1288,44 @@ def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
 
 
 def _generate_a4_print_pdf(image_path: str, output_path: str) -> None:
-    """Embed 18×24cm design into top-left corner of A4. Only 2 cuts needed: right + bottom."""
+    """Embed 18×24cm design into top-left corner of A4 (portrait or landscape). 2 cuts: right + bottom."""
     from PIL import Image as PilImage
-    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
     from reportlab.pdfgen.canvas import Canvas
     from reportlab.lib.utils import ImageReader
 
-    PT = 2.834645669          # points per mm
-    page_w, page_h = A4       # 595.28 × 841.89 pt  (210×297mm)
-
-    # Design area: 180×240mm — placed at top-left corner (no left/top margin)
-    design_w_mm, design_h_mm = 180.0, 240.0
-    dw = design_w_mm * PT
-    dh = design_h_mm * PT
-
-    # reportlab origin is bottom-left, so top-left corner means y0 = page_h - dh
-    x0 = 0.0
-    y0 = page_h - dh
+    PT = 2.834645669
 
     pil_img = PilImage.open(image_path).convert("RGB")
+    img_w, img_h = pil_img.size
+    is_landscape = img_w > img_h
+
+    if is_landscape:
+        # A4 landscape (297×210mm) with 240×180mm design
+        page_w, page_h = landscape(A4)   # 841.89 × 595.28 pt
+        design_w_mm, design_h_mm = 240.0, 180.0
+    else:
+        # A4 portrait (210×297mm) with 180×240mm design
+        page_w, page_h = A4               # 595.28 × 841.89 pt
+        design_w_mm, design_h_mm = 180.0, 240.0
+
+    dw = design_w_mm * PT
+    dh = design_h_mm * PT
+    x0 = 0.0
+    y0 = page_h - dh   # top-left corner in reportlab coords (origin = bottom-left)
+
     img_reader = ImageReader(pil_img)
+    pagesize = landscape(A4) if is_landscape else A4
+    c = Canvas(output_path, pagesize=pagesize)
 
-    c = Canvas(output_path, pagesize=A4)
-
-    # Draw design flush to top-left corner
     c.drawImage(img_reader, x0, y0, width=dw, height=dh, preserveAspectRatio=False)
 
-    # Only 2 cut lines needed (other two sides are the paper edge)
-    c.setStrokeColor(colors.Color(0.898, 0.224, 0.208))  # #e53935 red, same as A3
+    c.setStrokeColor(colors.Color(0.898, 0.224, 0.208))  # #e53935
     c.setLineWidth(0.7)
     c.setDash(8, 4)
-
-    # Right vertical cut (full page height)
-    c.line(dw, 0, dw, page_h)
-
-    # Bottom horizontal cut (full page width)
-    c.line(0, y0, page_w, y0)
-
+    c.line(dw, 0, dw, page_h)     # right cut
+    c.line(0, y0, page_w, y0)     # bottom cut
     c.save()
 
 

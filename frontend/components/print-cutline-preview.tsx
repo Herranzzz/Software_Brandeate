@@ -3,23 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface PrintCutlinePreviewProps {
-  src: string;
+  srcs: string[];
   variantTitle?: string | null;
   orderId: number;
   printVariant?: "30x40" | "18x24";
 }
 
-// Page dimensions per variant (mm)
-const PAGE_DIMS = {
-  "30x40": { w: 297, h: 420 },  // A3
-  "18x24": { w: 210, h: 297 },  // A4
-} as const;
+// Page dimensions (mm) — A4 portrait for 18x24 portrait, A4 landscape for 18x24 landscape
+const PAGE_PORTRAIT  = { w: 210, h: 297 };  // A4 portrait
+const PAGE_LANDSCAPE = { w: 297, h: 210 };  // A4 landscape
+const PAGE_A3        = { w: 297, h: 420 };  // A3
 
 // Design area within page (mm)
-const DESIGN_DIMS = {
-  "30x40": { w: 297, h: 420 },  // fills full A3
-  "18x24": { w: 180, h: 240 },  // centred on A4
-} as const;
+const DESIGN_18x24_PORTRAIT  = { w: 180, h: 240 };  // 18x24 portrait in A4p
+const DESIGN_18x24_LANDSCAPE = { w: 240, h: 180 };  // 18x24 landscape in A4l
+const DESIGN_30x40           = { w: 297, h: 420 };  // fills full A3
 
 const SNAP_THRESHOLD = 3;
 const MIN_ZOOM = 0.5;
@@ -42,32 +40,33 @@ async function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant = "30x40" }: PrintCutlinePreviewProps) {
+export function PrintCutlinePreview({ srcs, variantTitle, orderId, printVariant = "30x40" }: PrintCutlinePreviewProps) {
+  const [designIdx, setDesignIdx] = useState(0);
+  const src = srcs[designIdx] ?? srcs[0];
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [snapping, setSnapping] = useState(false);
   const [dlState, setDlState] = useState<DownloadState>("idle");
   const [dlError, setDlError] = useState<string | null>(null);
-  // Detect if the source image is landscape — if so, rotate design area 90°
   const [isImgLandscape, setIsImgLandscape] = useState(false);
 
   const dragging = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const stageRef = useRef<HTMLDivElement>(null);
 
-  const page   = PAGE_DIMS[printVariant];
   const is18x24 = printVariant === "18x24";
 
-  // For 18x24: if the image is landscape, swap design w/h (print rotated)
-  const baseDesign = DESIGN_DIMS[printVariant];
-  const design = is18x24 && isImgLandscape
-    ? { w: baseDesign.h, h: baseDesign.w }  // 240×180 instead of 180×240
-    : baseDesign;
+  // Pick page + design based on variant AND detected orientation
+  const page   = is18x24
+    ? (isImgLandscape ? PAGE_LANDSCAPE : PAGE_PORTRAIT)
+    : PAGE_A3;
+  const design = is18x24
+    ? (isImgLandscape ? DESIGN_18x24_LANDSCAPE : DESIGN_18x24_PORTRAIT)
+    : DESIGN_30x40;
 
-  // 18x24: design sits at TOP-LEFT corner of A4 (only right + bottom cuts needed)
-  // 30x40: design fills full A3 (only top cut at 2cm)
-  const designWidthPct  = (design.w / page.w) * 100;   // 18x24: ~85.7%, 30x40: 100%
-  const designHeightPct = (design.h / page.h) * 100;   // 18x24: ~80.8%, 30x40: 100%
+  // design as % of page
+  const designWidthPct  = (design.w / page.w) * 100;
+  const designHeightPct = (design.h / page.h) * 100;
 
   // Top-only cut margin for 30x40 (2cm from top of A3)
   const margin2cmPct = (20 / page.h) * 100;
@@ -187,14 +186,41 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
 
   const reset = () => { setOffset({ x: 0, y: 0 }); setZoom(1); setSnapping(false); };
 
+  const goToDesign = (idx: number) => {
+    setDesignIdx(idx);
+    setOffset({ x: 0, y: 0 });
+    setZoom(1);
+    setIsImgLandscape(false);
+  };
+
   const pdfLabel = is18x24 ? "↓ Descargar PDF A4" : "↓ Descargar PDF A3";
-  const pageLabel = is18x24 ? "A4 · 18×24 cm" : "A3 · 30×40 cm";
+  const pageLabel = is18x24
+    ? (isImgLandscape ? "A4 Horizontal · 18×24 cm" : "A4 · 18×24 cm")
+    : "A3 · 30×40 cm";
 
   return (
     <div className="pcl-wrap">
       <div className="pcl-header">
         <span className="pcl-title">Vista previa de impresión</span>
         {variantTitle && <span className="pcl-variant">{variantTitle}</span>}
+        {/* Multi-design navigation */}
+        {srcs.length > 1 && (
+          <div className="pcl-design-nav">
+            <button
+              className="pcl-design-nav-btn"
+              disabled={designIdx === 0}
+              onClick={() => goToDesign(designIdx - 1)}
+              title="Diseño anterior"
+            >‹</button>
+            <span className="pcl-design-nav-pos">{designIdx + 1} / {srcs.length}</span>
+            <button
+              className="pcl-design-nav-btn"
+              disabled={designIdx === srcs.length - 1}
+              onClick={() => goToDesign(designIdx + 1)}
+              title="Diseño siguiente"
+            >›</button>
+          </div>
+        )}
         <div className="pcl-zoom-controls">
           <button className="pcl-zoom-btn" onClick={() => setZoom(z => Math.min(MAX_ZOOM, z + ZOOM_STEP))}>+</button>
           <span className="pcl-zoom-label">{Math.round(zoom * 100)}%</span>

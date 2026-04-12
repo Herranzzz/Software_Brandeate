@@ -442,12 +442,18 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         </div>
 
         <div className="order-detail-hero-actions">
-          <Link className="button button-secondary" href="/orders">← Volver</Link>
-          <OrderNav currentId={order.id} />
-          <Link className="button button-secondary" href={`/orders/${order.id}/packing-slip`} rel="noreferrer" target="_blank">Albarán</Link>
-          <OrderBlockButton order={order} />
-          <CttShipmentButton order={order} />
-          <OrderActionModals orderId={order.id} shipment={order.shipment} />
+          {/* Navigation row */}
+          <div className="order-detail-nav-row">
+            <Link className="button button-secondary order-detail-nav-back" href="/orders">← Volver</Link>
+            <OrderNav currentId={order.id} />
+          </div>
+          {/* Primary actions */}
+          <div className="order-detail-action-row">
+            <CttShipmentButton order={order} />
+            <Link className="button button-secondary" href={`/orders/${order.id}/packing-slip`} rel="noreferrer" target="_blank">Albarán</Link>
+            <OrderActionModals orderId={order.id} shipment={order.shipment} />
+            <OrderBlockButton order={order} />
+          </div>
         </div>
       </div>
 
@@ -735,13 +741,21 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             const variantTitle = primaryItem?.variant_title ?? "";
             const is18x24 = /18\s*[xX×*]\s*24/i.test(variantTitle);
             const is30x40 = /30\s*[xX×*]\s*40/i.test(variantTitle);
-            const isPrintVariant = designPreviewUrl && (is18x24 || is30x40);
+            const isPrintVariant = is18x24 || is30x40;
 
-            if (isPrintVariant) {
+            // Collect ALL design URLs from print-variant items (multi-item orders)
+            const printDesignUrls: string[] = order.items
+              .filter(item => {
+                const vt = item.variant_title ?? "";
+                return /18\s*[xX×*]\s*24/i.test(vt) || /30\s*[xX×*]\s*40/i.test(vt);
+              })
+              .flatMap(item => getVisibleAssets(item).map(a => a.url).filter(Boolean));
+
+            if (isPrintVariant && printDesignUrls.length > 0) {
               return (
                 <Card className="stack">
                   <PrintCutlinePreview
-                    src={designPreviewUrl}
+                    srcs={printDesignUrls}
                     variantTitle={variantTitle || null}
                     orderId={order.id}
                     printVariant={is18x24 ? "18x24" : "30x40"}
