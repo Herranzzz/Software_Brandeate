@@ -1222,6 +1222,65 @@ def _unique_name(base: str, ext: str, used: set[str]) -> str:
         counter += 1
 
 
+_30X40_PATTERN = re.compile(r'30\s*[xX×*]\s*40', re.IGNORECASE)
+_A3_W_MM = 297.0
+_A3_H_MM = 420.0
+_CUT_MARGIN_MM = 20.0  # 2cm cut line from edge
+
+
+def _is_30x40_product(item: "OrderItem") -> bool:
+    name = (item.name or item.title or "").strip()
+    return bool(_30X40_PATTERN.search(name))
+
+
+def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
+    """Embed a design image into an A3 PDF with a 2cm cut/trim line."""
+    from reportlab.lib.pagesizes import A3
+    from reportlab.lib import colors
+    from reportlab.pdfgen.canvas import Canvas
+
+    PT_PER_MM = 2.834645669
+    page_w, page_h = A3  # portrait: 841.89 × 1190.55 pt
+
+    margin_pt = _CUT_MARGIN_MM * PT_PER_MM  # 56.69 pt
+
+    c = Canvas(output_path, pagesize=A3)
+
+    # Draw image filling the full page (scaled to fit, centred)
+    c.drawImage(
+        image_path,
+        0, 0,
+        width=page_w,
+        height=page_h,
+        preserveAspectRatio=True,
+        anchor="c",
+    )
+
+    # Draw 2cm cut/trim line as dashed red rectangle
+    c.setStrokeColor(colors.red)
+    c.setLineWidth(0.5)
+    c.setDash(8, 4)
+    c.rect(margin_pt, margin_pt, page_w - 2 * margin_pt, page_h - 2 * margin_pt)
+
+    # Corner tick marks (solid, outward from cut corners)
+    tick = 7 * PT_PER_MM  # 7mm ticks
+    c.setDash()  # reset to solid
+    c.setLineWidth(0.5)
+    corners = [
+        (margin_pt, margin_pt),
+        (page_w - margin_pt, margin_pt),
+        (page_w - margin_pt, page_h - margin_pt),
+        (margin_pt, page_h - margin_pt),
+    ]
+    for cx, cy in corners:
+        dx = -tick if cx > page_w / 2 else tick
+        dy = -tick if cy > page_h / 2 else tick
+        c.line(cx + dx, cy, cx, cy)
+        c.line(cx, cy + dy, cx, cy)
+
+    c.save()
+
+
 def _download_asset_to_temp(url: str) -> tuple[str, str]:
     """Fetch asset to a temporary file; returns (temp_path, detected_ext)."""
     ctx = ssl.create_default_context()
@@ -1295,6 +1354,7 @@ def _build_design_download_jobs(orders: list[Order]) -> tuple[list[dict], list[d
                     "design_url": design_url,
                     "base": base,
                     "url_ext": url_ext,
+                    "is_30x40": _is_30x40_product(item),
                 }
             )
     return download_jobs, results
@@ -1380,12 +1440,22 @@ def _run_bulk_design_job(job_id: str) -> None:
                 for future in as_completed(future_map):
                     current_job = future_map[future]
                     temp_path: str | None = None
+                    pdf_path: str | None = None
                     try:
                         temp_path, fetched_ext = future.result()
-                        ext = current_job["url_ext"] or fetched_ext or ".bin"
-                        filename = _unique_name(current_job["base"], ext, used_names)
-                        used_names.add(filename)
-                        zf.write(temp_path, arcname=filename)
+                        if current_job.get("is_30x40"):
+                            # Wrap in A3 PDF with 2cm cut line
+                            fd2, pdf_path = tempfile.mkstemp(prefix="bulk-design-a3-", suffix=".pdf")
+                            os.close(fd2)
+                            _generate_a3_print_pdf(temp_path, pdf_path)
+                            filename = _unique_name(current_job["base"], ".pdf", used_names)
+                            used_names.add(filename)
+                            zf.write(pdf_path, arcname=filename)
+                        else:
+                            ext = current_job["url_ext"] or fetched_ext or ".bin"
+                            filename = _unique_name(current_job["base"], ext, used_names)
+                            used_names.add(filename)
+                            zf.write(temp_path, arcname=filename)
                         results.append(
                             {
                                 "order_id": current_job["order_id"],
@@ -1405,6 +1475,7 @@ def _run_bulk_design_job(job_id: str) -> None:
                         )
                     finally:
                         _safe_remove(temp_path)
+                        _safe_remove(pdf_path)
                         ok_count, failed_count, no_design_count = _summarize_design_results(results)
                         with _design_jobs_lock:
                             job = _design_jobs.get(job_id)

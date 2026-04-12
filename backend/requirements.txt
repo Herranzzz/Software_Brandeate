@@ -5,3 +5,5 @@ alembic==1.16.4
 psycopg[binary]==3.2.13
 pydantic-settings==2.10.1
 certifi==2026.2.25
+Pillow==11.2.1
+reportlab==4.4.1
