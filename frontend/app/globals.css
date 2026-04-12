@@ -12316,13 +12316,40 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 
 .exp-kpi-header {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
+  padding: 4px 10px 4px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  width: fit-content;
+  margin-bottom: 2px;
 }
 
+:root[data-theme="dark"] .exp-kpi-header {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Per-tone pill background */
+.exp-kpi-card.is-accent .exp-kpi-header  { background: rgba(var(--accent-rgb), 0.12); }
+.exp-kpi-card.is-green  .exp-kpi-header  { background: rgba(16, 185, 129, 0.12); }
+.exp-kpi-card.is-blue   .exp-kpi-header  { background: rgba(59, 130, 246, 0.12); }
+.exp-kpi-card.is-red    .exp-kpi-header  { background: rgba(239, 68, 68, 0.12); }
+.exp-kpi-card.is-orange .exp-kpi-header  { background: rgba(245, 158, 11, 0.12); }
+.exp-kpi-card.is-slate  .exp-kpi-header  { background: rgba(100, 116, 139, 0.10); }
+.exp-kpi-card.is-purple .exp-kpi-header  { background: rgba(139, 92, 246, 0.12); }
+
+/* Per-tone label color inside pill */
+.exp-kpi-card.is-accent .exp-kpi-header .exp-kpi-label  { color: var(--accent); }
+.exp-kpi-card.is-green  .exp-kpi-header .exp-kpi-label  { color: #059669; }
+.exp-kpi-card.is-blue   .exp-kpi-header .exp-kpi-label  { color: #2563eb; }
+.exp-kpi-card.is-red    .exp-kpi-header .exp-kpi-label  { color: #dc2626; }
+.exp-kpi-card.is-orange .exp-kpi-header .exp-kpi-label  { color: #d97706; }
+.exp-kpi-card.is-slate  .exp-kpi-header .exp-kpi-label  { color: #64748b; }
+.exp-kpi-card.is-purple .exp-kpi-header .exp-kpi-label  { color: #7c3aed; }
+
 .exp-kpi-emoji {
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   line-height: 1;
   flex-shrink: 0;
 }
