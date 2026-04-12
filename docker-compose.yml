@@ -28,10 +28,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/app
-    depends_on:
-      postgres:
-        condition: service_healthy
+      DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/app
 
 volumes:
   postgres_data:
