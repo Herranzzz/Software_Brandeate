@@ -335,7 +335,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         { label: "Entregados",           value: String(deliveredOrders),   delta: "ciclo cerrado",                   tone: "success" },
         { label: "Incidencias abiertas", value: String(openIncidents),     delta: `${urgentIncidents} prioritarias`, tone: "danger"  },
         ...(blockedOrders > 0 ? [{ label: "Bloqueados",      value: String(blockedOrders),     delta: "pedidos retenidos",               tone: "danger" as const }] : []),
-        ...(overdueSlaOrders > 0 ? [{ label: "SLA vencido",   value: String(overdueSlaOrders),  delta: "entrega atrasada",               tone: "danger" as const }] : []),
       ]}
       noteActions={
         <>
