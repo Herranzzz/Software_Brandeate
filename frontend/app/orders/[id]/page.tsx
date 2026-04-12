@@ -738,17 +738,18 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         <aside className="stack">
 
           {(() => {
-            const variantTitle = primaryItem?.variant_title ?? "";
-            const is18x24 = /18\s*[xX×*]\s*24/i.test(variantTitle);
-            const is30x40 = /30\s*[xX×*]\s*40/i.test(variantTitle);
-            const isPrintVariant = is18x24 || is30x40;
+            // Find the FIRST print-variant item across all items (not just primaryItem)
+            const IS_PRINT = (vt: string) =>
+              /18\s*[xX×*]\s*24/i.test(vt) || /30\s*[xX×*]\s*40/i.test(vt);
+            const firstPrintItem = order.items.find(item => IS_PRINT(item.variant_title ?? ""));
 
-            // Collect ALL design URLs from print-variant items (multi-item orders)
+            const variantTitle = firstPrintItem?.variant_title ?? "";
+            const is18x24 = /18\s*[xX×*]\s*24/i.test(variantTitle);
+            const isPrintVariant = IS_PRINT(variantTitle);
+
+            // Collect design URLs only from print-variant items
             const printDesignUrls: string[] = order.items
-              .filter(item => {
-                const vt = item.variant_title ?? "";
-                return /18\s*[xX×*]\s*24/i.test(vt) || /30\s*[xX×*]\s*40/i.test(vt);
-              })
+              .filter(item => IS_PRINT(item.variant_title ?? ""))
               .flatMap(item => getVisibleAssets(item).map(a => a.url).filter(Boolean));
 
             if (isPrintVariant && printDesignUrls.length > 0) {
