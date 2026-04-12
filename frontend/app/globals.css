@@ -1425,7 +1425,7 @@ a.admin-orders-row:hover {
 .table th,
 .table td {
   border-bottom: 1px solid var(--border);
-  padding: 14px 16px;
+  padding: 8px 12px;
   text-align: left;
   vertical-align: top;
 }
@@ -2663,25 +2663,25 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .orders-cell-stack,
 .orders-preview-stack {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .orders-cell-line {
   display: grid;
-  gap: 2px;
+  gap: 1px;
 }
 
 .orders-cell-line-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .orders-status-stack {
   display: grid;
-  gap: 8px;
+  gap: 5px;
   align-content: start;
 }
 
@@ -2724,13 +2724,13 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 
 .orders-preview-cell {
-  width: 76px;
+  width: 56px;
 }
 
 .orders-preview-cell .shipment-render-trigger {
-  width: 84px;
-  height: 84px;
-  min-height: 84px;
+  width: 60px;
+  height: 60px;
+  min-height: 60px;
   padding: 6px;
   border-radius: var(--radius-control);
   background: var(--surface-soft);
@@ -2752,8 +2752,8 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .orders-preview-empty {
   display: grid;
   place-items: center;
-  width: 84px;
-  height: 84px;
+  width: 60px;
+  height: 60px;
   border-radius: var(--radius-control);
   border: 1px dashed var(--border-strong);
   background: var(--surface-soft);
@@ -2778,8 +2778,8 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 .orders-row-link strong {
   color: var(--text);
-  font-size: 1rem;
-  letter-spacing: -0.03em;
+  font-size: 0.88rem;
+  letter-spacing: -0.02em;
 }
 
 .orders-drawer-head,
