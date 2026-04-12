@@ -3506,10 +3506,12 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   cursor: grabbing;
 }
 
-.pcl-cutline {
+.pcl-cutline-top {
   position: absolute;
-  border: 1.5px dashed #e53935;
-  border-radius: 1px;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1.5px dashed #e53935;
   pointer-events: none;
 }
 
@@ -3522,10 +3524,8 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   border-style: solid;
 }
 
-.pcl-corner-tl { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
-.pcl-corner-tr { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
-.pcl-corner-bl { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
-.pcl-corner-br { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+.pcl-corner-tl { top: -1px; left: 0; border-width: 0 0 0 2px; height: 8px; width: 0; }
+.pcl-corner-tr { top: -1px; right: 0; border-width: 0 2px 0 0; height: 8px; width: 0; }
 
 .pcl-badge {
   position: absolute;

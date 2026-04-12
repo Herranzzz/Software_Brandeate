@@ -1257,37 +1257,28 @@ def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
 
     c = Canvas(output_path, pagesize=A3)
 
-    # Draw image filling the full page (scaled to fit, centred)
+    # Draw image filling the full page (no padding — bleed to edges)
     c.drawImage(
         img_reader,
         0, 0,
         width=page_w,
         height=page_h,
-        preserveAspectRatio=True,
-        anchor="c",
+        preserveAspectRatio=False,  # fill full A3
     )
 
-    # Draw 2cm cut/trim line as dashed red rectangle
+    # Draw cut line ONLY at the top — 2cm from top edge
+    cut_y = page_h - margin_pt  # reportlab y=0 is bottom
     c.setStrokeColor(colors.red)
-    c.setLineWidth(0.5)
+    c.setLineWidth(0.7)
     c.setDash(8, 4)
-    c.rect(margin_pt, margin_pt, page_w - 2 * margin_pt, page_h - 2 * margin_pt)
+    c.line(0, cut_y, page_w, cut_y)
 
-    # Corner tick marks (solid, outward from cut corners)
-    tick = 7 * PT_PER_MM  # 7mm ticks
-    c.setDash()  # reset to solid
-    c.setLineWidth(0.5)
-    corners = [
-        (margin_pt, margin_pt),
-        (page_w - margin_pt, margin_pt),
-        (page_w - margin_pt, page_h - margin_pt),
-        (margin_pt, page_h - margin_pt),
-    ]
-    for cx, cy in corners:
-        dx = -tick if cx > page_w / 2 else tick
-        dy = -tick if cy > page_h / 2 else tick
-        c.line(cx + dx, cy, cx, cy)
-        c.line(cx, cy + dy, cx, cy)
+    # Small tick marks at the corners of the top cut line
+    tick = 5 * PT_PER_MM
+    c.setDash()
+    c.setLineWidth(0.7)
+    c.line(0, cut_y, 0, cut_y - tick)
+    c.line(page_w, cut_y, page_w, cut_y - tick)
 
     c.save()
 

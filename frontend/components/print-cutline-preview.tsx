@@ -85,20 +85,13 @@ export function PrintCutlinePreview({ src, variantTitle }: PrintCutlinePreviewPr
           onTouchStart={onTouchStart}
         />
 
-        {/* Fixed cut line */}
+        {/* Fixed cut line — top edge only */}
         <div
-          className="pcl-cutline"
-          style={{
-            top: `${marginPctH}%`,
-            left: `${marginPctW}%`,
-            right: `${marginPctW}%`,
-            bottom: `${marginPctH}%`,
-          }}
+          className="pcl-cutline-top"
+          style={{ top: `${marginPctH}%` }}
         >
           <span className="pcl-corner pcl-corner-tl" />
           <span className="pcl-corner pcl-corner-tr" />
-          <span className="pcl-corner pcl-corner-bl" />
-          <span className="pcl-corner pcl-corner-br" />
         </div>
 
         {/* Margin badge */}
