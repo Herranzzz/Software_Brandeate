@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
 
 
 import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
@@ -118,6 +118,22 @@ function LogoutIcon(props: IconProps) {
   );
 }
 
+function MenuIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function CloseIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M18 6 6 18M6 6l12 12" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function InventarioIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -223,11 +239,23 @@ function getInitials(name?: string | null) {
 
 /* ─── AppShell ────────────────────────────────────────────────────────────── */
 
+/* ─── Mobile bottom nav items ─────────────────────────────────────────────── */
+const mobileNavItems = [
+  { href: "/dashboard", label: "Dashboard", icon: DashboardIcon },
+  { href: "/orders",    label: "Pedidos",   icon: OrdersIcon },
+  { href: "/shipments", label: "Analítica", icon: ShipmentsIcon },
+  { href: "/incidencias", label: "Incid.", icon: IncidenciasIcon },
+];
+
 export function AppShell({ children, currentUser }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isSidebarCollapsed, theme, toggleTheme } = useLayoutState();
+
+  // Close drawer on route change
+  useEffect(() => { setIsMobileMenuOpen(false); }, [pathname]);
   const showEmployeeIdentity = Boolean(currentUser && currentUser.role !== "super_admin");
   const sidebarLogo = showEmployeeIdentity ? getInitials(currentUser?.name) : "BR";
   const sidebarTitle = showEmployeeIdentity ? currentUser?.name ?? "Brandeate" : "Brandeate";
@@ -336,6 +364,88 @@ export function AppShell({ children, currentUser }: AppShellProps) {
       <div className="dashboard-main dashboard-main-admin">
         <main className="dashboard-content">{children}</main>
       </div>
+
+      {/* ── Mobile bottom navigation ──────────────────────────── */}
+      <nav className="mobile-bottom-nav" aria-label="Navegación principal">
+        {mobileNavItems.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`mobile-bottom-nav-item${isActive(pathname, item.href) ? " is-active" : ""}`}
+            prefetch={false}
+          >
+            <item.icon className="mobile-bottom-nav-icon" />
+            <span className="mobile-bottom-nav-label">{item.label}</span>
+          </Link>
+        ))}
+        <button
+          className={`mobile-bottom-nav-item${isMobileMenuOpen ? " is-active" : ""}`}
+          onClick={() => setIsMobileMenuOpen((v) => !v)}
+          type="button"
+          aria-label="Más opciones"
+        >
+          {isMobileMenuOpen
+            ? <CloseIcon className="mobile-bottom-nav-icon" />
+            : <MenuIcon className="mobile-bottom-nav-icon" />}
+          <span className="mobile-bottom-nav-label">Más</span>
+        </button>
+      </nav>
+
+      {/* ── Mobile drawer overlay ─────────────────────────────── */}
+      {isMobileMenuOpen && (
+        <div className="mobile-drawer-backdrop" onClick={() => setIsMobileMenuOpen(false)}>
+          <div className="mobile-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-drawer-header">
+              <div className="tenant-logo tenant-logo-fallback">{sidebarLogo}</div>
+              <div>
+                <span className="eyebrow">{sidebarEyebrow}</span>
+                <p className="mobile-drawer-title">{sidebarTitle}</p>
+              </div>
+            </div>
+            <nav className="mobile-drawer-nav">
+              {navGroups.map((group) => (
+                <div key={group.label} className="mobile-drawer-group">
+                  <span className="mobile-drawer-section">{group.label}</span>
+                  {group.items.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`mobile-drawer-link${isActive(pathname, item.href) ? " is-active" : ""}`}
+                      prefetch={false}
+                    >
+                      <item.icon className="mobile-bottom-nav-icon" />
+                      <span>{item.label}</span>
+                    </Link>
+                  ))}
+                </div>
+              ))}
+            </nav>
+            <div className="mobile-drawer-footer">
+              <button className="mobile-drawer-link" onClick={toggleTheme} type="button">
+                {theme === "dark" ? <SunIcon className="mobile-bottom-nav-icon" /> : <MoonIcon className="mobile-bottom-nav-icon" />}
+                <span>{theme === "dark" ? "Modo claro" : "Modo oscuro"}</span>
+              </button>
+              <Link
+                href="/settings"
+                className={`mobile-drawer-link${isActive(pathname, "/settings") ? " is-active" : ""}`}
+                prefetch={false}
+              >
+                <SettingsIcon className="mobile-bottom-nav-icon" />
+                <span>Ajustes</span>
+              </Link>
+              <button
+                className="mobile-drawer-link is-logout"
+                disabled={isLoggingOut}
+                onClick={handleLogout}
+                type="button"
+              >
+                <LogoutIcon className="mobile-bottom-nav-icon" />
+                <span>{isLoggingOut ? "Saliendo…" : "Cerrar sesión"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { type CSSProperties, type ReactNode, type SVGProps } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
 
 import { LogoutButton } from "@/components/logout-button";
 
@@ -138,6 +138,22 @@ function IntegrationsIcon(props: IconProps) {
   );
 }
 
+function MenuIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function CloseIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M18 6 6 18M6 6l12 12" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function SettingsIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -173,6 +189,13 @@ function LogoutIcon(props: IconProps) {
     </svg>
   );
 }
+
+const portalMobileNavItems = [
+  { href: "/portal",              label: "Inicio",    icon: HomeIcon },
+  { href: "/portal/orders",       label: "Pedidos",   icon: OrdersIcon },
+  { href: "/portal/shipments",    label: "Analítica", icon: AnalyticsIcon },
+  { href: "/portal/incidencias",  label: "Incid.",    icon: IncidenciasIcon },
+];
 
 const portalNavGroups = [
   {
@@ -218,7 +241,10 @@ function isActive(pathname: string, href: string) {
 export function PortalShell({ children, user, shops }: PortalShellProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isSidebarCollapsed, theme, toggleTheme } = useLayoutState();
+
+  useEffect(() => { setIsMobileMenuOpen(false); }, [pathname]);
   const tenantScope = resolveTenantScope(shops, searchParams.get("shop_id"));
   const primaryShop = tenantScope.selectedShop ?? shops[0];
   const branding = getTenantBranding(primaryShop);
@@ -316,6 +342,87 @@ export function PortalShell({ children, user, shops }: PortalShellProps) {
       <div className="tenant-main">
         <div className="tenant-content">{children}</div>
       </div>
+
+      {/* ── Mobile bottom navigation ──────────────────────────── */}
+      <nav className="mobile-bottom-nav" aria-label="Navegación principal">
+        {portalMobileNavItems.map((item) => {
+          const href = tenantScope.selectedShopId
+            ? { pathname: item.href, query: { shop_id: tenantScope.selectedShopId } }
+            : item.href;
+          return (
+            <Link
+              key={item.href}
+              href={href}
+              className={`mobile-bottom-nav-item${isActive(pathname, item.href) ? " is-active" : ""}`}
+              prefetch={false}
+            >
+              <item.icon className="mobile-bottom-nav-icon" />
+              <span className="mobile-bottom-nav-label">{item.label}</span>
+            </Link>
+          );
+        })}
+        <button
+          className={`mobile-bottom-nav-item${isMobileMenuOpen ? " is-active" : ""}`}
+          onClick={() => setIsMobileMenuOpen((v) => !v)}
+          type="button"
+          aria-label="Más opciones"
+        >
+          {isMobileMenuOpen
+            ? <CloseIcon className="mobile-bottom-nav-icon" />
+            : <MenuIcon className="mobile-bottom-nav-icon" />}
+          <span className="mobile-bottom-nav-label">Más</span>
+        </button>
+      </nav>
+
+      {/* ── Mobile drawer overlay ─────────────────────────────── */}
+      {isMobileMenuOpen && (
+        <div className="mobile-drawer-backdrop" onClick={() => setIsMobileMenuOpen(false)}>
+          <div className="mobile-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-drawer-header">
+              {branding.logoUrl ? (
+                <img alt={branding.displayName} className="tenant-logo" src={branding.logoUrl} style={{ width: 36, height: 36 }} />
+              ) : (
+                <div className="tenant-logo tenant-logo-fallback">{branding.logoMark}</div>
+              )}
+              <div>
+                <span className="eyebrow">Powered by Brandeate</span>
+                <p className="mobile-drawer-title">{branding.displayName}</p>
+              </div>
+            </div>
+            <nav className="mobile-drawer-nav">
+              {portalNavGroups.map((group) => (
+                <div key={group.label} className="mobile-drawer-group">
+                  <span className="mobile-drawer-section">{group.label}</span>
+                  {group.items.map((item) => {
+                    const href = tenantScope.selectedShopId
+                      ? { pathname: item.href, query: { shop_id: tenantScope.selectedShopId } }
+                      : item.href;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={href}
+                        className={`mobile-drawer-link${isActive(pathname, item.href) ? " is-active" : ""}`}
+                        prefetch={false}
+                      >
+                        <item.icon className="mobile-bottom-nav-icon" />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ))}
+            </nav>
+            <div className="mobile-drawer-footer">
+              <div className="tenant-chip" style={{ width: "fit-content" }}>{user.role}</div>
+              <button className="mobile-drawer-link" onClick={toggleTheme} type="button">
+                {theme === "dark" ? <SunIcon className="mobile-bottom-nav-icon" /> : <MoonIcon className="mobile-bottom-nav-icon" />}
+                <span>{theme === "dark" ? "Modo claro" : "Modo oscuro"}</span>
+              </button>
+              <LogoutButton className="button-secondary" label="Cerrar sesión" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
