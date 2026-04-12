@@ -14,6 +14,12 @@ from app.api.deps import (
     resolve_shop_scope,
 )
 from app.models import ShopCatalogVariant, User
+from app.services.shopify import (
+    ShopifyCredentialsError,
+    ShopifyIntegrationNotFoundError,
+    ShopifyServiceError,
+    sync_shopify_catalog_for_shop,
+)
 from app.models.inventory import (
     InboundShipment,
     InboundShipmentLine,
@@ -739,11 +745,28 @@ def sync_inventory_from_catalog(
 ) -> CatalogSyncResult:
     """Import all Shopify catalog variants (that have a SKU) as InventoryItem records.
 
+    First pulls the latest product catalog from Shopify (so the local
+    ShopCatalogVariant table is up-to-date), then creates InventoryItem records
+    for any variant that has a SKU and doesn't already exist.
+
     Already-existing items are left untouched (stock, reorder_point, location are
     preserved). Only new SKUs are created with stock_on_hand=0.
     """
     _check_shop_access(shop_id, accessible_shop_ids)
 
+    # ── Step 1: pull latest catalog from Shopify ────────────────────────────
+    try:
+        sync_shopify_catalog_for_shop(db, shop_id)
+    except ShopifyIntegrationNotFoundError:
+        # No Shopify integration configured — skip the live fetch, fall back to
+        # whatever is already in ShopCatalogVariant.
+        pass
+    except (ShopifyCredentialsError, ShopifyServiceError):
+        # Credentials invalid or Shopify unreachable — best-effort: continue
+        # with existing local catalog data.
+        pass
+
+    # ── Step 2: import variants into InventoryItem ─────────────────────────
     # Fetch all catalog variants with a non-empty SKU for this shop
     variants = db.scalars(
         select(ShopCatalogVariant).where(
