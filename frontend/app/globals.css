@@ -12291,8 +12291,14 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 .exp-kpi-card {
   display: grid;
+  grid-template-columns: 1fr auto;
   grid-template-rows: auto auto auto;
-  gap: 8px;
+  grid-template-areas:
+    "label icon"
+    "value value"
+    "hint  hint";
+  column-gap: 10px;
+  row-gap: 6px;
   padding: 18px 18px 16px;
   border-radius: var(--radius-card);
   border: 1px solid var(--border);
@@ -12300,7 +12306,7 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   box-shadow: var(--shadow-soft);
   position: relative;
   overflow: hidden;
-  align-content: start;
+  align-items: start;
   transition: box-shadow 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease;
 }
 
@@ -12317,24 +12323,19 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   transform: translateY(-2px);
 }
 
-/* ── KPI top row: icon + label ───────────────────────────────── */
-.exp-kpi-top {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-/* Rounded square icon — app-icon style */
+/* Rounded square icon — top-right, app-icon style */
 .exp-kpi-icon {
+  grid-area: icon;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  font-size: 1.2rem;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  font-size: 1.25rem;
   flex-shrink: 0;
   background: rgba(0,0,0,0.055);
+  align-self: start;
 }
 
 :root[data-theme="dark"] .exp-kpi-icon {
@@ -12351,16 +12352,19 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .exp-kpi-card.is-purple .exp-kpi-icon { background: rgba(139,92,246,0.13); }
 
 .exp-kpi-label {
+  grid-area: label;
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--muted);
   line-height: 1.25;
+  align-self: center;
 }
 
 .exp-kpi-value {
-  font-size: 2rem;
+  grid-area: value;
+  font-size: 2.2rem;
   font-weight: 800;
   letter-spacing: -0.06em;
   line-height: 1;
@@ -12369,6 +12373,7 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 
 .exp-kpi-hint {
+  grid-area: hint;
   font-size: 0.76rem;
   color: var(--muted);
   line-height: 1.4;
