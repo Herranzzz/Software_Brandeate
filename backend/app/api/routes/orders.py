@@ -1288,7 +1288,7 @@ def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
 
 
 def _generate_a4_print_pdf(image_path: str, output_path: str) -> None:
-    """Embed a design image into an A4 PDF with full-bleed cut lines for 18×24cm."""
+    """Embed 18×24cm design into top-left corner of A4. Only 2 cuts needed: right + bottom."""
     from PIL import Image as PilImage
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -1298,36 +1298,33 @@ def _generate_a4_print_pdf(image_path: str, output_path: str) -> None:
     PT = 2.834645669          # points per mm
     page_w, page_h = A4       # 595.28 × 841.89 pt  (210×297mm)
 
-    # Design area: 180×240mm centred on A4
+    # Design area: 180×240mm — placed at top-left corner (no left/top margin)
     design_w_mm, design_h_mm = 180.0, 240.0
-    margin_x = (210.0 - design_w_mm) / 2   # 15mm each side
-    margin_y = (297.0 - design_h_mm) / 2   # 28.5mm top/bottom
-
-    x0 = margin_x * PT
-    y0 = margin_y * PT
     dw = design_w_mm * PT
     dh = design_h_mm * PT
+
+    # reportlab origin is bottom-left, so top-left corner means y0 = page_h - dh
+    x0 = 0.0
+    y0 = page_h - dh
 
     pil_img = PilImage.open(image_path).convert("RGB")
     img_reader = ImageReader(pil_img)
 
     c = Canvas(output_path, pagesize=A4)
 
-    # Draw design image inside the 18×24 area (preserving aspect ratio, centred)
-    c.drawImage(img_reader, x0, y0, width=dw, height=dh, preserveAspectRatio=True, anchor="c")
+    # Draw design flush to top-left corner
+    c.drawImage(img_reader, x0, y0, width=dw, height=dh, preserveAspectRatio=False)
 
-    # Cut lines: full-width horizontal + full-height vertical lines at design boundary
-    c.setStrokeColor(colors.Color(0.4, 0.4, 0.4))   # neutral grey like Canva
+    # Only 2 cut lines needed (other two sides are the paper edge)
+    c.setStrokeColor(colors.Color(0.4, 0.4, 0.4))
     c.setLineWidth(0.5)
     c.setDash(6, 4)
 
-    # Horizontal lines (top and bottom of design)
-    c.line(0,           y0,       page_w, y0)        # bottom cut
-    c.line(0,           y0 + dh,  page_w, y0 + dh)   # top cut
+    # Right vertical cut (full page height)
+    c.line(dw, 0, dw, page_h)
 
-    # Vertical lines (left and right of design)
-    c.line(x0,          0,        x0,     page_h)     # left cut
-    c.line(x0 + dw,     0,        x0 + dw, page_h)   # right cut
+    # Bottom horizontal cut (full page width)
+    c.line(0, y0, page_w, y0)
 
     c.save()
 

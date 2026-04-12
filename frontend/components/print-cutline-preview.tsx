@@ -57,15 +57,16 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
   const design = DESIGN_DIMS[printVariant];
   const is18x24 = printVariant === "18x24";
 
-  // Cut line positions as % of page
-  const cutLeft   = ((page.w - design.w) / 2 / page.w) * 100;  // 0 for 30x40, ~7.14% for 18x24
-  const cutTop    = ((page.h - design.h) / 2 / page.h) * 100;  // 0 for 30x40, ~9.6%  for 18x24
+  // 18x24: design sits at TOP-LEFT corner of A4 (only right + bottom cuts needed)
+  // 30x40: design fills full A3 (only top cut at 2cm)
+  const designWidthPct  = (design.w / page.w) * 100;   // 18x24: ~85.7%, 30x40: 100%
+  const designHeightPct = (design.h / page.h) * 100;   // 18x24: ~80.8%, 30x40: 100%
 
   // Top-only cut margin for 30x40 (2cm from top of A3)
   const margin2cmPct = (20 / page.h) * 100;
 
-  const marginPctW = cutLeft;
-  const marginPctH = cutTop;
+  const marginPctW = 0;
+  const marginPctH = 0;
   const snapPoints = getSnapPoints(marginPctW, marginPctH);
 
   const trySnap = useCallback((x: number, y: number) => {
@@ -215,12 +216,13 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
           draggable={false}
           style={{
             transform: `translate(${offset.x}%, ${offset.y}%) scale(${zoom})`,
-            transformOrigin: "center center",
-            // For 18x24: image fills inner design area; for 30x40: fills full page
-            width:  is18x24 ? `${(design.w / page.w) * 100}%` : "100%",
-            height: is18x24 ? `${(design.h / page.h) * 100}%` : "100%",
-            top:    is18x24 ? `${cutTop}%` : "0",
-            left:   is18x24 ? `${cutLeft}%` : "0",
+            transformOrigin: "top left",
+            // 18x24: top-left corner, design fills ~85.7% × 80.8% of A4
+            // 30x40: fills full A3
+            width:    `${designWidthPct}%`,
+            height:   `${designHeightPct}%`,
+            top:      "0",
+            left:     "0",
             position: "absolute",
           }}
           onMouseDown={onMouseDown}
@@ -228,12 +230,10 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
         />
 
         {is18x24 ? (
-          /* 18x24: full rectangle crosshair cut lines (grey dashed) */
+          /* 18x24 corner layout: only right + bottom cut lines */
           <>
-            <div className="pcl-cutline-h" style={{ top: `${cutTop}%` }} />
-            <div className="pcl-cutline-h" style={{ top: `${100 - cutTop}%` }} />
-            <div className="pcl-cutline-v" style={{ left: `${cutLeft}%` }} />
-            <div className="pcl-cutline-v" style={{ left: `${100 - cutLeft}%` }} />
+            <div className="pcl-cutline-v" style={{ left: `${designWidthPct}%` }} />
+            <div className="pcl-cutline-h" style={{ top: `${designHeightPct}%` }} />
           </>
         ) : (
           /* 30x40: top-only red cut line at 2cm from top */
