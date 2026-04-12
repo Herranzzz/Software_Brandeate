@@ -2,8 +2,6 @@ import Link from "next/link";
 
 import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { PortalTenantControl } from "@/components/portal-tenant-control";
 import { fetchOrders } from "@/lib/api";
 import {
   clientOrderStageMeta,
@@ -12,9 +10,7 @@ import {
   type PortalOrderQuickFilter,
 } from "@/lib/client-hub";
 import { fetchMyShops, requirePortalUser } from "@/lib/auth";
-import { formatDateTime } from "@/lib/format";
 import type { Order } from "@/lib/types";
-import { getTenantBranding } from "@/lib/tenant-branding";
 import { resolveTenantScope } from "@/lib/tenant-scope";
 
 type PortalOrdersPageProps = {
@@ -27,38 +23,53 @@ type PortalOrdersPageProps = {
   }>;
 };
 
-const quickFilterOptions: Array<{ key: PortalOrderQuickFilter; label: string }> = [
-  { key: "all", label: "📋 Todos" },
-  { key: "personalized", label: "🎨 Personalizados" },
-  { key: "standard", label: "📦 Estándar" },
-  { key: "design_available", label: "✅ Diseño disponible" },
-  { key: "pending_asset", label: "⏳ Pendiente de asset" },
-  { key: "incident", label: "⚠️ Con incidencia" },
-  { key: "not_prepared", label: "🔧 No preparados" },
+const quickFilterOptions: Array<{ key: PortalOrderQuickFilter; label: string; icon: string }> = [
+  { key: "all",              label: "Todos",       icon: "📋" },
+  { key: "personalized",     label: "Personaliz.", icon: "🎨" },
+  { key: "standard",         label: "Estándar",    icon: "📦" },
+  { key: "design_available", label: "Diseño OK",   icon: "✅" },
+  { key: "pending_asset",    label: "Pend. asset",  icon: "⏳" },
+  { key: "incident",         label: "Incidencia",  icon: "⚠️" },
+  { key: "not_prepared",     label: "No preparado", icon: "🔧" },
 ];
 
-/** Traduce el quick filter del portal a los parámetros de la API. */
 function quickFilterToApiParams(filter: PortalOrderQuickFilter) {
   switch (filter) {
-    case "personalized":
-      return { is_personalized: true };
-    case "standard":
-      return { is_personalized: false };
-    case "design_available":
-      return { design_status: "design_available" };
-    case "pending_asset":
-      return { has_pending_asset: true };
-    case "incident":
-      return { has_incident: true };
-    case "not_prepared":
-      return { is_prepared: false };
-    default:
-      return {};
+    case "personalized":     return { is_personalized: true };
+    case "standard":         return { is_personalized: false };
+    case "design_available": return { design_status: "design_available" };
+    case "pending_asset":    return { has_pending_asset: true };
+    case "incident":         return { has_incident: true };
+    case "not_prepared":     return { is_prepared: false };
+    default:                 return {};
   }
 }
 
-function getOrderItems(order: Order) {
-  return order.items ?? [];
+function formatCompact(dateStr: string) {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
+}
+
+function getFirstProduct(order: Order) {
+  const item = order.items[0];
+  if (!item) return { name: "—", variant: "" };
+  const name = item.title ?? item.name ?? "—";
+  const variant = item.variant_title ?? "";
+  return { name: name.length > 40 ? `${name.slice(0, 38)}…` : name, variant };
+}
+
+function getShippingStatusMeta(order: Order) {
+  const status = order.shipment?.shipping_status;
+  if (!status) return { label: "Sin envío", tone: "muted" };
+  const map: Record<string, { label: string; tone: string }> = {
+    label_created:    { label: "Etiqueta",     tone: "slate" },
+    picked_up:        { label: "Recogido",     tone: "blue" },
+    in_transit:       { label: "En tránsito",  tone: "blue" },
+    out_for_delivery: { label: "En reparto",   tone: "orange" },
+    delivered:        { label: "Entregado",    tone: "green" },
+    exception:        { label: "Excepción",    tone: "red" },
+  };
+  return map[status] ?? { label: status, tone: "slate" };
 }
 
 export default async function PortalOrdersPage({ searchParams }: PortalOrdersPageProps) {
@@ -67,13 +78,12 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const params = await searchParams;
   const page = Math.max(Number(params.page ?? "1") || 1, 1);
-  const perPage = Math.min(Math.max(Number(params.per_page ?? "50") || 50, 1), 250);
+  const perPage = Math.min(Math.max(Number(params.per_page ?? "100") || 100, 1), 250);
   const query = (params.q ?? "").trim();
   const quickFilter = quickFilterOptions.some((item) => item.key === params.quick)
     ? (params.quick as PortalOrderQuickFilter)
     : "all";
   const tenantScope = resolveTenantScope(shops, params.shop_id);
-  const branding = getTenantBranding(tenantScope.selectedShop ?? shops[0]);
 
   let orders: Order[] = [];
   let totalCount = 0;
@@ -88,235 +98,173 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
     orders = result.orders;
     totalCount = result.totalCount;
   } catch {
-    // Backend unavailable — render with empty data
+    // Backend unavailable
   }
 
   const pageCount = Math.max(1, Math.ceil(totalCount / perPage));
   const safePage = Math.min(page, pageCount);
 
+  function buildQ(overrides: Record<string, string | undefined>) {
+    return {
+      ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
+      per_page: String(perPage),
+      ...overrides,
+    };
+  }
+
   return (
-    <div className="stack portal-orders-page">
-      <PageHeader
-        eyebrow="Pedidos"
-        title={`Pedidos · ${branding.displayName}`}
-        description="Consulta clara de pedidos, fases de trabajo y tracking para entender la operativa de tu tienda sin fricción."
-      />
-
-      <PortalTenantControl
-        action="/portal/orders"
-        hiddenFields={{ page: 1, per_page: perPage, q: query, quick: quickFilter }}
-        selectedShopId={tenantScope.selectedShopId}
-        shops={tenantScope.shops}
-        submitLabel="Ver"
-      />
-
-      <Card className="portal-glass-card portal-orders-toolbar-card">
-        <form action="/portal/orders" className="portal-orders-search-row" method="get">
-          {tenantScope.selectedShopId ? <input name="shop_id" type="hidden" value={tenantScope.selectedShopId} /> : null}
+    <div className="po-page">
+      {/* ── Toolbar: search + filters ──────────────────────────── */}
+      <div className="po-toolbar">
+        <form action="/portal/orders" className="po-search-form" method="get">
+          {tenantScope.selectedShopId && <input name="shop_id" type="hidden" value={tenantScope.selectedShopId} />}
           <input name="per_page" type="hidden" value={String(perPage)} />
           <input name="quick" type="hidden" value={quickFilter} />
-          <label className="field portal-orders-search-field">
-            <span>Buscar</span>
-            <input defaultValue={query} name="q" placeholder="Pedido, cliente, email, SKU o tracking" type="search" />
-          </label>
-          <button className="button" type="submit">Buscar</button>
-          <Link
-            className="button button-secondary"
-            href={{
-              pathname: "/portal/orders",
-              query: {
-                per_page: String(perPage),
-                ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
-              },
-            }}
-          >
-            Limpiar
-          </Link>
+          <input
+            className="po-search-input"
+            defaultValue={query}
+            name="q"
+            placeholder="Buscar pedido, cliente, SKU, tracking…"
+            type="search"
+          />
+          <button className="po-search-btn" type="submit">Buscar</button>
         </form>
 
-        <div className="portal-orders-pill-row">
+        <div className="po-filters">
           {quickFilterOptions.map((item) => (
             <Link
-              className={`portal-soft-pill portal-filter-pill ${quickFilter === item.key ? "portal-filter-pill-active" : ""}`}
-              href={{
-                pathname: "/portal/orders",
-                query: {
-                  q: query || undefined,
-                  quick: item.key === "all" ? undefined : item.key,
-                  per_page: String(perPage),
-                  page: "1",
-                  ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
-                },
-              }}
+              className={`po-filter${quickFilter === item.key ? " po-filter-on" : ""}`}
+              href={{ pathname: "/portal/orders", query: buildQ({
+                q: query || undefined,
+                quick: item.key === "all" ? undefined : item.key,
+                page: "1",
+              }) }}
               key={item.key}
             >
-              <span>{item.label}</span>
-              {quickFilter === item.key && <strong>{totalCount}</strong>}
+              <span className="po-filter-icon">{item.icon}</span>
+              <span className="po-filter-label">{item.label}</span>
+              {quickFilter === item.key && totalCount > 0 && (
+                <span className="po-filter-count">{totalCount}</span>
+              )}
             </Link>
           ))}
         </div>
-      </Card>
+      </div>
 
-      <Card className="portal-glass-card portal-orders-table-card">
-        <div className="portal-dashboard-section-head">
-          <div>
-            <span className="eyebrow">📋 Pedidos</span>
-            <h3 className="section-title section-title-small">Vista operativa del cliente</h3>
-            <p className="subtitle">Estados claros, tracking visible y acceso rápido al detalle para transmitir confianza y control.</p>
-          </div>
-          <div className="portal-orders-table-meta">
-            <span className="table-secondary">
-              {totalCount === 0
-                ? "Sin resultados"
-                : `Mostrando ${orders.length} de ${totalCount} pedidos`}
-            </span>
-            <form className="field portal-per-page-field" method="get">
-              {tenantScope.selectedShopId ? <input name="shop_id" type="hidden" value={tenantScope.selectedShopId} /> : null}
-              {query ? <input name="q" type="hidden" value={query} /> : null}
-              {quickFilter !== "all" ? <input name="quick" type="hidden" value={quickFilter} /> : null}
-              <label htmlFor="portal-orders-per-page">Por página</label>
-              <select defaultValue={String(perPage)} id="portal-orders-per-page" name="per_page">
-                <option value="25">25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-                <option value="250">250</option>
-              </select>
-              <input name="page" type="hidden" value="1" />
-              <button className="button button-secondary" type="submit">Aplicar</button>
-            </form>
-          </div>
-        </div>
-
+      {/* ── Table ──────────────────────────────────────────────── */}
+      <div className="po-table-wrap">
         {orders.length === 0 ? (
-          <EmptyState title="Sin pedidos visibles" description="No hemos encontrado pedidos con esos filtros. Prueba otro estado o limpia la búsqueda." />
+          <Card>
+            <EmptyState
+              title="Sin resultados"
+              description="No hay pedidos con esos filtros. Prueba otra búsqueda."
+            />
+          </Card>
         ) : (
-          <div className="portal-orders-list">
-            {orders.map((order) => {
-              const items = getOrderItems(order);
-              const stage = clientOrderStageMeta[getClientOrderStage(order)];
-              const latestEvent = getLatestTrackingEvent(order);
-              return (
-                <article className="portal-order-row" key={order.id}>
-                  <div className="portal-order-row-main">
-                    <div className="portal-order-row-top">
-                      <div>
-                        <Link className="table-link table-link-strong" href={`/portal/orders/${order.id}`}>
-                          {order.external_id}
-                        </Link>
-                        <div className="table-secondary">
-                          {order.customer_name} · {formatDateTime(order.created_at)}
-                        </div>
-                      </div>
-                      <span className={stage.badgeClassName}>{stage.label}</span>
-                    </div>
+          <table className="po-table">
+            <thead>
+              <tr>
+                <th className="po-th">Pedido</th>
+                <th className="po-th">Cliente</th>
+                <th className="po-th">Fecha</th>
+                <th className="po-th po-th-product">Producto</th>
+                <th className="po-th">Estado</th>
+                <th className="po-th">Envío</th>
+                <th className="po-th">Tracking</th>
+                <th className="po-th po-th-center">Incid.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => {
+                const stage = clientOrderStageMeta[getClientOrderStage(order)];
+                const product = getFirstProduct(order);
+                const shippingMeta = getShippingStatusMeta(order);
+                const trackingNum = order.shipment?.tracking_number ?? null;
+                const hasIncident = order.has_open_incident || order.open_incidents_count > 0;
+                const extraItems = order.items.length - 1;
 
-                    <div className="portal-order-row-grid">
-                      <div>
-                        <span className="portal-summary-label">Productos</span>
-                        {items.length > 0 ? (
-                          <div className="portal-order-items-list">
-                            {items.map((item) => (
-                              <div className="portal-order-item-line" key={item.id}>
-                                <div className="portal-order-item-top">
-                                  <strong>{item.title ?? item.name}</strong>
-                                  {(item.quantity ?? 0) > 1 ? (
-                                    <span className="badge badge-quantity">x{item.quantity}</span>
-                                  ) : null}
-                                </div>
-                                <div className="table-secondary">
-                                  {item.variant_title ?? "Sin variante"}
-                                  {(item.quantity ?? 0) > 1 ? " · misma línea de Shopify" : ""}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                return (
+                  <tr className={`po-row${hasIncident ? " po-row-alert" : ""}`} key={order.id}>
+                    <td className="po-td po-td-id">
+                      <Link className="po-link" href={`/portal/orders/${order.id}`}>
+                        #{order.external_id}
+                      </Link>
+                    </td>
+                    <td className="po-td po-td-customer">
+                      <span className="po-customer-name">{order.customer_name}</span>
+                    </td>
+                    <td className="po-td po-td-date">{formatCompact(order.created_at)}</td>
+                    <td className="po-td po-td-product">
+                      <span className="po-product-name">{product.name}</span>
+                      {product.variant && <span className="po-product-variant">{product.variant}</span>}
+                      {extraItems > 0 && <span className="po-product-extra">+{extraItems}</span>}
+                    </td>
+                    <td className="po-td">
+                      <span className={stage.badgeClassName} style={{ fontSize: "0.7rem", padding: "2px 8px" }}>
+                        {stage.label}
+                      </span>
+                    </td>
+                    <td className="po-td">
+                      <span className={`po-ship-pill po-ship-${shippingMeta.tone}`}>
+                        {shippingMeta.label}
+                      </span>
+                    </td>
+                    <td className="po-td po-td-tracking">
+                      {trackingNum ? (
+                        order.shipment?.tracking_url ? (
+                          <a className="po-tracking-link" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">
+                            {trackingNum}
+                          </a>
                         ) : (
-                          <>
-                            <strong>Sin producto</strong>
-                            <div className="table-secondary">No hay líneas disponibles</div>
-                          </>
-                        )}
-                      </div>
-                      <div>
-                        <span className="portal-summary-label">Tracking</span>
-                        {order.shipment?.tracking_number ? (
-                          <>
-                            <strong>
-                              {order.shipment.tracking_url ? (
-                                <a className="table-link" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">
-                                  {order.shipment.tracking_number}
-                                </a>
-                              ) : (
-                                order.shipment.tracking_number
-                              )}
-                            </strong>
-                            <div className="table-secondary">{order.shipment.carrier || "Carrier asignado"}</div>
-                          </>
-                        ) : (
-                          <>
-                            <strong>Pendiente</strong>
-                            <div className="table-secondary">Todavía sin número de seguimiento</div>
-                          </>
-                        )}
-                      </div>
-                      <div>
-                        <span className="portal-summary-label">Última actualización</span>
-                        <strong>{formatDateTime(latestEvent?.occurred_at ?? order.shipment?.created_at ?? order.created_at)}</strong>
-                        <div className="table-secondary">{latestEvent?.status_raw ?? stage.description}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="portal-order-row-actions">
-                    <Link className="button button-secondary" href={`/portal/orders/${order.id}`}>
-                      Ver detalle
-                    </Link>
-                    {order.shipment?.tracking_url ? (
-                      <a className="button button-secondary" href={order.shipment.tracking_url} rel="noreferrer" target="_blank">
-                        Ver tracking
-                      </a>
-                    ) : null}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+                          <span className="po-tracking-num">{trackingNum}</span>
+                        )
+                      ) : (
+                        <span className="po-no-data">—</span>
+                      )}
+                    </td>
+                    <td className="po-td po-td-center">
+                      {hasIncident ? (
+                        <span className="po-incident-dot" title={`${order.open_incidents_count} incidencia(s)`}>
+                          {order.open_incidents_count || "!"}
+                        </span>
+                      ) : (
+                        <span className="po-ok-dot">✓</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
+      </div>
 
-        <div className="pagination-row">
-          <Link
-            className={`button-secondary ${safePage <= 1 ? "button-disabled" : ""}`}
-            href={{
-              pathname: "/portal/orders",
-              query: {
-                q: query || undefined,
-                quick: quickFilter === "all" ? undefined : quickFilter,
-                per_page: String(perPage),
-                page: String(Math.max(safePage - 1, 1)),
-                ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
-              },
-            }}
-          >
-            Anterior
-          </Link>
-          <div className="table-secondary">Página {safePage} de {pageCount} · {totalCount} pedidos</div>
-          <Link
-            className={`button-secondary ${safePage >= pageCount ? "button-disabled" : ""}`}
-            href={{
-              pathname: "/portal/orders",
-              query: {
-                q: query || undefined,
-                quick: quickFilter === "all" ? undefined : quickFilter,
-                per_page: String(perPage),
-                page: String(Math.min(safePage + 1, pageCount)),
-                ...(tenantScope.selectedShopId ? { shop_id: tenantScope.selectedShopId } : {}),
-              },
-            }}
-          >
-            Siguiente
-          </Link>
-        </div>
-      </Card>
+      {/* ── Pagination ─────────────────────────────────────────── */}
+      <div className="po-pagination">
+        <Link
+          className={`po-page-btn${safePage <= 1 ? " po-page-disabled" : ""}`}
+          href={{ pathname: "/portal/orders", query: buildQ({
+            q: query || undefined,
+            quick: quickFilter === "all" ? undefined : quickFilter,
+            page: String(Math.max(safePage - 1, 1)),
+          }) }}
+        >
+          ← Anterior
+        </Link>
+        <span className="po-page-info">
+          {safePage}/{pageCount} · <strong>{totalCount}</strong> pedidos
+        </span>
+        <Link
+          className={`po-page-btn${safePage >= pageCount ? " po-page-disabled" : ""}`}
+          href={{ pathname: "/portal/orders", query: buildQ({
+            q: query || undefined,
+            quick: quickFilter === "all" ? undefined : quickFilter,
+            page: String(Math.min(safePage + 1, pageCount)),
+          }) }}
+        >
+          Siguiente →
+        </Link>
+      </div>
     </div>
   );
 }
