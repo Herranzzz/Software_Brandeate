@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { AutomationFlagBadge } from "@/components/automation-flag-badge";
+import { saveOrderNavList } from "@/components/order-nav";
 import { BulkDesignDownloadModal } from "@/components/bulk-design-download-modal";
 import { BulkLabelModal } from "@/components/bulk-label-modal";
 import { Card } from "@/components/card";
@@ -907,13 +908,14 @@ export function OrdersWorkbench({
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleOrders.map((order) => {
+                    {visibleOrders.map((order, idx) => {
                       const latestEvent = sortTrackingEvents(order.shipment?.events ?? [])[0] ?? null;
                       const operationalStatus = getOperationalStatusMeta(order);
                       const deliveredAt = getDeliveredAt(order);
                       const age = formatElapsedHours(order.created_at, deliveredAt);
                       const displayItems = getDisplayedOrderItems(order);
                       const additionalItemsCount = getAdditionalItemsCount(order);
+                      const fichaHref = `/orders/${order.id}`;
 
                       return (
                         <tr
@@ -1044,7 +1046,11 @@ export function OrdersWorkbench({
                             />
                           </td>
                           <td>
-                            <Link className="button-secondary table-action" href={`/orders/${order.id}`}>
+                            <Link
+                              className="button-secondary table-action"
+                              href={fichaHref}
+                              onClick={() => saveOrderNavList(visibleOrders.map(o => o.id))}
+                            >
                               Ver ficha
                             </Link>
                           </td>

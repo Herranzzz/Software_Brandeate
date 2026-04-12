@@ -19294,6 +19294,19 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   flex-shrink: 0;
 }
 
+.order-nav-pos {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 0 2px;
+}
+.order-nav-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+  cursor: default;
+}
+
 .order-detail-hero-id-row {
   display: flex;
   align-items: center;

@@ -17,6 +17,7 @@ import { OrderIncidentsPanel } from "@/components/order-incidents-panel";
 import { PersonalizationBadge } from "@/components/personalization-badge";
 import { DesignPreviewWithValidation } from "@/components/design-preview-with-validation";
 import { PrintCutlinePreview } from "@/components/print-cutline-preview";
+import { OrderNav } from "@/components/order-nav";
 import { SectionTitle } from "@/components/section-title";
 import { StatusBadge } from "@/components/status-badge";
 import { ShippingOptionsPanel } from "@/components/shipping-options-panel";
@@ -442,6 +443,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
 
         <div className="order-detail-hero-actions">
           <Link className="button button-secondary" href="/orders">← Volver</Link>
+          <OrderNav currentId={order.id} />
           <Link className="button button-secondary" href={`/orders/${order.id}/packing-slip`} rel="noreferrer" target="_blank">Albarán</Link>
           <OrderBlockButton order={order} />
           <CttShipmentButton order={order} />

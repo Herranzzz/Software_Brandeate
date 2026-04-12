@@ -48,14 +48,21 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
   const [snapping, setSnapping] = useState(false);
   const [dlState, setDlState] = useState<DownloadState>("idle");
   const [dlError, setDlError] = useState<string | null>(null);
+  // Detect if the source image is landscape — if so, rotate design area 90°
+  const [isImgLandscape, setIsImgLandscape] = useState(false);
 
   const dragging = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const stageRef = useRef<HTMLDivElement>(null);
 
   const page   = PAGE_DIMS[printVariant];
-  const design = DESIGN_DIMS[printVariant];
   const is18x24 = printVariant === "18x24";
+
+  // For 18x24: if the image is landscape, swap design w/h (print rotated)
+  const baseDesign = DESIGN_DIMS[printVariant];
+  const design = is18x24 && isImgLandscape
+    ? { w: baseDesign.h, h: baseDesign.w }  // 240×180 instead of 180×240
+    : baseDesign;
 
   // 18x24: design sits at TOP-LEFT corner of A4 (only right + bottom cuts needed)
   // 30x40: design fills full A3 (only top cut at 2cm)
@@ -217,13 +224,15 @@ export function PrintCutlinePreview({ src, variantTitle, orderId, printVariant =
           style={{
             transform: `translate(${offset.x}%, ${offset.y}%) scale(${zoom})`,
             transformOrigin: "top left",
-            // 18x24: top-left corner, design fills ~85.7% × 80.8% of A4
-            // 30x40: fills full A3
             width:    `${designWidthPct}%`,
             height:   `${designHeightPct}%`,
             top:      "0",
             left:     "0",
             position: "absolute",
+          }}
+          onLoad={(e) => {
+            const img = e.currentTarget;
+            setIsImgLandscape(img.naturalWidth > img.naturalHeight);
           }}
           onMouseDown={onMouseDown}
           onTouchStart={onTouchStart}
