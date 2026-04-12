@@ -757,6 +757,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
               <PrintCutlinePreview
                 src={designPreviewUrl}
                 variantTitle={primaryItem.variant_title}
+                orderId={order.id}
               />
             </Card>
           )}
