@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { AutomationFlagBadge } from "@/components/automation-flag-badge";
 import { BulkDesignDownloadModal } from "@/components/bulk-design-download-modal";
@@ -407,6 +407,7 @@ export function OrdersWorkbench({
   const [showBulkLabelModal, setShowBulkLabelModal] = useState(false);
   const [showBulkDesignModal, setShowBulkDesignModal] = useState(false);
   const [query, setQuery] = useState(initialQuery);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedShopId, setSelectedShopId] = useState<string>(initialShopId);
   const [totalCount, setTotalCount] = useState(initialTotalCount);
   const [page, setPage] = useState(initialPage);
@@ -676,7 +677,15 @@ export function OrdersWorkbench({
               <label htmlFor="orders-live-search">Buscar</label>
               <input
                 id="orders-live-search"
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setQuery(value);
+                  if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+                  searchDebounceRef.current = setTimeout(() => {
+                    setPage(1);
+                    replaceParams({ q: value || null, page: "1" });
+                  }, 400);
+                }}
                 placeholder="Pedido, cliente, SKU, variante, tracking"
                 type="search"
                 value={query}

@@ -735,9 +735,10 @@ def _iter_recent_orders(
     access_token: str,
     first: int | None = None,
     updated_since: datetime | None = None,
+    custom_query: str | None = None,
 ) -> Iterator[ShopifyOrder]:
     max_orders = first or get_settings().shopify_sync_max_orders
-    query_filter = _build_orders_query_filter(updated_since)
+    query_filter = custom_query if custom_query is not None else _build_orders_query_filter(updated_since)
     fetched = 0
     after: str | None = None
 
@@ -1432,6 +1433,7 @@ def import_shopify_orders(
     max_orders: int | None = None,
     access_token: str | None = None,
     source: str = "shopify_sync",
+    custom_query: str | None = None,
 ) -> ShopifyImportResult:
     result = ShopifyImportResult(
         imported_count=0,
@@ -1452,6 +1454,7 @@ def import_shopify_orders(
         access_token=access_token or integration.access_token,
         first=max_orders,
         updated_since=updated_since,
+        custom_query=custom_query,
     ):
         result.total_fetched += 1
         external_id = shopify_public_order_id(shopify_order)
@@ -1630,6 +1633,97 @@ def sync_shopify_orders_for_shop(db: Session, integration: ShopIntegration) -> S
     )
 
 
+def _parse_shopify_order_number(name: str) -> int | None:
+    """Extract the integer order number from a Shopify order name like '#13599'."""
+    stripped = name.lstrip("#").strip()
+    try:
+        return int(stripped)
+    except (ValueError, AttributeError):
+        return None
+
+
+def fill_shopify_order_gaps(
+    db: Session,
+    integration: ShopIntegration,
+    access_token: str,
+    lookback_days: int = 14,
+    max_gap_fill: int = 50,
+) -> int:
+    """
+    Detects numeric gaps in locally stored Shopify order numbers and fetches the
+    missing ones directly from Shopify by name filter.
+
+    This runs after each incremental sync cycle so that orders whose updated_at
+    fell just outside the safety-overlap window are still recovered without
+    needing a full re-import.
+
+    Returns the number of orders successfully filled.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    rows = (
+        db.execute(
+            select(Order.external_id, Order.shopify_order_name).where(
+                Order.shop_id == integration.shop_id,
+                Order.created_at >= cutoff,
+            )
+        )
+        .all()
+    )
+
+    local_numbers: set[int] = set()
+    for row in rows:
+        for candidate in (row.shopify_order_name, row.external_id):
+            num = _parse_shopify_order_number(candidate or "")
+            if num:
+                local_numbers.add(num)
+                break
+
+    if not local_numbers:
+        return 0
+
+    min_num = min(local_numbers)
+    max_num = max(local_numbers)
+    gaps = sorted(set(range(min_num, max_num + 1)) - local_numbers)
+
+    if not gaps:
+        return 0
+
+    gaps = gaps[:max_gap_fill]
+    logger.info(
+        "Gap fill: shop_id=%s found %d missing order(s) in range #%d–#%d: %s",
+        integration.shop_id,
+        len(gaps),
+        min_num,
+        max_num,
+        gaps[:20],
+    )
+
+    filled = 0
+    _GAP_BATCH = 10
+    for i in range(0, len(gaps), _GAP_BATCH):
+        batch = gaps[i : i + _GAP_BATCH]
+        query_filter = " OR ".join(f"name:#{n}" for n in batch)
+        gap_result = import_shopify_orders(
+            db=db,
+            integration=integration,
+            create_missing_orders=True,
+            max_orders=_GAP_BATCH,
+            access_token=access_token,
+            source="gap_fill",
+            custom_query=query_filter,
+        )
+        filled += gap_result.imported_count
+        logger.info(
+            "Gap fill batch shop_id=%s: fetched=%d imported=%d skipped=%d",
+            integration.shop_id,
+            gap_result.total_fetched,
+            gap_result.imported_count,
+            gap_result.skipped_count,
+        )
+
+    return filled
+
+
 def run_shopify_sync_cycle(
     db: Session,
     integration: ShopIntegration,
@@ -1661,9 +1755,9 @@ def run_shopify_sync_cycle(
         # Safety overlap: each incremental sync goes back an extra 30 minutes relative
         # to last_synced_at. This catches orders that fell beyond the page cap in the
         # previous cycle (their updated_at is within the overlap window).
-        # 10-min overlap catches orders that slipped past the previous cycle's cap
+        # 30-min overlap catches orders that slipped past the previous cycle's cap
         # without re-fetching excessive history on every run.
-        INCREMENTAL_SAFETY_OVERLAP = timedelta(minutes=10)
+        INCREMENTAL_SAFETY_OVERLAP = timedelta(minutes=30)
         if full_sync:
             updated_since = None
         else:
@@ -1690,6 +1784,24 @@ def run_shopify_sync_cycle(
         )
         result.customers_created_count += customers_created_count
         result.customers_updated_count += customers_updated_count
+        # Gap fill: on incremental syncs, detect and recover numeric gaps in the
+        # order-number sequence that the updated_at filter may have missed.
+        gap_filled_count = 0
+        if not full_sync:
+            try:
+                gap_filled_count = fill_shopify_order_gaps(
+                    db=db,
+                    integration=integration,
+                    access_token=access_token,
+                )
+                result.imported_count += gap_filled_count
+            except Exception as exc:
+                logger.warning(
+                    "Gap fill skipped for shop_id=%s: %s",
+                    integration.shop_id,
+                    exc,
+                )
+
         should_run_backfill = full_sync or source in {"manual_import", "manual_validation", "backfill"}
         backfilled_variant_orders_count = 0
         if should_run_backfill:
@@ -1724,6 +1836,7 @@ def run_shopify_sync_cycle(
             "incidents_created_count": result.incidents_created_count,
             "total_fetched": result.total_fetched,
             "backfilled_variant_orders_count": backfilled_variant_orders_count,
+            "gap_filled_count": gap_filled_count,
         }
         integration.last_synced_at = finished_at
         integration.last_sync_status = "success"
