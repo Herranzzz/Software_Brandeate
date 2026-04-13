@@ -1048,8 +1048,9 @@ _CONTENT_TYPE_EXT: dict[str, str] = {
 
 _DESIGN_FETCH_TIMEOUT = 15  # seconds per asset
 _DESIGN_FETCH_PARALLELISM = 1  # sequential — keep peak RAM low on 512MB hosts
-_DESIGN_FETCH_CHUNK_SIZE = 128 * 1024  # 128 KB chunks
-_DESIGN_MAX_ASSET_BYTES = 25 * 1024 * 1024  # 25 MB max per design file
+_DESIGN_FETCH_CHUNK_SIZE = 64 * 1024  # 64 KB chunks — smaller = less peak RAM
+_DESIGN_MAX_ASSET_BYTES = 15 * 1024 * 1024  # 15 MB max per design file
+_DESIGN_MAX_FILES_PER_JOB = 60  # hard cap on files per ZIP to prevent OOM
 _DESIGN_JOB_TTL_SECONDS = 2 * 60 * 60
 _DESIGN_JOB_CLEANUP_INTERVAL_SECONDS = 60
 _DESIGN_DOWNLOAD_TOKEN_TTL_SECONDS = 10 * 60
@@ -1512,9 +1513,13 @@ def _run_bulk_design_job(job_id: str) -> None:
             orders = [order for order in orders if order.shop_id in accessible_shop_ids]
 
         download_jobs, results = _build_design_download_jobs(orders)
-        # Release order objects — we only need download_jobs from now on
+        # Release ORM objects immediately
         del orders
         gc.collect()
+
+        # Hard cap on number of files to prevent OOM on low-memory hosts
+        if len(download_jobs) > _DESIGN_MAX_FILES_PER_JOB:
+            download_jobs = download_jobs[:_DESIGN_MAX_FILES_PER_JOB]
 
         with _design_jobs_lock:
             job = _design_jobs.get(job_id)
@@ -1538,55 +1543,38 @@ def _run_bulk_design_job(job_id: str) -> None:
         os.close(fd)
 
         used_names: set[str] = set()
-        # ZIP_STORED: images are already compressed; deflate would waste RAM+CPU
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
-            # Process files SEQUENTIALLY — one download at a time keeps peak RAM low
             for current_job in download_jobs:
                 temp_path: str | None = None
-                pdf_path: str | None = None
                 try:
                     temp_path, fetched_ext = _download_asset_to_temp(current_job["design_url"])
+                    # ── NO PIL / NO REPORTLAB ──────────────────────────────
+                    # Raw image goes straight into the ZIP.  PDF generation
+                    # (PIL + reportlab) decompresses images to 60-300 MB of
+                    # RAM which OOM-kills the process on 512 MB hosts.
+                    # Print-variant suffix is preserved in the filename so
+                    # users know which size it is.
                     print_variant = current_job.get("print_variant")
-                    if print_variant == "30x40":
-                        fd2, pdf_path = tempfile.mkstemp(prefix="bulk-design-a3-", suffix=".pdf")
-                        os.close(fd2)
-                        _generate_a3_print_pdf(temp_path, pdf_path)
-                        filename = _unique_name(current_job["base"] + " [A3]", ".pdf", used_names)
-                        used_names.add(filename)
-                        zf.write(pdf_path, arcname=filename)
-                    elif print_variant == "18x24":
-                        fd2, pdf_path = tempfile.mkstemp(prefix="bulk-design-a4-", suffix=".pdf")
-                        os.close(fd2)
-                        _generate_a4_print_pdf(temp_path, pdf_path)
-                        filename = _unique_name(current_job["base"] + " [A4]", ".pdf", used_names)
-                        used_names.add(filename)
-                        zf.write(pdf_path, arcname=filename)
-                    else:
-                        ext = current_job["url_ext"] or fetched_ext or ".bin"
-                        filename = _unique_name(current_job["base"], ext, used_names)
-                        used_names.add(filename)
-                        zf.write(temp_path, arcname=filename)
-                    results.append(
-                        {
-                            "order_id": current_job["order_id"],
-                            "external_id": current_job["external_id"],
-                            "status": "ok",
-                            "filename": filename,
-                        }
-                    )
+                    ext = current_job["url_ext"] or fetched_ext or ".bin"
+                    suffix = f" [{print_variant}]" if print_variant else ""
+                    filename = _unique_name(current_job["base"] + suffix, ext, used_names)
+                    used_names.add(filename)
+                    zf.write(temp_path, arcname=filename)
+                    results.append({
+                        "order_id": current_job["order_id"],
+                        "external_id": current_job["external_id"],
+                        "status": "ok",
+                        "filename": filename,
+                    })
                 except Exception as exc:
-                    results.append(
-                        {
-                            "order_id": current_job["order_id"],
-                            "external_id": current_job["external_id"],
-                            "status": "failed",
-                            "reason": str(exc)[:200],
-                        }
-                    )
+                    results.append({
+                        "order_id": current_job["order_id"],
+                        "external_id": current_job["external_id"],
+                        "status": "failed",
+                        "reason": str(exc)[:200],
+                    })
                 finally:
-                    # Clean up temp files and force GC AFTER EACH FILE
                     _safe_remove(temp_path)
-                    _safe_remove(pdf_path)
                     gc.collect()
                     ok_count, failed_count, no_design_count = _summarize_design_results(results)
                     with _design_jobs_lock:
@@ -1620,18 +1608,18 @@ def _run_bulk_design_job(job_id: str) -> None:
                 job["updated_at"] = _now_ts()
             return
 
-        # Mark successfully downloaded print orders as "in_production"
+        # Mark downloaded print orders as "in_production"
         downloaded_order_ids = {
             r["order_id"] for r in results
             if r.get("status") == "ok" and r.get("order_id")
         }
         if downloaded_order_ids:
             try:
-                print_orders = db.scalars(
+                print_orders = list(db.scalars(
                     select(Order)
                     .options(selectinload(Order.items))
                     .where(Order.id.in_(downloaded_order_ids))
-                ).all()
+                ))
                 for ord_ in print_orders:
                     has_print_variant = any(
                         _detect_print_variant(it) is not None for it in (ord_.items or [])
@@ -1648,8 +1636,9 @@ def _run_bulk_design_job(job_id: str) -> None:
                             summary="Diseño descargado — pedido marcado como En producción",
                         )
                 db.commit()
+                del print_orders
             except Exception:
-                pass  # Non-critical
+                pass
 
         with _design_jobs_lock:
             job = _design_jobs.get(job_id)
