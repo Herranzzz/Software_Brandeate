@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { AutomationFlagBadge } from "@/components/automation-flag-badge";
 import { saveOrderNavList } from "@/components/order-nav";
@@ -427,7 +427,13 @@ export function OrdersWorkbench({
   const [showBulkLabelModal, setShowBulkLabelModal] = useState(false);
   const [showBulkDesignModal, setShowBulkDesignModal] = useState(false);
   const [query, setQuery] = useState(initialQuery);
+  const [isSearching, setIsSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragRef = useRef<{ active: boolean; startIdx: number; mode: "add" | "remove" }>({
+    active: false,
+    startIdx: -1,
+    mode: "add",
+  });
   const [selectedShopId, setSelectedShopId] = useState<string>(initialShopId);
   const [totalCount, setTotalCount] = useState(initialTotalCount);
   const [page, setPage] = useState(initialPage);
@@ -457,7 +463,10 @@ export function OrdersWorkbench({
 
   useEffect(() => {
     setOrders(initialOrders);
-    setSelectedIds([]);
+    setIsSearching(false);
+    // Preserve selections that are still valid in the new result set
+    const newIdSet = new Set(initialOrders.map((o) => o.id));
+    setSelectedIds((current) => current.filter((id) => newIdSet.has(id)));
   }, [initialOrders]);
 
   useEffect(() => {
@@ -528,28 +537,18 @@ export function OrdersWorkbench({
   const shopMap = useMemo(() => new Map(shops.map((shop) => [shop.id, shop.name])), [shops]);
 
   const visibleOrders = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
     return orders.filter((order) => {
+      // Shop filter: immediate client-side feedback while server refetches
       if (selectedShopId && String(order.shop_id) !== selectedShopId) {
         return false;
       }
-
-      if (normalized) {
-        const fields = [
-          order.external_id,
-          order.customer_name,
-          order.customer_email,
-          order.shipment?.tracking_number ?? "",
-          ...getOrderItemsSearchTerms(order),
-        ];
-        if (!fields.some((field) => field.toLowerCase().includes(normalized))) {
-          return false;
-        }
-      }
-
+      // Quick filters: purely client-side (matchesQuickFilter)
       return activeFilters.every((filter) => matchesQuickFilter(order, filter));
     });
-  }, [activeFilters, orders, query, selectedShopId]);
+    // NOTE: query filtering is intentionally NOT done here.
+    // The server handles text search via URL params. Filtering locally on top
+    // of server results causes double-filtering with stale intermediate states.
+  }, [activeFilters, orders, selectedShopId]);
 
   function toggleQuickFilter(filter: QuickFilterKey | "all") {
     if (filter === "all") {
@@ -593,6 +592,50 @@ export function OrdersWorkbench({
     }
     setSelectedIds(visibleOrders.map((order) => order.id));
   }
+
+  // ── Drag-to-select ────────────────────────────────────────────────────────
+  const handleRowMouseDown = useCallback(
+    (orderId: number, orderIdx: number, event: React.MouseEvent) => {
+      // Let native controls (checkbox, button, link) handle their own events
+      if ((event.target as HTMLElement).closest("input, button, a")) return;
+      event.preventDefault(); // prevent text selection while dragging
+      const mode = selectedIds.includes(orderId) ? "remove" : "add";
+      dragRef.current = { active: true, startIdx: orderIdx, mode };
+      setSelectedIds((current) =>
+        mode === "add"
+          ? current.includes(orderId) ? current : [...current, orderId]
+          : current.filter((id) => id !== orderId),
+      );
+    },
+    [selectedIds],
+  );
+
+  const handleRowMouseEnter = useCallback(
+    (orderIdx: number) => {
+      if (!dragRef.current.active) return;
+      const lo = Math.min(dragRef.current.startIdx, orderIdx);
+      const hi = Math.max(dragRef.current.startIdx, orderIdx);
+      const rangeIds = visibleOrders.slice(lo, hi + 1).map((o) => o.id);
+      setSelectedIds((current) => {
+        if (dragRef.current.mode === "add") {
+          const next = new Set(current);
+          rangeIds.forEach((id) => next.add(id));
+          return Array.from(next);
+        }
+        const remove = new Set(rangeIds);
+        return current.filter((id) => !remove.has(id));
+      });
+    },
+    [visibleOrders],
+  );
+
+  useEffect(() => {
+    function onMouseUp() {
+      dragRef.current.active = false;
+    }
+    document.addEventListener("mouseup", onMouseUp);
+    return () => document.removeEventListener("mouseup", onMouseUp);
+  }, []);
 
   async function runBulkAction<T>(path: string, payload: Record<string, unknown>, onSuccess?: (payload: T) => void) {
     setFeedback(null);
@@ -702,15 +745,20 @@ export function OrdersWorkbench({
         <Card className="stack orders-toolbar-card">
           <div className="orders-inline-tools">
             <div className="field field-search orders-inline-search">
-              <label htmlFor="orders-live-search">Buscar</label>
+              <label htmlFor="orders-live-search">
+                Buscar{isSearching ? " …" : ""}
+              </label>
               <input
                 id="orders-live-search"
                 onChange={(event) => {
                   const value = event.target.value;
                   setQuery(value);
+                  // Reset page immediately so the counter doesn't show stale state
+                  setPage(1);
                   if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+                  setIsSearching(true);
                   searchDebounceRef.current = setTimeout(() => {
-                    setPage(1);
+                    // per_page: 250 when searching, reset to default when clearing
                     replaceParams({ q: value || null, page: "1", per_page: value ? "250" : null });
                   }, 400);
                 }}
@@ -885,13 +933,17 @@ export function OrdersWorkbench({
                 </div>
               </div>
             </div>
-            {visibleOrders.length === 0 ? (
+            {isSearching ? (
+              <div className="admin-dashboard-empty" style={{ padding: "32px 0", opacity: 0.6 }}>
+                Buscando…
+              </div>
+            ) : visibleOrders.length === 0 ? (
               <EmptyState
                 title="Sin pedidos para esta vista"
                 description="Ajusta filtros, cambia el lote cargado o prueba con otra combinación de tienda y estado."
               />
             ) : (
-              <div className="table-wrap">
+              <div className="table-wrap" style={{ opacity: isSearching ? 0.5 : 1, transition: "opacity 0.15s" }}>
                 <table className="table orders-ops-table">
                   <thead>
                     <tr>
@@ -927,9 +979,12 @@ export function OrdersWorkbench({
 
                       return (
                         <tr
-                          className={`table-row ${selectedOrderId === order.id ? "orders-ops-row-active" : ""}`}
+                          className={`table-row ${selectedOrderId === order.id ? "orders-ops-row-active" : ""} ${selectedIds.includes(order.id) ? "orders-ops-row-selected" : ""}`}
                           data-status={operationalStatus.rowStatus}
                           key={order.id}
+                          onMouseDown={(e) => handleRowMouseDown(order.id, idx, e)}
+                          onMouseEnter={() => handleRowMouseEnter(idx)}
+                          style={{ userSelect: "none", cursor: "default" }}
                         >
                           <td>
                             <input
