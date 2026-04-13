@@ -36,7 +36,7 @@ type BulkDownloadUrlResponse = {
 
 const POLL_INTERVAL_MS = 1200;
 const POLL_TIMEOUT_MS = 12 * 60 * 1000;
-const RETRYABLE_POLL_STATUS = new Set([502, 503, 504]);
+const RETRYABLE_POLL_STATUS = new Set([500, 502, 503, 504]);
 const MAX_TRANSIENT_POLL_ERRORS = 30;
 
 
@@ -199,20 +199,58 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
         syncStateFromJob(currentJob);
       }
 
-      const downloadUrlResponse = await fetch(
-        `/api/orders/bulk/download-designs/jobs/${currentJob.job_id}/download-url`,
-        { method: "POST" },
-      );
-      if (!downloadUrlResponse.ok) {
-        throw new Error(await readErrorDetail(downloadUrlResponse, "No se pudo generar la URL de descarga."));
+      // Fetch download URL with retries (backend may be briefly unreachable after a long job)
+      let downloadMeta: BulkDownloadUrlResponse | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const downloadUrlResponse = await fetch(
+            `/api/orders/bulk/download-designs/jobs/${currentJob.job_id}/download-url`,
+            { method: "POST" },
+          );
+          if (downloadUrlResponse.ok) {
+            downloadMeta = (await downloadUrlResponse.json()) as BulkDownloadUrlResponse;
+            break;
+          }
+          if (RETRYABLE_POLL_STATUS.has(downloadUrlResponse.status) && attempt < 2) {
+            await sleep(1500 * (attempt + 1));
+            continue;
+          }
+          throw new Error(await readErrorDetail(downloadUrlResponse, "No se pudo generar la URL de descarga."));
+        } catch (err) {
+          if (attempt < 2 && !(err instanceof Error && err.message.includes("No se pudo generar"))) {
+            await sleep(1500 * (attempt + 1));
+            continue;
+          }
+          throw err;
+        }
       }
-      const downloadMeta = (await downloadUrlResponse.json()) as BulkDownloadUrlResponse;
+      if (!downloadMeta) {
+        throw new Error("No se pudo generar la URL de descarga tras varios intentos.");
+      }
 
+      // Download the ZIP with retries
       const token = encodeURIComponent(downloadMeta.token);
       const downloadHref = `/api/orders/bulk/download-designs/jobs/${currentJob.job_id}/download?token=${token}`;
-      const downloadResponse = await fetch(downloadHref, { cache: "no-store" });
-      if (!downloadResponse.ok) {
-        throw new Error(await readErrorDetail(downloadResponse, "No se pudo descargar el archivo ZIP."));
+      let downloadResponse: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          downloadResponse = await fetch(downloadHref, { cache: "no-store" });
+          if (downloadResponse.ok) break;
+          if (RETRYABLE_POLL_STATUS.has(downloadResponse.status) && attempt < 2) {
+            await sleep(1500 * (attempt + 1));
+            continue;
+          }
+          throw new Error(await readErrorDetail(downloadResponse, "No se pudo descargar el archivo ZIP."));
+        } catch (err) {
+          if (attempt < 2 && !(err instanceof Error && err.message.includes("No se pudo descargar"))) {
+            await sleep(1500 * (attempt + 1));
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (!downloadResponse || !downloadResponse.ok) {
+        throw new Error("No se pudo descargar el archivo ZIP tras varios intentos.");
       }
 
       const contentType = (downloadResponse.headers.get("Content-Type") ?? "").toLowerCase();
@@ -366,8 +404,17 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
         ) : null}
 
         {phase === "error" ? (
-          <div className="feedback feedback-error">
-            {errorMsg ?? "Error al generar la descarga."}
+          <div className="stack">
+            <div className="feedback feedback-error">
+              {errorMsg ?? "Error al generar la descarga."}
+            </div>
+            <button
+              className="button-secondary"
+              onClick={() => void handleDownload()}
+              type="button"
+            >
+              Reintentar descarga
+            </button>
           </div>
         ) : null}
       </div>
