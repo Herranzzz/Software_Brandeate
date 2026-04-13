@@ -1249,132 +1249,129 @@ def _is_30x40_product(item: "OrderItem") -> bool:
     return _detect_print_variant(item) == "30x40"
 
 
-def _image_has_white_background(pil_img: object) -> bool:
-    """Return True if the image has a predominantly white/light background.
-
-    Samples corners and edge midpoints. If ≥70% of sampled pixels are
-    near-white (all RGB channels > 230), the image is considered white-bg.
-    Expects an already-converted RGB image to avoid allocating a copy.
-    """
-    w, h = pil_img.size  # type: ignore[union-attr]
-    sample_points = [
-        (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),          # corners
-        (w // 2, 0), (0, h // 2), (w - 1, h // 2), (w // 2, h - 1),  # edge midpoints
-        (w // 4, 0), (3 * w // 4, 0),                              # top edge quarters
-        (0, h // 4), (w - 1, h // 4),                              # side edge quarters
-    ]
-    white_count = sum(
-        1 for x, y in sample_points
-        if all(ch > 230 for ch in pil_img.getpixel((x, y)))  # type: ignore[union-attr]
-    )
-    return white_count >= len(sample_points) * 0.7
+_CUT_MAX_DIM = 3000  # thumbnail cap — keeps peak RAM under ~45 MB
+_CUT_LINE_COLOR = (229, 57, 53)  # red matching previous reportlab color
+_CUT_LINE_WIDTH = 3
+_CUT_DASH = 18
+_CUT_GAP = 10
 
 
-def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
-    """Embed a design image into an A3 PDF with a 2cm cut/trim line.
+def _draw_dashed_line_h(draw: object, x0: int, x1: int, y: int,
+                         color: tuple, width: int, dash: int, gap: int) -> None:
+    """Draw a horizontal dashed line using PIL ImageDraw."""
+    x = x0
+    while x < x1:
+        end = min(x + dash, x1)
+        draw.line([(x, y), (end, y)], fill=color, width=width)  # type: ignore[union-attr]
+        x = end + gap
 
-    Memory-safe: opens PIL image inside a try/finally to guarantee .close().
+
+def _draw_dashed_line_v(draw: object, y0: int, y1: int, x: int,
+                         color: tuple, width: int, dash: int, gap: int) -> None:
+    """Draw a vertical dashed line using PIL ImageDraw."""
+    y = y0
+    while y < y1:
+        end = min(y + dash, y1)
+        draw.line([(x, y), (x, end)], fill=color, width=width)  # type: ignore[union-attr]
+        y = end + gap
+
+
+def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: str) -> None:
+    """Draw cut/trim lines directly on the image and save as PNG.
+
+    Uses PIL with thumbnail() to cap resolution at _CUT_MAX_DIM.
+    Peak memory: ~40 MB (one thumbnail + one slightly-larger canvas).
+    No reportlab needed.
+
+    30x40 (A3): 2 cm trim margin on right (landscape) or top (portrait).
+    18x24 (A4): design fills top-left; cut lines mark the 18×24 boundary
+    with extra white space representing the rest of the A4 page.
     """
     import gc
-    from PIL import Image as PilImage
-    from reportlab.lib.pagesizes import A3, landscape as rl_landscape
-    from reportlab.lib import colors
-    from reportlab.pdfgen.canvas import Canvas
-    from reportlab.lib.utils import ImageReader
+    from PIL import Image as PilImage, ImageDraw
 
-    PT_PER_MM = 2.834645669
-    A3_portrait_w, A3_portrait_h = A3
-
-    pil_img = None
+    img = None
+    canvas = None
     try:
-        pil_img = PilImage.open(image_path).convert("RGB")
-        img_w, img_h = pil_img.size
-        is_landscape_img = img_w > img_h
-        is_white_bg = _image_has_white_background(pil_img)
-        img_reader = ImageReader(pil_img)
+        img = PilImage.open(image_path)
+        img.thumbnail((_CUT_MAX_DIM, _CUT_MAX_DIM), PilImage.LANCZOS)
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
 
-        margin_pt = _CUT_MARGIN_MM * PT_PER_MM
-        tick = 5 * PT_PER_MM
+        w, h = img.size
+        is_landscape = w > h
 
-        if is_landscape_img:
-            page_w, page_h = rl_landscape(A3)
-            c = Canvas(output_path, pagesize=(page_w, page_h))
-            cut_x = page_w - margin_pt
-            if is_white_bg:
-                c.drawImage(img_reader, 0, 0, width=cut_x, height=page_h, preserveAspectRatio=False)
+        if print_variant == "30x40":
+            # 2 cm margin on one side.  A3 is 420×297 mm; design is 400×297
+            # (landscape) or 297×400 (portrait).  Margin ≈ 20/420 = 4.76%.
+            if is_landscape:
+                margin_px = max(int(w * 0.0476), 24)
+                canvas = PilImage.new("RGB", (w + margin_px, h), (255, 255, 255))
+                canvas.paste(img, (0, 0))
+                img.close(); img = None
+                draw = ImageDraw.Draw(canvas)
+                # Dashed vertical cut line at x = w
+                _draw_dashed_line_v(draw, 0, h, w,
+                                    _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
+                # Tick marks at top and bottom
+                tick = margin_px // 3
+                draw.line([(w, 0), (w + tick, 0)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
+                draw.line([(w, h - 1), (w + tick, h - 1)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
             else:
-                c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
-            c.setStrokeColor(colors.red)
-            c.setLineWidth(0.7)
-            c.setDash(8, 4)
-            c.line(cut_x, 0, cut_x, page_h)
-            c.setDash()
-            c.line(cut_x, page_h, cut_x + tick, page_h)
-            c.line(cut_x, 0,      cut_x + tick, 0)
-        else:
-            page_w, page_h = A3_portrait_w, A3_portrait_h
-            c = Canvas(output_path, pagesize=A3)
-            cut_y = page_h - margin_pt
-            if is_white_bg:
-                c.drawImage(img_reader, 0, 0, width=page_w, height=cut_y, preserveAspectRatio=False)
+                margin_px = max(int(h * 0.0476), 24)
+                canvas = PilImage.new("RGB", (w, h + margin_px), (255, 255, 255))
+                canvas.paste(img, (0, margin_px))  # image below margin
+                img.close(); img = None
+                draw = ImageDraw.Draw(canvas)
+                # Dashed horizontal cut line at y = margin_px
+                _draw_dashed_line_h(draw, 0, w, margin_px,
+                                    _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
+                # Tick marks at left and right
+                tick = margin_px // 3
+                draw.line([(0, margin_px), (0, margin_px - tick)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
+                draw.line([(w - 1, margin_px), (w - 1, margin_px - tick)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
+
+        elif print_variant == "18x24":
+            # Design 180×240 mm on A4 (210×297 mm).
+            # Extra right ≈ (210-180)/180 = 16.7%, extra bottom ≈ (297-240)/240 = 23.75%
+            if is_landscape:
+                # 240×180 on landscape A4 (297×210)
+                extra_right = max(int(w * 0.2375), 30)
+                extra_bottom = max(int(h * 0.1667), 20)
             else:
-                c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
-            c.setStrokeColor(colors.red)
-            c.setLineWidth(0.7)
-            c.setDash(8, 4)
-            c.line(0, cut_y, page_w, cut_y)
-            c.setDash()
-            c.line(0,      cut_y, 0,      cut_y - tick)
-            c.line(page_w, cut_y, page_w, cut_y - tick)
-        c.save()
-    finally:
-        if pil_img is not None:
-            pil_img.close()
-        del pil_img
-        gc.collect()
-
-
-def _generate_a4_print_pdf(image_path: str, output_path: str) -> None:
-    """Embed 18×24cm design into top-left corner of A4. Memory-safe."""
-    import gc
-    from PIL import Image as PilImage
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib import colors
-    from reportlab.pdfgen.canvas import Canvas
-    from reportlab.lib.utils import ImageReader
-
-    PT = 2.834645669
-    pil_img = None
-    try:
-        pil_img = PilImage.open(image_path).convert("RGB")
-        img_w, img_h = pil_img.size
-        is_landscape = img_w > img_h
-
-        if is_landscape:
-            page_w, page_h = landscape(A4)
-            design_w_mm, design_h_mm = 240.0, 180.0
+                extra_right = max(int(w * 0.1667), 20)
+                extra_bottom = max(int(h * 0.2375), 30)
+            canvas = PilImage.new("RGB", (w + extra_right, h + extra_bottom), (255, 255, 255))
+            canvas.paste(img, (0, 0))
+            img.close(); img = None
+            draw = ImageDraw.Draw(canvas)
+            cw, ch = canvas.size
+            # Vertical cut line at x = w
+            _draw_dashed_line_v(draw, 0, ch, w,
+                                _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
+            # Horizontal cut line at y = h
+            _draw_dashed_line_h(draw, 0, cw, h,
+                                _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
         else:
-            page_w, page_h = A4
-            design_w_mm, design_h_mm = 180.0, 240.0
+            # No recognized variant — should not normally be called
+            canvas = img
+            img = None
 
-        dw = design_w_mm * PT
-        dh = design_h_mm * PT
-        y0 = page_h - dh
-
-        img_reader = ImageReader(pil_img)
-        pagesize = landscape(A4) if is_landscape else A4
-        c = Canvas(output_path, pagesize=pagesize)
-        c.drawImage(img_reader, 0, y0, width=dw, height=dh, preserveAspectRatio=False)
-        c.setStrokeColor(colors.Color(0.898, 0.224, 0.208))
-        c.setLineWidth(0.7)
-        c.setDash(8, 4)
-        c.line(dw, 0, dw, page_h)
-        c.line(0, y0, page_w, y0)
-        c.save()
+        out = canvas if canvas is not None else img
+        if out is not None:
+            out.save(output_path, "PNG", optimize=False)
     finally:
-        if pil_img is not None:
-            pil_img.close()
-        del pil_img
+        if canvas is not None:
+            try:
+                canvas.close()
+            except Exception:
+                pass
+        if img is not None:
+            try:
+                img.close()
+            except Exception:
+                pass
+        del canvas, img
         gc.collect()
 
 
@@ -1548,14 +1545,24 @@ def _run_bulk_design_job(job_id: str) -> None:
                 temp_path: str | None = None
                 try:
                     temp_path, fetched_ext = _download_asset_to_temp(current_job["design_url"])
-                    # ── NO PIL / NO REPORTLAB ──────────────────────────────
-                    # Raw image goes straight into the ZIP.  PDF generation
-                    # (PIL + reportlab) decompresses images to 60-300 MB of
-                    # RAM which OOM-kills the process on 512 MB hosts.
-                    # Print-variant suffix is preserved in the filename so
-                    # users know which size it is.
                     print_variant = current_job.get("print_variant")
                     ext = current_job["url_ext"] or fetched_ext or ".bin"
+
+                    # If this is a print variant (30x40 / 18x24), add cut
+                    # lines using PIL with thumbnail (peak ~40 MB, safe for
+                    # 512 MB hosts).  Output is always PNG.
+                    if print_variant:
+                        cut_fd, cut_path = tempfile.mkstemp(prefix="cut-", suffix=".png")
+                        os.close(cut_fd)
+                        try:
+                            _add_cut_lines_to_image(temp_path, cut_path, print_variant)
+                            _safe_remove(temp_path)
+                            temp_path = cut_path
+                            ext = ".png"
+                        except Exception:
+                            # If cut-line generation fails, fall back to raw image
+                            _safe_remove(cut_path)
+
                     suffix = f" [{print_variant}]" if print_variant else ""
                     filename = _unique_name(current_job["base"] + suffix, ext, used_names)
                     used_names.add(filename)
@@ -1824,8 +1831,22 @@ def bulk_download_designs(
                 temp_path: str | None = None
                 try:
                     temp_path, fetched_ext = _download_asset_to_temp(job["design_url"])
+                    print_variant = job.get("print_variant")
                     ext = job["url_ext"] or fetched_ext or ".bin"
-                    filename = _unique_name(job["base"], ext, used_names)
+
+                    if print_variant:
+                        cut_fd, cut_path = tempfile.mkstemp(prefix="cut-", suffix=".png")
+                        os.close(cut_fd)
+                        try:
+                            _add_cut_lines_to_image(temp_path, cut_path, print_variant)
+                            _safe_remove(temp_path)
+                            temp_path = cut_path
+                            ext = ".png"
+                        except Exception:
+                            _safe_remove(cut_path)
+
+                    suffix = f" [{print_variant}]" if print_variant else ""
+                    filename = _unique_name(job["base"] + suffix, ext, used_names)
                     used_names.add(filename)
                     zf.write(temp_path, arcname=filename)
                     results.append({
