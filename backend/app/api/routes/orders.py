@@ -1046,10 +1046,10 @@ _CONTENT_TYPE_EXT: dict[str, str] = {
     "application/pdf": ".pdf",
 }
 
-_DESIGN_FETCH_TIMEOUT = 12  # seconds per asset
-_DESIGN_FETCH_PARALLELISM = 2
-_DESIGN_FETCH_CHUNK_SIZE = 512 * 1024
-_DESIGN_MAX_ASSET_BYTES = 80 * 1024 * 1024
+_DESIGN_FETCH_TIMEOUT = 15  # seconds per asset
+_DESIGN_FETCH_PARALLELISM = 1  # sequential — keep peak RAM low on 512MB hosts
+_DESIGN_FETCH_CHUNK_SIZE = 128 * 1024  # 128 KB chunks
+_DESIGN_MAX_ASSET_BYTES = 25 * 1024 * 1024  # 25 MB max per design file
 _DESIGN_JOB_TTL_SECONDS = 2 * 60 * 60
 _DESIGN_JOB_CLEANUP_INTERVAL_SECONDS = 60
 _DESIGN_DOWNLOAD_TOKEN_TTL_SECONDS = 10 * 60
@@ -1253,9 +1253,9 @@ def _image_has_white_background(pil_img: object) -> bool:
 
     Samples corners and edge midpoints. If ≥70% of sampled pixels are
     near-white (all RGB channels > 230), the image is considered white-bg.
+    Expects an already-converted RGB image to avoid allocating a copy.
     """
     w, h = pil_img.size  # type: ignore[union-attr]
-    rgb = pil_img.convert("RGB")  # type: ignore[union-attr]
     sample_points = [
         (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),          # corners
         (w // 2, 0), (0, h // 2), (w - 1, h // 2), (w // 2, h - 1),  # edge midpoints
@@ -1264,7 +1264,7 @@ def _image_has_white_background(pil_img: object) -> bool:
     ]
     white_count = sum(
         1 for x, y in sample_points
-        if all(ch > 230 for ch in rgb.getpixel((x, y)))
+        if all(ch > 230 for ch in pil_img.getpixel((x, y)))  # type: ignore[union-attr]
     )
     return white_count >= len(sample_points) * 0.7
 
@@ -1272,13 +1272,9 @@ def _image_has_white_background(pil_img: object) -> bool:
 def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
     """Embed a design image into an A3 PDF with a 2cm cut/trim line.
 
-    Orientation is detected from the image itself (landscape vs portrait).
-    - Portrait  → cut line at TOP  (2 cm from top edge, horizontal)
-    - Landscape → cut line at RIGHT (2 cm from right edge, vertical)
-
-    White-background designs are scaled to fill only the usable area up to
-    the cut line. Full/dark-background designs bleed across the entire page.
+    Memory-safe: opens PIL image inside a try/finally to guarantee .close().
     """
+    import gc
     from PIL import Image as PilImage
     from reportlab.lib.pagesizes import A3, landscape as rl_landscape
     from reportlab.lib import colors
@@ -1286,67 +1282,60 @@ def _generate_a3_print_pdf(image_path: str, output_path: str) -> None:
     from reportlab.lib.utils import ImageReader
 
     PT_PER_MM = 2.834645669
-    A3_portrait_w, A3_portrait_h = A3  # 841.89 × 1190.55 pt
+    A3_portrait_w, A3_portrait_h = A3
 
-    pil_img = PilImage.open(image_path).convert("RGB")
-    img_reader = ImageReader(pil_img)
+    pil_img = None
+    try:
+        pil_img = PilImage.open(image_path).convert("RGB")
+        img_w, img_h = pil_img.size
+        is_landscape_img = img_w > img_h
+        is_white_bg = _image_has_white_background(pil_img)
+        img_reader = ImageReader(pil_img)
 
-    img_w, img_h = pil_img.size
-    is_landscape_img = img_w > img_h
-    is_white_bg = _image_has_white_background(pil_img)
-    margin_pt = _CUT_MARGIN_MM * PT_PER_MM  # ~56.69 pt (2 cm)
-    tick = 5 * PT_PER_MM
+        margin_pt = _CUT_MARGIN_MM * PT_PER_MM
+        tick = 5 * PT_PER_MM
 
-    if is_landscape_img:
-        # ── Landscape A3: 420 × 297 mm (1190.55 × 841.89 pt) ──────────────
-        page_w, page_h = rl_landscape(A3)
-        c = Canvas(output_path, pagesize=(page_w, page_h))
-        cut_x = page_w - margin_pt  # 2 cm from the RIGHT edge
-
-        if is_white_bg:
-            # Design fills up to the cut line; right 2 cm stays blank
-            c.drawImage(img_reader, 0, 0, width=cut_x, height=page_h, preserveAspectRatio=False)
+        if is_landscape_img:
+            page_w, page_h = rl_landscape(A3)
+            c = Canvas(output_path, pagesize=(page_w, page_h))
+            cut_x = page_w - margin_pt
+            if is_white_bg:
+                c.drawImage(img_reader, 0, 0, width=cut_x, height=page_h, preserveAspectRatio=False)
+            else:
+                c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
+            c.setStrokeColor(colors.red)
+            c.setLineWidth(0.7)
+            c.setDash(8, 4)
+            c.line(cut_x, 0, cut_x, page_h)
+            c.setDash()
+            c.line(cut_x, page_h, cut_x + tick, page_h)
+            c.line(cut_x, 0,      cut_x + tick, 0)
         else:
-            # Full bleed
-            c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
-
-        # Vertical cut line 2 cm from the right
-        c.setStrokeColor(colors.red)
-        c.setLineWidth(0.7)
-        c.setDash(8, 4)
-        c.line(cut_x, 0, cut_x, page_h)
-        # Tick marks at top-right and bottom-right corners
-        c.setDash()
-        c.line(cut_x, page_h, cut_x + tick, page_h)
-        c.line(cut_x, 0,      cut_x + tick, 0)
-    else:
-        # ── Portrait A3: 297 × 420 mm (841.89 × 1190.55 pt) ───────────────
-        page_w, page_h = A3_portrait_w, A3_portrait_h
-        c = Canvas(output_path, pagesize=A3)
-        cut_y = page_h - margin_pt  # 2 cm from the TOP (reportlab y=0 is bottom)
-
-        if is_white_bg:
-            # Design fills up to the cut line; top 2 cm stays blank
-            c.drawImage(img_reader, 0, 0, width=page_w, height=cut_y, preserveAspectRatio=False)
-        else:
-            # Full bleed
-            c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
-
-        # Horizontal cut line 2 cm from the top
-        c.setStrokeColor(colors.red)
-        c.setLineWidth(0.7)
-        c.setDash(8, 4)
-        c.line(0, cut_y, page_w, cut_y)
-        # Tick marks at top-left and top-right corners
-        c.setDash()
-        c.line(0,      cut_y, 0,      cut_y - tick)
-        c.line(page_w, cut_y, page_w, cut_y - tick)
-
-    c.save()
+            page_w, page_h = A3_portrait_w, A3_portrait_h
+            c = Canvas(output_path, pagesize=A3)
+            cut_y = page_h - margin_pt
+            if is_white_bg:
+                c.drawImage(img_reader, 0, 0, width=page_w, height=cut_y, preserveAspectRatio=False)
+            else:
+                c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=False)
+            c.setStrokeColor(colors.red)
+            c.setLineWidth(0.7)
+            c.setDash(8, 4)
+            c.line(0, cut_y, page_w, cut_y)
+            c.setDash()
+            c.line(0,      cut_y, 0,      cut_y - tick)
+            c.line(page_w, cut_y, page_w, cut_y - tick)
+        c.save()
+    finally:
+        if pil_img is not None:
+            pil_img.close()
+        del pil_img
+        gc.collect()
 
 
 def _generate_a4_print_pdf(image_path: str, output_path: str) -> None:
-    """Embed 18×24cm design into top-left corner of A4 (portrait or landscape). 2 cuts: right + bottom."""
+    """Embed 18×24cm design into top-left corner of A4. Memory-safe."""
+    import gc
     from PIL import Image as PilImage
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
@@ -1354,37 +1343,38 @@ def _generate_a4_print_pdf(image_path: str, output_path: str) -> None:
     from reportlab.lib.utils import ImageReader
 
     PT = 2.834645669
+    pil_img = None
+    try:
+        pil_img = PilImage.open(image_path).convert("RGB")
+        img_w, img_h = pil_img.size
+        is_landscape = img_w > img_h
 
-    pil_img = PilImage.open(image_path).convert("RGB")
-    img_w, img_h = pil_img.size
-    is_landscape = img_w > img_h
+        if is_landscape:
+            page_w, page_h = landscape(A4)
+            design_w_mm, design_h_mm = 240.0, 180.0
+        else:
+            page_w, page_h = A4
+            design_w_mm, design_h_mm = 180.0, 240.0
 
-    if is_landscape:
-        # A4 landscape (297×210mm) with 240×180mm design
-        page_w, page_h = landscape(A4)   # 841.89 × 595.28 pt
-        design_w_mm, design_h_mm = 240.0, 180.0
-    else:
-        # A4 portrait (210×297mm) with 180×240mm design
-        page_w, page_h = A4               # 595.28 × 841.89 pt
-        design_w_mm, design_h_mm = 180.0, 240.0
+        dw = design_w_mm * PT
+        dh = design_h_mm * PT
+        y0 = page_h - dh
 
-    dw = design_w_mm * PT
-    dh = design_h_mm * PT
-    x0 = 0.0
-    y0 = page_h - dh   # top-left corner in reportlab coords (origin = bottom-left)
-
-    img_reader = ImageReader(pil_img)
-    pagesize = landscape(A4) if is_landscape else A4
-    c = Canvas(output_path, pagesize=pagesize)
-
-    c.drawImage(img_reader, x0, y0, width=dw, height=dh, preserveAspectRatio=False)
-
-    c.setStrokeColor(colors.Color(0.898, 0.224, 0.208))  # #e53935
-    c.setLineWidth(0.7)
-    c.setDash(8, 4)
-    c.line(dw, 0, dw, page_h)     # right cut
-    c.line(0, y0, page_w, y0)     # bottom cut
-    c.save()
+        img_reader = ImageReader(pil_img)
+        pagesize = landscape(A4) if is_landscape else A4
+        c = Canvas(output_path, pagesize=pagesize)
+        c.drawImage(img_reader, 0, y0, width=dw, height=dh, preserveAspectRatio=False)
+        c.setStrokeColor(colors.Color(0.898, 0.224, 0.208))
+        c.setLineWidth(0.7)
+        c.setDash(8, 4)
+        c.line(dw, 0, dw, page_h)
+        c.line(0, y0, page_w, y0)
+        c.save()
+    finally:
+        if pil_img is not None:
+            pil_img.close()
+        del pil_img
+        gc.collect()
 
 
 def _download_asset_to_temp(url: str) -> tuple[str, str]:
@@ -1488,6 +1478,15 @@ def _job_public_payload(job: dict) -> dict:
 
 
 def _run_bulk_design_job(job_id: str) -> None:
+    """Background worker for bulk design download.
+
+    Processes files ONE AT A TIME to keep peak memory low (~25-60 MB per file
+    instead of N × 60 MB when running in parallel). Critical for 512 MB hosts.
+    Uses ZIP_STORED because PNG/JPG are already compressed — re-deflating them
+    wastes CPU and doubles their memory footprint.
+    """
+    import gc
+
     db = SessionLocal()
     zip_path: str | None = None
     try:
@@ -1513,6 +1512,10 @@ def _run_bulk_design_job(job_id: str) -> None:
             orders = [order for order in orders if order.shop_id in accessible_shop_ids]
 
         download_jobs, results = _build_design_download_jobs(orders)
+        # Release order objects — we only need download_jobs from now on
+        del orders
+        gc.collect()
+
         with _design_jobs_lock:
             job = _design_jobs.get(job_id)
             if job is None:
@@ -1535,69 +1538,65 @@ def _run_bulk_design_job(job_id: str) -> None:
         os.close(fd)
 
         used_names: set[str] = set()
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            worker_count = max(1, min(_DESIGN_FETCH_PARALLELISM, len(download_jobs)))
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                future_map: dict[Future, dict] = {}
-                for current_job in download_jobs:
-                    future = executor.submit(_download_asset_to_temp, current_job["design_url"])
-                    future_map[future] = current_job
-
-                for future in as_completed(future_map):
-                    current_job = future_map[future]
-                    temp_path: str | None = None
-                    pdf_path: str | None = None
-                    try:
-                        temp_path, fetched_ext = future.result()
-                        print_variant = current_job.get("print_variant")
-                        if print_variant == "30x40":
-                            fd2, pdf_path = tempfile.mkstemp(prefix="bulk-design-a3-", suffix=".pdf")
-                            os.close(fd2)
-                            _generate_a3_print_pdf(temp_path, pdf_path)
-                            filename = _unique_name(current_job["base"] + " [A3]", ".pdf", used_names)
-                            used_names.add(filename)
-                            zf.write(pdf_path, arcname=filename)
-                        elif print_variant == "18x24":
-                            fd2, pdf_path = tempfile.mkstemp(prefix="bulk-design-a4-", suffix=".pdf")
-                            os.close(fd2)
-                            _generate_a4_print_pdf(temp_path, pdf_path)
-                            filename = _unique_name(current_job["base"] + " [A4]", ".pdf", used_names)
-                            used_names.add(filename)
-                            zf.write(pdf_path, arcname=filename)
-                        else:
-                            ext = current_job["url_ext"] or fetched_ext or ".bin"
-                            filename = _unique_name(current_job["base"], ext, used_names)
-                            used_names.add(filename)
-                            zf.write(temp_path, arcname=filename)
-                        results.append(
-                            {
-                                "order_id": current_job["order_id"],
-                                "external_id": current_job["external_id"],
-                                "status": "ok",
-                                "filename": filename,
-                            }
-                        )
-                    except Exception as exc:
-                        results.append(
-                            {
-                                "order_id": current_job["order_id"],
-                                "external_id": current_job["external_id"],
-                                "status": "failed",
-                                "reason": str(exc)[:200],
-                            }
-                        )
-                    finally:
-                        _safe_remove(temp_path)
-                        _safe_remove(pdf_path)
-                        ok_count, failed_count, no_design_count = _summarize_design_results(results)
-                        with _design_jobs_lock:
-                            job = _design_jobs.get(job_id)
-                            if job is not None:
-                                job["progress_done"] = int(job.get("progress_done", 0)) + 1
-                                job["ok_count"] = ok_count
-                                job["failed_count"] = failed_count
-                                job["no_design_count"] = no_design_count
-                                job["updated_at"] = _now_ts()
+        # ZIP_STORED: images are already compressed; deflate would waste RAM+CPU
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            # Process files SEQUENTIALLY — one download at a time keeps peak RAM low
+            for current_job in download_jobs:
+                temp_path: str | None = None
+                pdf_path: str | None = None
+                try:
+                    temp_path, fetched_ext = _download_asset_to_temp(current_job["design_url"])
+                    print_variant = current_job.get("print_variant")
+                    if print_variant == "30x40":
+                        fd2, pdf_path = tempfile.mkstemp(prefix="bulk-design-a3-", suffix=".pdf")
+                        os.close(fd2)
+                        _generate_a3_print_pdf(temp_path, pdf_path)
+                        filename = _unique_name(current_job["base"] + " [A3]", ".pdf", used_names)
+                        used_names.add(filename)
+                        zf.write(pdf_path, arcname=filename)
+                    elif print_variant == "18x24":
+                        fd2, pdf_path = tempfile.mkstemp(prefix="bulk-design-a4-", suffix=".pdf")
+                        os.close(fd2)
+                        _generate_a4_print_pdf(temp_path, pdf_path)
+                        filename = _unique_name(current_job["base"] + " [A4]", ".pdf", used_names)
+                        used_names.add(filename)
+                        zf.write(pdf_path, arcname=filename)
+                    else:
+                        ext = current_job["url_ext"] or fetched_ext or ".bin"
+                        filename = _unique_name(current_job["base"], ext, used_names)
+                        used_names.add(filename)
+                        zf.write(temp_path, arcname=filename)
+                    results.append(
+                        {
+                            "order_id": current_job["order_id"],
+                            "external_id": current_job["external_id"],
+                            "status": "ok",
+                            "filename": filename,
+                        }
+                    )
+                except Exception as exc:
+                    results.append(
+                        {
+                            "order_id": current_job["order_id"],
+                            "external_id": current_job["external_id"],
+                            "status": "failed",
+                            "reason": str(exc)[:200],
+                        }
+                    )
+                finally:
+                    # Clean up temp files and force GC AFTER EACH FILE
+                    _safe_remove(temp_path)
+                    _safe_remove(pdf_path)
+                    gc.collect()
+                    ok_count, failed_count, no_design_count = _summarize_design_results(results)
+                    with _design_jobs_lock:
+                        job = _design_jobs.get(job_id)
+                        if job is not None:
+                            job["progress_done"] = int(job.get("progress_done", 0)) + 1
+                            job["ok_count"] = ok_count
+                            job["failed_count"] = failed_count
+                            job["no_design_count"] = no_design_count
+                            job["updated_at"] = _now_ts()
 
         ok_count, failed_count, no_design_count = _summarize_design_results(results)
         if ok_count == 0:
@@ -1634,7 +1633,6 @@ def _run_bulk_design_job(job_id: str) -> None:
                     .where(Order.id.in_(downloaded_order_ids))
                 ).all()
                 for ord_ in print_orders:
-                    # Only advance orders that have a print variant (30x40 / 18x24)
                     has_print_variant = any(
                         _detect_print_variant(it) is not None for it in (ord_.items or [])
                     )
@@ -1651,7 +1649,7 @@ def _run_bulk_design_job(job_id: str) -> None:
                         )
                 db.commit()
             except Exception:
-                pass  # Non-critical — don't fail the download job
+                pass  # Non-critical
 
         with _design_jobs_lock:
             job = _design_jobs.get(job_id)
@@ -1676,6 +1674,7 @@ def _run_bulk_design_job(job_id: str) -> None:
             job["updated_at"] = _now_ts()
     finally:
         db.close()
+        gc.collect()
 
 
 @router.post("/bulk/download-designs/jobs", status_code=status.HTTP_202_ACCEPTED)
@@ -1825,40 +1824,37 @@ def bulk_download_designs(
     used_names: set[str] = set()
     download_jobs, results = _build_design_download_jobs(orders)
 
-    try:
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            if download_jobs:
-                worker_count = max(1, min(_DESIGN_FETCH_PARALLELISM, len(download_jobs)))
-                with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                    future_map: dict[Future, dict] = {}
-                    for job in download_jobs:
-                        future = executor.submit(_download_asset_to_temp, job["design_url"])
-                        future_map[future] = job
+    import gc
 
-                    for future in as_completed(future_map):
-                        job = future_map[future]
-                        temp_path: str | None = None
-                        try:
-                            temp_path, fetched_ext = future.result()
-                            ext = job["url_ext"] or fetched_ext or ".bin"
-                            filename = _unique_name(job["base"], ext, used_names)
-                            used_names.add(filename)
-                            zf.write(temp_path, arcname=filename)
-                            results.append({
-                                "order_id": job["order_id"],
-                                "external_id": job["external_id"],
-                                "status": "ok",
-                                "filename": filename,
-                            })
-                        except Exception as exc:
-                            results.append({
-                                "order_id": job["order_id"],
-                                "external_id": job["external_id"],
-                                "status": "failed",
-                                "reason": str(exc)[:200],
-                            })
-                        finally:
-                            _safe_remove(temp_path)
+    del orders  # release order objects early
+    gc.collect()
+
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            for job in download_jobs:
+                temp_path: str | None = None
+                try:
+                    temp_path, fetched_ext = _download_asset_to_temp(job["design_url"])
+                    ext = job["url_ext"] or fetched_ext or ".bin"
+                    filename = _unique_name(job["base"], ext, used_names)
+                    used_names.add(filename)
+                    zf.write(temp_path, arcname=filename)
+                    results.append({
+                        "order_id": job["order_id"],
+                        "external_id": job["external_id"],
+                        "status": "ok",
+                        "filename": filename,
+                    })
+                except Exception as exc:
+                    results.append({
+                        "order_id": job["order_id"],
+                        "external_id": job["external_id"],
+                        "status": "failed",
+                        "reason": str(exc)[:200],
+                    })
+                finally:
+                    _safe_remove(temp_path)
+                    gc.collect()
 
         ok_count = sum(1 for r in results if r["status"] == "ok")
         failed_count = sum(1 for r in results if r["status"] == "failed")
