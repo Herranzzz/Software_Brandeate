@@ -1916,7 +1916,7 @@ def get_delivery_prediction(
 
     order = db.scalar(
         select(Order)
-        .options(selectinload(Order.shipment).selectinload(Shipment.tracking_events))
+        .options(selectinload(Order.shipment).selectinload(Shipment.events))
         .where(Order.id == order_id)
     )
     if order is None:

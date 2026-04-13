@@ -235,6 +235,16 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
       setCttStatus("success");
       toast("Etiqueta creada correctamente", "success");
       startTransition(() => { router.refresh(); });
+
+      // Auto-print: trigger print dialog immediately after creation
+      try {
+        setIsPrintingLabel(true);
+        await printLabel(shipping_code, { format: "PDF" });
+      } catch {
+        // Print failed silently — user can still click the print button
+      } finally {
+        setIsPrintingLabel(false);
+      }
     } catch (err) {
       setCttStatus("error");
       setErrorMessage(err instanceof Error ? err.message : "Error desconocido");
@@ -440,95 +450,53 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
             ) : (
               <div className="stack">
                 <div className="feedback feedback-success">
-                  Envío creado correctamente.{shippingCode ? ` Código CTT: ${shippingCode}` : ""}
+                  Envío creado · <strong>{shippingCode}</strong>
+                  {shopifySyncStatus === "synced" ? " · Shopify sincronizado" : ""}
                 </div>
-                {shopifySyncStatus ? (
-                  <div className={`feedback ${shopifySyncStatus === "synced" ? "feedback-success" : "feedback-error"}`}>
-                    {shopifySyncStatus === "synced"
-                      ? "Tracking sincronizado con Shopify."
-                      : shopifySyncStatus === "failed"
-                        ? "La etiqueta se creó, pero Shopify no se pudo actualizar."
-                        : "La etiqueta se creó sin sincronización activa con Shopify."}
-                  </div>
-                ) : null}
-                <div className="ctt-label-hero">
-                  <div className="ctt-label-hero-main">
-                    <div>
-                      <strong>Etiqueta lista para expedición</strong>
-                      <p>Imprime primero. La vista previa queda disponible solo si la necesitas revisar.</p>
-                    </div>
-                    {shippingCode ? <span className="ctt-label-code-pill">{shippingCode}</span> : null}
-                  </div>
-                  <div className="ctt-label-action-panel">
-                    <button
-                      className="button ctt-label-primary-action"
-                      disabled={isPrintingLabel || !shippingCode}
-                      onClick={handlePrintLabel}
-                      type="button"
-                    >
-                      {isPrintingLabel ? "Abriendo impresión..." : "Imprimir etiqueta"}
-                    </button>
-                    <div className="ctt-label-secondary-actions">
-                      {labelUrl ? (
-                        <a
-                          className="button-secondary"
-                          href={labelUrl}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          Abrir PDF
-                        </a>
-                      ) : null}
-                      {labelUrl ? (
-                        <button
-                          className="button-secondary"
-                          onClick={() => setIsPreviewVisible((current) => !current)}
-                          type="button"
-                        >
-                          {isPreviewVisible ? "Ocultar vista previa" : "Ver vista previa"}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
+
+                <div className="ctt-label-actions-grid">
+                  <button
+                    className="button ctt-print-big"
+                    disabled={isPrintingLabel || !shippingCode}
+                    onClick={handlePrintLabel}
+                    type="button"
+                  >
+                    {isPrintingLabel ? "Imprimiendo..." : "Imprimir etiqueta"}
+                  </button>
+
+                  <a
+                    className="button-secondary ctt-download-btn"
+                    href={existingDownloadUrl || `${labelUrl || `/api/ctt/shippings/${shippingCode}/label`}?download=1`}
+                    download
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Descargar PDF
+                  </a>
                 </div>
-                {labelUrl && isPreviewVisible ? (
-                  <div className="ctt-label-preview">
-                    <div className="ctt-label-preview-head">
-                      <div>
-                        <strong>Vista previa</strong>
-                        <p>Consulta rápida del PDF sin salir del flujo de trabajo.</p>
-                      </div>
-                    </div>
-                    <iframe className="ctt-label-frame" src={labelUrl} title={`Etiqueta CTT ${shippingCode}`} />
-                  </div>
-                ) : null}
-                <div className="modal-footer ctt-modal-footer-success">
-                  {shippingCode ? (
-                    <>
-                      <a
-                        className="button-secondary"
-                        href={existingDownloadUrl || `${labelUrl || `/api/ctt/shippings/${shippingCode}/label`}?download=1`}
-                        download
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        Descargar PDF
-                      </a>
-                      <a
-                        className="button-secondary"
-                        href={existingThermalUrl || `/api/ctt/shippings/${shippingCode}/label?label_type=ZPL&model_type=SINGLE&download=1`}
-                        download
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        Descargar ZPL
-                      </a>
-                    </>
-                  ) : null}
-                  <button className="button-secondary" onClick={closeModal} type="button">
-                    Cerrar
+
+                <div className="ctt-label-extras">
+                  <a
+                    className="button-link"
+                    href={existingThermalUrl || `/api/ctt/shippings/${shippingCode}/label?label_type=ZPL&model_type=SINGLE&download=1`}
+                    download
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Descargar ZPL (térmica)
+                  </a>
+                  <button
+                    className="button-link"
+                    onClick={() => setIsPreviewVisible((v) => !v)}
+                    type="button"
+                  >
+                    {isPreviewVisible ? "Ocultar vista previa" : "Ver vista previa"}
                   </button>
                 </div>
+
+                {labelUrl && isPreviewVisible ? (
+                  <iframe className="ctt-label-frame" src={labelUrl} title={`Etiqueta CTT ${shippingCode}`} />
+                ) : null}
               </div>
             )}
       </AppModal>

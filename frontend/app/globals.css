@@ -4342,35 +4342,44 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   font-weight: 700;
 }
 
-.ctt-label-action-panel {
+.ctt-label-actions-grid {
   display: grid;
+  grid-template-columns: 2fr 1fr;
   gap: 12px;
 }
 
-.ctt-label-primary-action {
-  min-height: 56px;
-  width: 100%;
-  font-size: 1.02rem;
+.ctt-print-big {
+  min-height: 64px;
+  font-size: 1.1rem;
   font-weight: 700;
-  box-shadow: 0 20px 40px rgba(var(--accent-rgb), 0.22);
+  box-shadow: 0 16px 36px rgba(var(--accent-rgb), 0.22);
 }
 
-.ctt-label-secondary-actions {
+.ctt-download-btn {
+  min-height: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.ctt-label-extras {
   display: flex;
-  gap: 10px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
-.ctt-label-preview-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.ctt-label-preview-head p {
-  margin: 4px 0 0;
+.button-link {
+  background: none;
+  border: none;
+  padding: 0;
   color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.button-link:hover {
+  color: var(--accent);
 }
 
 .ctt-label-frame {
