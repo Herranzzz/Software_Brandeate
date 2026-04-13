@@ -374,6 +374,7 @@ def _build_order_filters(
     q: str | None,
     is_blocked: bool | None = None,
     overdue_sla: bool | None = None,
+    shipping_status: str | None = None,
 ) -> sa.Select:
     query = base_query
     if status is not None:
@@ -441,6 +442,8 @@ def _build_order_filters(
             Shipment.expected_delivery_date < today,
             Shipment.shipping_status.notin_(_resolved),
         )
+    if shipping_status is not None and shipping_status.strip():
+        query = query.where(Order.shipment.has(Shipment.shipping_status == shipping_status.strip()))
     return query
 
 
@@ -463,6 +466,7 @@ def list_orders(
     q: str | None = None,
     is_blocked: bool | None = None,
     overdue_sla: bool | None = None,
+    shipping_status: str | None = None,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=DEFAULT_ORDERS_PER_PAGE, ge=1, le=MAX_ORDERS_PER_PAGE),
     db: Session = Depends(get_db),
@@ -490,6 +494,7 @@ def list_orders(
         q=q,
         is_blocked=is_blocked,
         overdue_sla=overdue_sla,
+        shipping_status=shipping_status,
     )
 
     # Contar total antes de paginar para X-Total-Count
