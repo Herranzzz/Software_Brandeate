@@ -26,6 +26,10 @@ import {
   sortTrackingEvents,
 } from "@/lib/format";
 import {
+  parseLastOpenedOrderId,
+  useLastOpenedPreview,
+} from "@/lib/last-opened-preview";
+import {
   getItemPrimaryAsset,
   getPrimaryDesignPreview,
   getVisibleAssets,
@@ -430,6 +434,8 @@ export function OrdersWorkbench({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+  const lastOpenedPreviewTrackId = useLastOpenedPreview();
+  const lastOpenedOrderId = parseLastOpenedOrderId(lastOpenedPreviewTrackId);
   const [orders, setOrders] = useState(initialOrders);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
@@ -991,10 +997,11 @@ export function OrdersWorkbench({
                       const fichaHref = `/orders/${order.id}`;
 
                       const orderCancelled = isOrderCancelled(order);
+                      const isLastOpenedRow = lastOpenedOrderId === order.id;
 
                       return (
                         <tr
-                          className={`table-row ${selectedOrderId === order.id ? "orders-ops-row-active" : ""} ${selectedIds.includes(order.id) ? "orders-ops-row-selected" : ""} ${orderCancelled ? "order-row--cancelled" : ""}`}
+                          className={`table-row ${selectedOrderId === order.id ? "orders-ops-row-active" : ""} ${selectedIds.includes(order.id) ? "orders-ops-row-selected" : ""} ${orderCancelled ? "order-row--cancelled" : ""} ${isLastOpenedRow ? "order-row--last-opened" : ""}`}
                           data-status={operationalStatus.rowStatus}
                           key={order.id}
                           onMouseDown={(e) => handleRowMouseDown(order.id, idx, e)}

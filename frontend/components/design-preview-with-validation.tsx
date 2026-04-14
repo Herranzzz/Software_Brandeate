@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 
 import { RenderPreviewLightbox } from "@/components/render-preview-lightbox";
+import { buildPreviewTrackId } from "@/lib/last-opened-preview";
 
 type DesignPreviewWithValidationProps = {
   alt: string;
@@ -25,6 +26,7 @@ export function DesignPreviewWithValidation({ alt, src, orderId, itemId }: Desig
       alt={alt}
       onLoadError={handleLoadError}
       src={src}
+      trackId={buildPreviewTrackId(orderId, itemId)}
     />
   );
 }

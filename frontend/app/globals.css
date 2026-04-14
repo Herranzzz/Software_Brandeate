@@ -3068,6 +3068,46 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   text-decoration-color: rgba(0, 0, 0, 0.35);
 }
 
+.order-row--last-opened,
+.order-row--last-opened td {
+  background: rgba(255, 209, 102, 0.22) !important;
+  box-shadow: inset 3px 0 0 #f5b800;
+}
+
+.order-row--last-opened td:first-child {
+  box-shadow: inset 4px 0 0 #f5b800;
+}
+
+.shipment-render-trigger--last-opened {
+  position: relative;
+  outline: 2px solid #f5b800;
+  outline-offset: 2px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 4px rgba(245, 184, 0, 0.25);
+}
+
+.shipment-render-last-opened-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f5b800;
+  color: #1a1a1a;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+:root[data-theme="dark"] .order-row--last-opened,
+:root[data-theme="dark"] .order-row--last-opened td {
+  background: rgba(245, 184, 0, 0.14) !important;
+  box-shadow: inset 3px 0 0 #f5b800;
+}
+
 .badge-production-pending {
   background: var(--surface-strong);
   color: var(--muted);

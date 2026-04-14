@@ -3,20 +3,34 @@
 import { useState } from "react";
 
 import { AppModal } from "@/components/app-modal";
+import {
+  setLastOpenedPreview,
+  useLastOpenedPreview,
+} from "@/lib/last-opened-preview";
 
 type RenderPreviewLightboxProps = {
   alt: string;
   src: string;
   onLoadError?: () => void;
+  trackId?: string;
 };
 
-export function RenderPreviewLightbox({ alt, src, onLoadError }: RenderPreviewLightboxProps) {
+export function RenderPreviewLightbox({ alt, src, onLoadError, trackId }: RenderPreviewLightboxProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isBroken, setIsBroken] = useState(false);
+  const lastOpened = useLastOpenedPreview();
+  const isLastOpened = Boolean(trackId) && lastOpened === trackId;
 
   function handleError() {
     setIsBroken(true);
     onLoadError?.();
+  }
+
+  function handleOpen() {
+    if (trackId) {
+      setLastOpenedPreview(trackId);
+    }
+    setIsOpen(true);
   }
 
   if (isBroken) {
@@ -32,18 +46,30 @@ export function RenderPreviewLightbox({ alt, src, onLoadError }: RenderPreviewLi
     );
   }
 
+  const triggerClassName = [
+    "shipment-render-trigger",
+    isLastOpened ? "shipment-render-trigger--last-opened" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <>
       <button
-        className="shipment-render-trigger"
-        onClick={() => setIsOpen(true)}
+        className={triggerClassName}
+        onClick={handleOpen}
         type="button"
       >
         <img alt={alt} className="shipment-render-image" onError={handleError} src={src} />
+        {isLastOpened ? (
+          <span className="shipment-render-last-opened-badge" aria-hidden="true">
+            Última vista
+          </span>
+        ) : null}
       </button>
 
       <div className="shipment-render-meta">
-        <button className="button button-secondary" onClick={() => setIsOpen(true)} type="button">
+        <button className="button button-secondary" onClick={handleOpen} type="button">
           Ver más grande
         </button>
         <a className="table-link table-link-strong" href={src} rel="noreferrer" target="_blank">
