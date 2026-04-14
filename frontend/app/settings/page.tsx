@@ -6,6 +6,7 @@ import { ShopShippingSettingsForm } from "@/components/shop-shipping-settings-fo
 import { ShippingRulesManager } from "@/components/shipping-rules-manager";
 import { ShopifySyncPanel } from "@/components/shopify-sync-panel";
 import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
+import { PortalTrackingSettings } from "@/components/portal-tracking-settings";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 
 import { SettingsTabs } from "@/components/settings-tabs";
@@ -20,6 +21,7 @@ const ADMIN_TABS = [
   { id: "shopify",       label: "Shopify",       icon: "🔗" },
   { id: "shipping",      label: "Expediciones",   icon: "🚚" },
   { id: "branding",      label: "Branding",       icon: "🎨" },
+  { id: "tracking",      label: "Tracking",       icon: "📦" },
   { id: "team",          label: "Equipo",         icon: "👥" },
   { id: "webhooks",      label: "Webhooks",       icon: "🔔" },
   { id: "sustainability",label: "Sostenibilidad", icon: "🌱" },
@@ -226,6 +228,47 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               );
             })}
           </div>
+        </Card>
+      )}
+
+      {/* ── Tracking ─────────────────────────────────────────────── */}
+      {activeTab === "tracking" && (
+        <Card className="stack settings-section-card">
+          <div className="settings-section-head">
+            <div>
+              <span className="eyebrow">📦 Tracking</span>
+              <h3 className="section-title section-title-small">Página de tracking por tienda</h3>
+              <p className="subtitle">
+                Configura el branding, los CTAs y los códigos de descuento que verá el cliente final en su página de seguimiento.
+              </p>
+            </div>
+          </div>
+          {shops.length === 0 ? (
+            <EmptyState
+              title="Sin tiendas disponibles"
+              description="Crea al menos una tienda para configurar su tracking."
+            />
+          ) : (
+            <div className="settings-shipping-grid">
+              {shops.map((shop) => (
+                <article className="shop-settings-card" key={shop.id}>
+                  <div className="shop-settings-card-head">
+                    <div>
+                      <div className="table-primary">{shop.name}</div>
+                      <div className="table-secondary">/{shop.slug}</div>
+                    </div>
+                    <span className="portal-soft-pill">Shop #{shop.id}</span>
+                  </div>
+                  <PortalTrackingSettings
+                    shopId={shop.id}
+                    shopName={shop.name}
+                    initialConfig={shop.tracking_config ?? null}
+                    publicTrackingExample={null}
+                  />
+                </article>
+              ))}
+            </div>
+          )}
         </Card>
       )}
 
