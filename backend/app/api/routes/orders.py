@@ -1050,7 +1050,12 @@ _CONTENT_TYPE_EXT: dict[str, str] = {
 _DESIGN_FETCH_TIMEOUT = 15  # seconds per asset
 _DESIGN_FETCH_PARALLELISM = 1  # sequential — keep peak RAM low on 512MB hosts
 _DESIGN_FETCH_CHUNK_SIZE = 64 * 1024  # 64 KB chunks — smaller = less peak RAM
-_DESIGN_MAX_ASSET_BYTES = 15 * 1024 * 1024  # 15 MB max per design file
+_DESIGN_MAX_ASSET_BYTES = 80 * 1024 * 1024  # 80 MB max per design file
+# Rationale for 80 MB: 30×40 personalized designs at 300 DPI routinely come
+# in as 40–60 MB JPEGs or PNGs with alpha. 15 MB was too restrictive and
+# blocked real orders. The downloaded file lives on disk, and PIL's
+# thumbnail cap (_CUT_MAX_DIM=2400) bounds peak RAM at ~50 MB per design
+# regardless of source size, so 80 MB still fits a 512 MB host.
 _DESIGN_JOB_TTL_SECONDS = 2 * 60 * 60
 _DESIGN_JOB_CLEANUP_INTERVAL_SECONDS = 60
 _DESIGN_DOWNLOAD_TOKEN_TTL_SECONDS = 10 * 60
