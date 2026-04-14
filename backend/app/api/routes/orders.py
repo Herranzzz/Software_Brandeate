@@ -1273,38 +1273,6 @@ _CUT_DASH = 18
 _CUT_GAP = 10
 
 
-def _image_has_white_background(pil_img: object) -> bool:
-    """Return True if the image has a predominantly white/light background.
-
-    Samples corners and edge midpoints. ≥70% near-white = white-bg.
-    Used to decide bleed strategy on print variants:
-    - white background → image fits inside print area, white margin around
-    - non-white → image is stretched to fill the bleed area, no white edges
-    """
-    try:
-        w, h = pil_img.size  # type: ignore[union-attr]
-    except Exception:
-        return False
-    sample_points = [
-        (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
-        (w // 2, 0), (0, h // 2), (w - 1, h // 2), (w // 2, h - 1),
-        (w // 4, 0), (3 * w // 4, 0),
-        (0, h // 4), (w - 1, h // 4),
-    ]
-    white_count = 0
-    for x, y in sample_points:
-        try:
-            px = pil_img.getpixel((x, y))  # type: ignore[union-attr]
-        except Exception:
-            continue
-        if isinstance(px, (int, float)):
-            if px > 230:
-                white_count += 1
-        elif isinstance(px, tuple) and len(px) >= 3 and all(c > 230 for c in px[:3]):
-            white_count += 1
-    return white_count >= len(sample_points) * 0.7
-
-
 def _draw_dashed_line_h(draw: object, x0: int, x1: int, y: int,
                          color: tuple, width: int, dash: int, gap: int) -> None:
     """Draw a horizontal dashed line using PIL ImageDraw."""
@@ -1367,45 +1335,33 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
 
         w, h = img.size
         is_landscape = w > h
-        is_white_bg = _image_has_white_background(img)
 
         if print_variant == "30x40":
             # 2 cm margin on one side.  A3 is 420×297 mm; design is 400×297
             # (landscape) or 297×400 (portrait).  Margin ≈ 20/420 = 4.76%.
-            #
-            # White-bg → image fits inside print area, white margin around
-            #            (cut at boundary leaves clean white edges).
-            # Non-white → image STRETCHED to fill the full canvas (bleed),
-            #             so cutting through the bleed zone never exposes
-            #             white edges. Slight ~5% horizontal/vertical stretch
-            #             is imperceptible in print.
             if is_landscape:
                 margin_px = max(int(w * 0.0476), 24)
-                if is_white_bg:
-                    canvas = PilImage.new("RGB", (w + margin_px, h), (255, 255, 255))
-                    canvas.paste(img, (0, 0))
-                else:
-                    canvas = img.resize((w + margin_px, h), PilImage.LANCZOS)
+                canvas = PilImage.new("RGB", (w + margin_px, h), (255, 255, 255))
+                canvas.paste(img, (0, 0))
                 img.close(); img = None
                 draw = ImageDraw.Draw(canvas)
-                # Dashed vertical cut line at x = w (the print-area edge)
+                # Dashed vertical cut line at x = w
                 _draw_dashed_line_v(draw, 0, h, w,
                                     _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
+                # Tick marks at top and bottom
                 tick = margin_px // 3
                 draw.line([(w, 0), (w + tick, 0)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
                 draw.line([(w, h - 1), (w + tick, h - 1)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
             else:
                 margin_px = max(int(h * 0.0476), 24)
-                if is_white_bg:
-                    canvas = PilImage.new("RGB", (w, h + margin_px), (255, 255, 255))
-                    canvas.paste(img, (0, margin_px))  # image below margin
-                else:
-                    canvas = img.resize((w, h + margin_px), PilImage.LANCZOS)
+                canvas = PilImage.new("RGB", (w, h + margin_px), (255, 255, 255))
+                canvas.paste(img, (0, margin_px))  # image below margin
                 img.close(); img = None
                 draw = ImageDraw.Draw(canvas)
-                # Dashed horizontal cut line at y = margin_px (print-area top)
+                # Dashed horizontal cut line at y = margin_px
                 _draw_dashed_line_h(draw, 0, w, margin_px,
                                     _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
+                # Tick marks at left and right
                 tick = margin_px // 3
                 draw.line([(0, margin_px), (0, margin_px - tick)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
                 draw.line([(w - 1, margin_px), (w - 1, margin_px - tick)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
