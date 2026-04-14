@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,7 +8,7 @@ import logging
 from app.api.deps import get_accessible_shop_ids, get_db, resolve_shop_scope
 from app.models import OrderStatus, ProductionStatus
 from app.schemas.analytics import AnalyticsOverviewRead
-from app.services.analytics import AnalyticsFilters, build_analytics_overview
+from app.services.analytics import AnalyticsFilters, BUSINESS_TZ, build_analytics_overview
 
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -32,7 +32,12 @@ def get_analytics_overview(
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ):
-    today = datetime.now(timezone.utc).date()
+    # "Today" must be computed in business time (Europe/Madrid) because
+    # _start_of_day / _end_of_day in the analytics service interpret the
+    # incoming dates in BUSINESS_TZ. Using UTC here caused a day boundary
+    # mismatch during the first 1–2 hours of a Madrid day (still previous
+    # day in UTC), which broke the dashboard's "Hoy" filter.
+    today = datetime.now(BUSINESS_TZ).date()
     effective_date_to = date_to or today
     effective_date_from = date_from or (effective_date_to - timedelta(days=DEFAULT_ANALYTICS_WINDOW_DAYS - 1))
 

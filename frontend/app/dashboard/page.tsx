@@ -302,13 +302,23 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
   const avgDeliveryLabel = fmtHoursDH(avgDeliveryHours);
 
+  // Total labels created in the period. We use shipping_performance_by_day
+  // (created_shipments) instead of analytics.flow.orders_prepared because the
+  // latter is a snapshot of orders currently *stuck* in the prepared stage,
+  // not the flow of labels generated over the period. Using created_shipments
+  // for both the number and the sparkline keeps the card coherent with its
+  // "Etiquetas creadas" label.
+  const labelsCreatedInPeriod = perfByDay.reduce(
+    (sum, p) => sum + (p.created_shipments ?? 0),
+    0,
+  );
   const extraCharts = analytics ? [
     {
       eyebrow: "Preparación",
       label: "Etiquetas creadas",
-      value: analytics.flow.orders_prepared ?? readyToShipOrders,
+      value: labelsCreatedInPeriod,
       hint: `${shippedOrders} ya expedidos`,
-      points: ordersPerDay.map((p) => p.total),
+      points: perfByDay.map((p) => p.created_shipments ?? 0),
       tone: "blue" as const,
     },
     {
