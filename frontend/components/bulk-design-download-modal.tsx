@@ -9,6 +9,7 @@ import type { Order } from "@/lib/types";
 
 type Phase = "confirm" | "loading" | "done" | "error";
 type JobStatus = "queued" | "running" | "done" | "failed";
+type DownloadMode = "bleed" | "raw";
 
 type BulkDesignDownloadModalProps = {
   orders: Order[];
@@ -112,6 +113,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
   const [noDesignCount, setNoDesignCount] = useState(0);
   const [progressDone, setProgressDone] = useState(0);
   const [progressTotal, setProgressTotal] = useState(0);
+  const [activeMode, setActiveMode] = useState<DownloadMode>("bleed");
 
   const ordersWithDesign = orders.filter((o) =>
     o.items.some((item) => getItemPrimaryAsset(item) !== null || item.design_link),
@@ -131,7 +133,8 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
     }
   }
 
-  async function handleDownload() {
+  async function handleDownload(mode: DownloadMode) {
+    setActiveMode(mode);
     setPhase("loading");
     setErrorMsg(null);
     setJobStatus("queued");
@@ -146,7 +149,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
       const createResponse = await fetch("/api/orders/bulk/download-designs/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_ids: orders.map((o) => o.id) }),
+        body: JSON.stringify({ order_ids: orders.map((o) => o.id), mode }),
       });
       if (!createResponse.ok) {
         throw new Error(await readErrorDetail(createResponse, "No se pudo iniciar la descarga de diseños."));
@@ -311,14 +314,26 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
               Cancelar
             </button>
             {phase === "confirm" ? (
-              <button
-                className="button"
-                disabled={ordersWithDesign.length === 0}
-                onClick={() => void handleDownload()}
-                type="button"
-              >
-                Descargar diseños
-              </button>
+              <>
+                <button
+                  className="button-secondary"
+                  disabled={ordersWithDesign.length === 0}
+                  onClick={() => void handleDownload("raw")}
+                  title="Descarga los ficheros originales, sin recortes ni sangrado"
+                  type="button"
+                >
+                  Descargar en bruto
+                </button>
+                <button
+                  className="button"
+                  disabled={ordersWithDesign.length === 0}
+                  onClick={() => void handleDownload("bleed")}
+                  title="Añade líneas de corte y sangrado para los formatos 30x40 y 18x24"
+                  type="button"
+                >
+                  Descargar con sangrado
+                </button>
+              </>
             ) : null}
           </>
         )
@@ -354,6 +369,14 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
                   Ninguno de los pedidos seleccionados tiene un diseño asociado visible. Selecciona pedidos personalizados con diseño disponible.
                 </div>
               ) : null}
+            </div>
+            <div className="bulk-design-modes">
+              <div className="bulk-design-mode-row">
+                <strong>Descargar en bruto:</strong> el archivo original tal cual, sin líneas de corte ni cambios de tamaño.
+              </div>
+              <div className="bulk-design-mode-row">
+                <strong>Descargar con sangrado:</strong> genera líneas de corte y margen de sangrado para los formatos 30x40 y 18x24.
+              </div>
             </div>
             <div className="table-secondary">
               El servidor preparará la descarga en segundo plano y te avisará en cuanto el ZIP esté listo.
@@ -410,7 +433,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
             </div>
             <button
               className="button-secondary"
-              onClick={() => void handleDownload()}
+              onClick={() => void handleDownload(activeMode)}
               type="button"
             >
               Reintentar descarga

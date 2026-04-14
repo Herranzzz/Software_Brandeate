@@ -61,11 +61,6 @@ export function RenderPreviewLightbox({ alt, src, onLoadError, trackId }: Render
         type="button"
       >
         <img alt={alt} className="shipment-render-image" onError={handleError} src={src} />
-        {isLastOpened ? (
-          <span className="shipment-render-last-opened-badge" aria-hidden="true">
-            Última vista
-          </span>
-        ) : null}
       </button>
 
       <div className="shipment-render-meta">

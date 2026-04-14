@@ -15,6 +15,7 @@ import uuid
 import zipfile
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -1613,6 +1614,7 @@ def _run_bulk_design_job(job_id: str) -> None:
             order_ids = list(job.get("order_ids") or [])
             scope = job.get("accessible_shop_ids")
             accessible_shop_ids = set(scope) if isinstance(scope, list) else None
+            mode = str(job.get("mode") or "bleed")
             job["status"] = "running"
             job["updated_at"] = _now_ts()
 
@@ -1664,29 +1666,37 @@ def _run_bulk_design_job(job_id: str) -> None:
                     print_variant = current_job.get("print_variant")
                     ext = current_job["url_ext"] or fetched_ext or ".bin"
 
-                    # If this is a print variant (30x40 / 18x24), add cut
-                    # lines using PIL with thumbnail (peak ~40 MB, safe for
-                    # 512 MB hosts).  Output is always PNG.
-                    if print_variant:
-                        cut_fd, cut_path = tempfile.mkstemp(prefix="cut-", suffix=".png")
-                        os.close(cut_fd)
-                        try:
-                            _add_cut_lines_to_image(temp_path, cut_path, print_variant)
-                            _safe_remove(temp_path)
-                            temp_path = cut_path
-                            ext = ".png"
-                        except Exception:
-                            # If cut-line generation fails, fall back to raw image
-                            _safe_remove(cut_path)
+                    if mode == "raw":
+                        # Raw mode: ship the file exactly as downloaded — no
+                        # cut lines, no alpha flattening, no resizing. This
+                        # is the escape hatch for when the automatic bleed
+                        # transformations aren't what the operator wants.
+                        suffix = ""
                     else:
-                        # Flatten transparency onto white if needed (so PNGs
-                        # with transparent backgrounds don't appear black).
-                        flattened_path = _flatten_alpha_if_needed(temp_path)
-                        if flattened_path != temp_path:
-                            temp_path = flattened_path
-                            ext = ".png"
+                        # Bleed mode (default): if this is a print variant
+                        # (30x40 / 18x24), add cut lines using PIL with
+                        # thumbnail (peak ~40 MB, safe for 512 MB hosts).
+                        # Output is always PNG.
+                        if print_variant:
+                            cut_fd, cut_path = tempfile.mkstemp(prefix="cut-", suffix=".png")
+                            os.close(cut_fd)
+                            try:
+                                _add_cut_lines_to_image(temp_path, cut_path, print_variant)
+                                _safe_remove(temp_path)
+                                temp_path = cut_path
+                                ext = ".png"
+                            except Exception:
+                                # If cut-line generation fails, fall back to raw image
+                                _safe_remove(cut_path)
+                        else:
+                            # Flatten transparency onto white if needed (so PNGs
+                            # with transparent backgrounds don't appear black).
+                            flattened_path = _flatten_alpha_if_needed(temp_path)
+                            if flattened_path != temp_path:
+                                temp_path = flattened_path
+                                ext = ".png"
+                        suffix = f" [{print_variant}]" if print_variant else ""
 
-                    suffix = f" [{print_variant}]" if print_variant else ""
                     filename = _unique_name(current_job["base"] + suffix, ext, used_names)
                     used_names.add(filename)
                     zf.write(temp_path, arcname=filename)
@@ -1813,6 +1823,7 @@ def create_bulk_design_download_job(
         "user_id": current_user.id,
         "order_ids": list(payload.order_ids),
         "accessible_shop_ids": sorted(accessible_shop_ids) if accessible_shop_ids is not None else None,
+        "mode": payload.mode,
         "status": "queued",
         "progress_total": 0,
         "progress_done": 0,
@@ -2030,6 +2041,7 @@ from pydantic import BaseModel as _BaseModel  # noqa: E402
 
 class BulkDesignDownloadRequest(_BaseModel):
     order_ids: list[int]
+    mode: Literal["raw", "bleed"] = "bleed"
 
 
 @router.get("/{order_id}/delivery-prediction")
