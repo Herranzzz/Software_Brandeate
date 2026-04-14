@@ -32,18 +32,31 @@ export function CarrierSettingsPanel({ shopId }: CarrierSettingsPanelProps) {
     return cfg ? cfg.is_enabled : true;
   }
 
+  function usesBrandedTracking(code: string): boolean {
+    const cfg = configs.find((c) => c.carrier_code === code);
+    return Boolean(
+      cfg &&
+        cfg.config_json &&
+        (cfg.config_json as Record<string, unknown>).use_branded_tracking_link === true,
+    );
+  }
+
   function handleToggle(carrier: CarrierInfo) {
     const current = isEnabled(carrier.code);
+    const existing = configs.find((c) => c.carrier_code === carrier.code);
     startTransition(async () => {
       try {
         const updated = await upsertCarrierConfig({
           shop_id: shopId,
           carrier_code: carrier.code,
           is_enabled: !current,
+          // Preserve any existing config_json so toggling the enable
+          // switch doesn't wipe the branded-tracking flag.
+          config_json: existing?.config_json ?? null,
         });
         setConfigs((prev) => {
-          const existing = prev.find((c) => c.carrier_code === carrier.code);
-          if (existing) return prev.map((c) => (c.carrier_code === carrier.code ? updated : c));
+          const existingIdx = prev.find((c) => c.carrier_code === carrier.code);
+          if (existingIdx) return prev.map((c) => (c.carrier_code === carrier.code ? updated : c));
           return [...prev, updated];
         });
         toast(
@@ -52,6 +65,35 @@ export function CarrierSettingsPanel({ shopId }: CarrierSettingsPanelProps) {
         );
       } catch {
         toast("Error al actualizar carrier", "error");
+      }
+    });
+  }
+
+  function handleToggleBrandedTracking(carrier: CarrierInfo) {
+    const current = usesBrandedTracking(carrier.code);
+    const existing = configs.find((c) => c.carrier_code === carrier.code);
+    const prevConfig = (existing?.config_json as Record<string, unknown> | null | undefined) ?? {};
+    startTransition(async () => {
+      try {
+        const updated = await upsertCarrierConfig({
+          shop_id: shopId,
+          carrier_code: carrier.code,
+          is_enabled: existing?.is_enabled ?? true,
+          config_json: { ...prevConfig, use_branded_tracking_link: !current },
+        });
+        setConfigs((prev) => {
+          const existingIdx = prev.find((c) => c.carrier_code === carrier.code);
+          if (existingIdx) return prev.map((c) => (c.carrier_code === carrier.code ? updated : c));
+          return [...prev, updated];
+        });
+        toast(
+          !current
+            ? `${carrier.name}: enviando enlace de tracking de Brandeate a Shopify`
+            : `${carrier.name}: enviando enlace nativo del transportista a Shopify`,
+          "info",
+        );
+      } catch {
+        toast("Error al actualizar el enlace de tracking", "error");
       }
     });
   }
@@ -65,6 +107,7 @@ export function CarrierSettingsPanel({ shopId }: CarrierSettingsPanelProps) {
       )}
       {carriers.map((carrier) => {
         const enabled = isEnabled(carrier.code);
+        const branded = usesBrandedTracking(carrier.code);
         return (
           <div key={carrier.code} className="carrier-row">
             <div className="carrier-row-info">
@@ -80,6 +123,35 @@ export function CarrierSettingsPanel({ shopId }: CarrierSettingsPanelProps) {
                   <span className="carrier-cap-tag">Tarifas en tiempo real</span>
                 )}
               </div>
+              {enabled && carrier.supports_tracking ? (
+                <div className="carrier-tracking-link-choice">
+                  <span className="carrier-tracking-link-label">
+                    Enlace de tracking en Shopify:
+                  </span>
+                  <button
+                    className={`button-small ${branded ? "button-secondary" : "button"}`}
+                    type="button"
+                    disabled={isPending || branded === false}
+                    onClick={() => {
+                      if (branded) handleToggleBrandedTracking(carrier);
+                    }}
+                    title="Usa el enlace nativo del transportista. Es lo que Shopify mostrará al cliente en el email de envío."
+                  >
+                    Nativo del transportista
+                  </button>
+                  <button
+                    className={`button-small ${branded ? "button" : "button-secondary"}`}
+                    type="button"
+                    disabled={isPending || branded === true}
+                    onClick={() => {
+                      if (!branded) handleToggleBrandedTracking(carrier);
+                    }}
+                    title="Usa la página de tracking de Brandeate. El cliente aterriza en tu web con tu branding."
+                  >
+                    Brandeate
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div className="carrier-row-actions">
               <span className={`carrier-status ${enabled ? "carrier-active" : "carrier-inactive"}`}>

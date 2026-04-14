@@ -33,6 +33,7 @@ from app.models import (
     ShopSyncEvent,
     TrackingEvent,
 )
+from app.models.carrier_config import CarrierConfig
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.services.automation_rules import evaluate_order_automation_rules
@@ -1253,6 +1254,60 @@ def add_order_tags_in_shopify(
     logger.info("Shopify order tags added order_gid=%s tags=%s", order_gid, tags)
 
 
+def _resolve_tracking_url_for_shopify(
+    *,
+    db: Session,
+    shop_id: int,
+    shipment: Shipment,
+) -> tuple[str | None, bool]:
+    """Decide which tracking URL to push to Shopify for this shipment.
+
+    Returns ``(url, is_branded)`` where:
+
+    * ``url`` is what should be passed to Shopify's fulfillment mutation.
+    * ``is_branded`` is True when we substituted Brandeate's public
+      tracking page for the native carrier URL. The caller must use
+      this flag to skip writing Shopify's response back to
+      ``shipment.tracking_url`` — otherwise we'd clobber the stored
+      native URL on the next sync (or lose the branded URL if Shopify
+      returns null for an unrecognised host).
+
+    The per-carrier ``use_branded_tracking_link`` flag lives in
+    ``CarrierConfig.config_json``. When it's set, and we have both a
+    ``FRONTEND_URL`` and a ``shipment.public_token``, we build
+    ``{FRONTEND_URL}/tracking/{public_token}``. Otherwise we fall back
+    to the native ``shipment.tracking_url``.
+    """
+    import os
+
+    native_url = (shipment.tracking_url or "").strip() or None
+    carrier_code = (shipment.carrier or "").strip()
+    if not carrier_code:
+        return native_url, False
+
+    carrier_cfg = db.scalar(
+        select(CarrierConfig)
+        .where(CarrierConfig.shop_id == shop_id)
+        .where(CarrierConfig.carrier_code == carrier_code)
+    )
+    use_branded = bool(
+        carrier_cfg
+        and isinstance(carrier_cfg.config_json, dict)
+        and carrier_cfg.config_json.get("use_branded_tracking_link") is True
+    )
+    if not use_branded:
+        return native_url, False
+
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    token = (shipment.public_token or "").strip()
+    if not frontend_url or not token:
+        # Flag is on but we can't build the branded URL — fall back to
+        # the native URL so we still push *something*.
+        return native_url, False
+
+    return f"{frontend_url}/tracking/{token}", True
+
+
 def sync_shipment_tracking_to_shopify(
     *,
     db: Session,
@@ -1265,7 +1320,9 @@ def sync_shipment_tracking_to_shopify(
     shipment.shopify_last_sync_attempt_at = now
 
     tracking_number = (shipment.tracking_number or "").strip()
-    tracking_url = (shipment.tracking_url or "").strip() or None
+    tracking_url, tracking_url_is_branded = _resolve_tracking_url_for_shopify(
+        db=db, shop_id=order.shop_id, shipment=shipment,
+    )
     carrier = (shipment.carrier or "").strip()
 
     if not tracking_number or not carrier:
@@ -1310,7 +1367,15 @@ def sync_shipment_tracking_to_shopify(
 
     if fulfillment_id:
         shipment.fulfillment_id = fulfillment_id
-    if resolved_tracking_url:
+    # Only write Shopify's response back into shipment.tracking_url when
+    # we pushed the *native* carrier URL. If the shop opted into
+    # Brandeate's branded tracking page we keep shipment.tracking_url as
+    # the native URL (so internal views, labels, etc. still link to the
+    # real carrier page) and the branded URL lives only on Shopify's
+    # side. Overwriting here would either (a) persist the branded URL
+    # and hide the native one, or (b) wipe shipment.tracking_url to
+    # null if Shopify didn't recognise our branded host.
+    if resolved_tracking_url and not tracking_url_is_branded:
         shipment.tracking_url = resolved_tracking_url
 
     shipment.shopify_sync_status = "synced"

@@ -20832,6 +20832,19 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   border: 1px solid var(--border);
 }
 
+.carrier-tracking-link-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.carrier-tracking-link-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
 .carrier-row-actions {
   display: flex;
   align-items: center;
