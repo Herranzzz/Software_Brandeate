@@ -1525,12 +1525,21 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
         img.close()
         img = None
 
-        # For the 18×24 cover-scaled case we must center-crop the resized
-        # image down to exactly the region size so it doesn't spill over
-        # the cut lines into the surrounding whitespace.
+        # For the 18×24 cover-scaled case we must crop the resized image
+        # down to exactly the region size so it doesn't spill over the
+        # cut lines into the surrounding whitespace.
+        #
+        # Vertical bias: 60/40 in favour of the bottom — i.e. we take
+        # 50% more pixels off the top than off the bottom. Operators
+        # routinely overlay text near the bottom of the design (names,
+        # dates), so biasing the crop downward keeps that text visible
+        # at the cost of slightly more aggressive trimming up top.
+        # Horizontal axis stays centered.
         if print_variant == "18x24" and not is_white_bg:
-            crop_left = max(0, (resized.width - region_w) // 2)
-            crop_top = max(0, (resized.height - region_h) // 2)
+            excess_w = max(0, resized.width - region_w)
+            excess_h = max(0, resized.height - region_h)
+            crop_left = excess_w // 2
+            crop_top = int(round(excess_h * 0.6))
             cropped = resized.crop(
                 (crop_left, crop_top, crop_left + region_w, crop_top + region_h)
             )
