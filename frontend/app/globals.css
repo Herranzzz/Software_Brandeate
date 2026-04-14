@@ -3089,6 +3089,16 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   box-shadow: inset 3px 0 0 #f5b800;
 }
 
+/* Taller cells on the last-opened row so it's easier to spot from a
+   distance. The base .table td padding is 15px 14px; we bump the
+   vertical axis to 22px for a subtle ~14 px height increase. Animated
+   so the effect reads as the row "growing" when a preview is opened. */
+.order-row--last-opened td {
+  padding-top: 22px;
+  padding-bottom: 22px;
+  transition: padding 180ms ease-out, background 180ms ease-out;
+}
+
 .order-row--last-opened td:first-child {
   box-shadow: inset 4px 0 0 #f5b800;
 }

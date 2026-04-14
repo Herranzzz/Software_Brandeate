@@ -1490,35 +1490,59 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
 
         # Scaling strategy per variant:
         #
-        # * 18×24 — ALWAYS fit-preserve inside the 180×240 mm region and
-        #   paste flush at the top-left corner of the sheet. The design
-        #   IS the 18×24 artwork; it never bleeds past its region and
-        #   never covers the full A4. The cut lines at the right and
-        #   bottom of the region sit on empty white paper.
+        # * 18×24 white background — fit-preserve inside the 180×240 mm
+        #   region and paste flush at the top-left corner. Any white gap
+        #   between the design and the region edge blends with the paper.
         #
-        # * 30×40 — branch on background: white-bg designs fit-preserve
-        #   inside the region below the top strip; non-white designs
-        #   cover-scale across the full A3 so the dashed cut line ends
-        #   up drawn on top of actual artwork. This protects against a
-        #   slightly-drifted guillotine leaving a white seam at the top.
-        #   PIL paste clips any overflow, so the canvas size stays fixed.
-        if print_variant == "18x24":
+        # * 18×24 non-white background — cover-scale to fill the REGION
+        #   completely, center-cropped, then pasted at the region origin.
+        #   The 18×24 cut box must never show white inside it on coloured
+        #   designs (some content gets cropped — that's the trade-off the
+        #   user accepted). The image is clipped to the region only, so
+        #   it does NOT bleed into the right/bottom whitespace where the
+        #   cut lines sit.
+        #
+        # * 30×40 white background — fit-preserve inside the region below
+        #   the 20 mm top strip.
+        #
+        # * 30×40 non-white background — cover-scale across the full A3
+        #   so the dashed cut line is drawn on top of actual artwork.
+        #   Protects against a drifted guillotine leaving a white seam.
+        is_white_bg = _detect_image_background_is_white(img)
+
+        if print_variant == "18x24" and not is_white_bg:
+            # Cover-scale to the region (not the canvas) and crop.
+            scale = max(region_w / img.width, region_h / img.height)
+        elif is_white_bg:
             scale = min(region_w / img.width, region_h / img.height)
-            paste_x, paste_y = region_x, region_y
         else:
-            is_white_bg = _detect_image_background_is_white(img)
-            if is_white_bg:
-                scale = min(region_w / img.width, region_h / img.height)
-                paste_x, paste_y = region_x, region_y
-            else:
-                scale = max(canvas_w / img.width, canvas_h / img.height)
-                paste_x, paste_y = 0, 0
+            # 30×40 non-white: cover the full A3 sheet.
+            scale = max(canvas_w / img.width, canvas_h / img.height)
 
         fit_w = max(1, int(round(img.width * scale)))
         fit_h = max(1, int(round(img.height * scale)))
         resized = img.resize((fit_w, fit_h), PilImage.LANCZOS)
         img.close()
         img = None
+
+        # For the 18×24 cover-scaled case we must center-crop the resized
+        # image down to exactly the region size so it doesn't spill over
+        # the cut lines into the surrounding whitespace.
+        if print_variant == "18x24" and not is_white_bg:
+            crop_left = max(0, (resized.width - region_w) // 2)
+            crop_top = max(0, (resized.height - region_h) // 2)
+            cropped = resized.crop(
+                (crop_left, crop_top, crop_left + region_w, crop_top + region_h)
+            )
+            resized.close()
+            resized = cropped
+            paste_x, paste_y = region_x, region_y
+        elif is_white_bg:
+            paste_x, paste_y = region_x, region_y
+        else:
+            # 30×40 non-white: paste at canvas origin so the cover-scaled
+            # artwork bleeds across the whole sheet.
+            paste_x, paste_y = 0, 0
 
         # Pristine A4 / A3 white canvas at _PRINT_DPI.
         canvas = PilImage.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
