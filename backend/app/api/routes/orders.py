@@ -1367,25 +1367,48 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
                 draw.line([(w - 1, margin_px), (w - 1, margin_px - tick)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
 
         elif print_variant == "18x24":
-            # Design 180×240 mm on A4 (210×297 mm).
-            # Extra right ≈ (210-180)/180 = 16.7%, extra bottom ≈ (297-240)/240 = 23.75%
+            # A4 = 210 × 297 mm; design region = 180 × 240 mm.
+            # Render onto a TRUE A4-shaped canvas with the design region
+            # in the top-left corner, stretched to exactly fit the 18×24
+            # area (matches original reportlab preserveAspectRatio=False
+            # behavior).  White space fills the rest of the A4.
+            #
+            # This guarantees that when printed at A4, the cut lines fall
+            # at the real 18 cm and 24 cm marks — no misalignment, no
+            # tiny design floating in the corner.
+            A4_W_MM = 210.0
+            A4_H_MM = 297.0
+            DESIGN_W_MM = 180.0
+            DESIGN_H_MM = 240.0
+
             if is_landscape:
-                # 240×180 on landscape A4 (297×210)
-                extra_right = max(int(w * 0.2375), 30)
-                extra_bottom = max(int(h * 0.1667), 20)
+                # A4 landscape (297 × 210 mm), design 240 × 180 mm top-left
+                canvas_w = _CUT_MAX_DIM
+                canvas_h = int(round(canvas_w * (A4_W_MM / A4_H_MM)))
+                region_w = int(round(canvas_w * (DESIGN_H_MM / A4_H_MM)))
+                region_h = int(round(canvas_h * (DESIGN_W_MM / A4_W_MM)))
             else:
-                extra_right = max(int(w * 0.1667), 20)
-                extra_bottom = max(int(h * 0.2375), 30)
-            canvas = PilImage.new("RGB", (w + extra_right, h + extra_bottom), (255, 255, 255))
-            canvas.paste(img, (0, 0))
+                # A4 portrait (210 × 297 mm), design 180 × 240 mm top-left
+                canvas_h = _CUT_MAX_DIM
+                canvas_w = int(round(canvas_h * (A4_W_MM / A4_H_MM)))
+                region_w = int(round(canvas_w * (DESIGN_W_MM / A4_W_MM)))
+                region_h = int(round(canvas_h * (DESIGN_H_MM / A4_H_MM)))
+
+            # Stretch image to exactly fit the design region
+            resized = img.resize((region_w, region_h), PilImage.LANCZOS)
             img.close(); img = None
+
+            # Build white A4 canvas, paste design in top-left
+            canvas = PilImage.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+            canvas.paste(resized, (0, 0))
+            resized.close()
+
             draw = ImageDraw.Draw(canvas)
-            cw, ch = canvas.size
-            # Vertical cut line at x = w
-            _draw_dashed_line_v(draw, 0, ch, w,
+            # Vertical cut at x = region_w (right edge of design)
+            _draw_dashed_line_v(draw, 0, canvas_h, region_w,
                                 _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
-            # Horizontal cut line at y = h
-            _draw_dashed_line_h(draw, 0, cw, h,
+            # Horizontal cut at y = region_h (bottom edge of design)
+            _draw_dashed_line_h(draw, 0, canvas_w, region_h,
                                 _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
         else:
             # No recognized variant — should not normally be called
