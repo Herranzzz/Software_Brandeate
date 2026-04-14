@@ -1249,15 +1249,23 @@ _A4_H_MM = 297.0
 _A3_W_MM = 297.0
 _A3_H_MM = 420.0
 
-# Nominal design regions anchored to the top-left corner of the sheet.
-# 18×24 fits A4 cleanly with visible bleed margin on the right and bottom.
-# 30×40 cannot literally fit A3 (A3 short edge is 297 mm < 300 mm), so we
-# use the largest 3:4 region that fits A3 while leaving a visible bleed
-# margin on both cut-line edges.
+# 18×24 layout: fits inside A4 portrait with the design anchored at the
+# top-left corner. Dashed cut lines at the right and bottom edges of the
+# design region.
 _DESIGN_18X24_W_MM = 180.0
 _DESIGN_18X24_H_MM = 240.0
-_DESIGN_30X40_W_MM = 287.0
-_DESIGN_30X40_H_MM = 382.0
+
+# 30×40 layout: A3 portrait with a single dashed cut line 20 mm from the
+# top edge. The 20 mm top strip is sacrificial (gets trimmed off). The
+# design region fills the full A3 width below the cut line.
+#
+# A3 short edge is 297 mm, so the design width is technically 29.7 cm
+# instead of a literal 30 cm — the 3 mm loss is within cutter tolerance
+# and is invisible once the piece is framed. Using the full A3 width
+# also means there is no right-side cut line to worry about.
+_DESIGN_30X40_TOP_CUT_MM = 20.0
+_DESIGN_30X40_W_MM = _A3_W_MM                         # 297
+_DESIGN_30X40_H_MM = _A3_H_MM - _DESIGN_30X40_TOP_CUT_MM  # 400
 
 
 def _mm_to_px(mm: float, dpi: int = _PRINT_DPI) -> int:
@@ -1377,9 +1385,21 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
 
     Core guarantee: every PNG produced for a given variant has IDENTICAL
     canvas pixel dimensions, so when an operator batch-prints at "fit to
-    page", every design comes out at the exact same physical size. No
-    more surprises where one 18×24 ends up tiny and the next one fills
-    the page.
+    page", every design comes out at the exact same physical size.
+
+    Layouts:
+
+      18×24 on A4 portrait (210×297 mm)
+        - Design region 180×240 mm anchored at the top-left of the sheet.
+        - Dashed cut lines at the right edge and bottom edge of the region.
+
+      30×40 on A3 portrait (297×420 mm)
+        - 20 mm sacrificial strip along the top edge of the sheet.
+        - Design region fills 297×400 mm below that strip
+          (anchored at x=0, y=20 mm, extending to the bottom-right corner).
+        - ONE dashed cut line — horizontal, at y=20 mm, spanning the
+          full width of the sheet. No right or bottom cut lines; the
+          design goes all the way to the paper edge on those sides.
 
     Pipeline:
       1. Open + thumbnail-cap the source to bound peak memory.
@@ -1388,15 +1408,15 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
          on a portrait sheet the same way.
       4. Detect whether the background is white and pick a scaling
          strategy:
-           - white bg → fit-preserve inside the safe cut region
-           - non-white bg → scale to cover the full A4/A3 sheet so the
-             artwork bleeds past the cut line and the blade never
-             leaves a white strip
-      5. Paste anchored to the top-left corner of a pristine A4 / A3
-         white canvas at _PRINT_DPI. Any overflow past the sheet edges
-         is clipped by PIL's paste so the canvas keeps its fixed size.
-      6. Draw simple dashed cut lines at the right edge and bottom edge
-         of the design region, plus solid corner ticks for alignment.
+           - white bg → fit-preserve inside the design region (any
+             white gap blends with the paper after trimming)
+           - non-white bg → scale to cover the full sheet so the
+             artwork bleeds past the cut line and a 1–2 mm cutter
+             drift never leaves a white strip
+      5. Paste onto a pristine A4 / A3 white canvas at _PRINT_DPI.
+         Any overflow past the sheet edges is clipped so the canvas
+         size stays fixed.
+      6. Draw the variant's dashed cut lines and alignment ticks.
 
     Peak memory: source thumb (~17 MB) + resized (~20 MB) + A3 canvas
     (~23 MB) ≈ 60 MB, within a 512 MB host's budget for sequential work.
@@ -1438,15 +1458,22 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
             img.close()
             img = rotated
 
-        # Paper + design region for this variant.
+        # Paper + design region geometry for this variant. `region_x/y`
+        # is the top-left corner of the design area on the sheet in mm;
+        # `region_w/h` is its size. 18×24 anchors the region at (0,0);
+        # 30×40 anchors it below a 20 mm top strip.
         if print_variant == "30x40":
             paper_w_mm = _A3_W_MM
             paper_h_mm = _A3_H_MM
+            region_x_mm = 0.0
+            region_y_mm = _DESIGN_30X40_TOP_CUT_MM
             region_w_mm = _DESIGN_30X40_W_MM
             region_h_mm = _DESIGN_30X40_H_MM
         elif print_variant == "18x24":
             paper_w_mm = _A4_W_MM
             paper_h_mm = _A4_H_MM
+            region_x_mm = 0.0
+            region_y_mm = 0.0
             region_w_mm = _DESIGN_18X24_W_MM
             region_h_mm = _DESIGN_18X24_H_MM
         else:
@@ -1456,14 +1483,16 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
 
         canvas_w = _mm_to_px(paper_w_mm)
         canvas_h = _mm_to_px(paper_h_mm)
+        region_x = _mm_to_px(region_x_mm)
+        region_y = _mm_to_px(region_y_mm)
         region_w = _mm_to_px(region_w_mm)
         region_h = _mm_to_px(region_h_mm)
 
         # Decide how to scale based on the source's background.
         #
-        # * WHITE background — fit-preserve inside the safe cut region.
-        #   Any white gap between the design and the cut line blends
-        #   with the paper, so the visible print still looks clean.
+        # * WHITE background — fit-preserve inside the safe design region.
+        #   Any white gap between the design and the cut line blends with
+        #   the paper, so the visible print still looks clean.
         #
         # * NON-WHITE background — scale to COVER the full sheet so the
         #   design reaches (and extends past) the cut line. The dashed
@@ -1472,7 +1501,8 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
         #   still has full-colour artwork to the edge instead of an
         #   ugly white frame. PIL paste naturally clips any overflow
         #   beyond the A4 / A3 sheet, so the canvas size stays fixed.
-        if _detect_image_background_is_white(img):
+        is_white_bg = _detect_image_background_is_white(img)
+        if is_white_bg:
             scale = min(region_w / img.width, region_h / img.height)
         else:
             scale = max(canvas_w / img.width, canvas_h / img.height)
@@ -1483,37 +1513,72 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
         img.close()
         img = None
 
-        # Pristine A4 / A3 white canvas at _PRINT_DPI. The design sits
-        # anchored to the top-left so the cut lines on the right and
-        # bottom stay easy to find.
+        # Pristine A4 / A3 white canvas at _PRINT_DPI.
         canvas = PilImage.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-        canvas.paste(resized, (0, 0))
+        # White-bg designs sit inside the design region (below the top
+        # strip for 30×40, flush top-left for 18×24). Non-white designs
+        # start at the canvas origin so the cover-scaled artwork fills
+        # the whole sheet, intentionally bleeding past the cut line.
+        if is_white_bg:
+            paste_x, paste_y = region_x, region_y
+        else:
+            paste_x, paste_y = 0, 0
+        canvas.paste(resized, (paste_x, paste_y))
         resized.close()
         resized = None
 
         draw = ImageDraw.Draw(canvas)
-        # Right edge of the design region: dashed vertical cut line.
-        _draw_dashed_line_v(draw, 0, region_h, region_w,
-                             _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
-        # Bottom edge of the design region: dashed horizontal cut line.
-        _draw_dashed_line_h(draw, 0, region_w, region_h,
-                             _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
-
-        # Solid corner ticks extending a few mm past the design region so
-        # the cutter can quickly line up the blade. We add ticks at the
-        # three outside corners that aren't the sheet corner.
         tick = _mm_to_px(4)
-        # Top-right: tick pointing right from (region_w, 0)
-        draw.line([(region_w, 0), (min(canvas_w - 1, region_w + tick), 0)],
-                  fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
-        # Bottom-left: tick pointing down from (0, region_h)
-        draw.line([(0, region_h), (0, min(canvas_h - 1, region_h + tick))],
-                  fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
-        # Bottom-right corner: L-shaped tick extending right + down.
-        draw.line([(region_w, region_h), (min(canvas_w - 1, region_w + tick), region_h)],
-                  fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
-        draw.line([(region_w, region_h), (region_w, min(canvas_h - 1, region_h + tick))],
-                  fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
+
+        if print_variant == "30x40":
+            # Single dashed cut line across the full width of the sheet,
+            # 20 mm from the top. Everything above it is the sacrificial
+            # strip the operator trims off.
+            _draw_dashed_line_h(
+                draw, 0, canvas_w, region_y,
+                _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP,
+            )
+            # Small solid ticks at both ends of the cut line, pointing up
+            # into the strip — makes it easy to align a guillotine blade
+            # by eye without having to trace the dashed line across the
+            # whole sheet.
+            draw.line(
+                [(0, region_y), (0, max(0, region_y - tick))],
+                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
+            )
+            draw.line(
+                [(canvas_w - 1, region_y), (canvas_w - 1, max(0, region_y - tick))],
+                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
+            )
+        else:
+            # 18×24: design anchored top-left, dashed cut lines at the
+            # right and bottom edges of the 180×240 region.
+            _draw_dashed_line_v(
+                draw, 0, region_h, region_w,
+                _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP,
+            )
+            _draw_dashed_line_h(
+                draw, 0, region_w, region_h,
+                _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP,
+            )
+            # Solid corner ticks so the cutter can line up the blade at
+            # the three outside corners that aren't the sheet corner.
+            draw.line(
+                [(region_w, 0), (min(canvas_w - 1, region_w + tick), 0)],
+                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
+            )
+            draw.line(
+                [(0, region_h), (0, min(canvas_h - 1, region_h + tick))],
+                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
+            )
+            draw.line(
+                [(region_w, region_h), (min(canvas_w - 1, region_w + tick), region_h)],
+                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
+            )
+            draw.line(
+                [(region_w, region_h), (region_w, min(canvas_h - 1, region_h + tick))],
+                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
+            )
 
         canvas.save(output_path, "PNG", optimize=False)
     finally:
