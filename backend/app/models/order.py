@@ -17,6 +17,7 @@ class OrderStatus(str, enum.Enum):
     shipped = "shipped"
     delivered = "delivered"
     exception = "exception"
+    cancelled = "cancelled"
 
 
 class ProductionStatus(str, enum.Enum):
@@ -160,6 +161,8 @@ class Order(Base):
     channel: Mapped[str | None] = mapped_column(String(120), nullable=True)
     shopify_financial_status: Mapped[str | None] = mapped_column(String(120), nullable=True)
     shopify_fulfillment_status: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    cancel_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     fulfillment_orders_json: Mapped[list[dict] | dict | None] = mapped_column(json_type, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -246,6 +249,12 @@ class OrderItem(Base):
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     variant_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer)
+    refunded_quantity: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     properties_json: Mapped[dict | list | None] = mapped_column(json_type, nullable=True)
     customization_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     design_link: Mapped[str | None] = mapped_column(String(2048), nullable=True)

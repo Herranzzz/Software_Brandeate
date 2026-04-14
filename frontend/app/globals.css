@@ -3023,6 +3023,51 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   border-color: rgba(229, 57, 53, 0.20);
 }
 
+.badge-status-cancelled {
+  background: rgba(0, 0, 0, 0.06);
+  color: #555;
+  border-color: rgba(0, 0, 0, 0.18);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.badge-refunded {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(229, 57, 53, 0.08);
+  color: #c62828;
+  border: 1px solid rgba(229, 57, 53, 0.22);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.order-row--cancelled,
+.order-row--cancelled td {
+  background: rgba(0, 0, 0, 0.03);
+  color: #777;
+}
+
+.order-row--cancelled .order-row__title,
+.order-row--cancelled .order-row__customer {
+  text-decoration: line-through;
+  text-decoration-color: rgba(0, 0, 0, 0.35);
+}
+
+.order-item--refunded {
+  opacity: 0.6;
+}
+
+.order-item--refunded .order-item__name,
+.order-item--refunded .order-item__sku {
+  text-decoration: line-through;
+  text-decoration-color: rgba(0, 0, 0, 0.35);
+}
+
 .badge-production-pending {
   background: var(--surface-strong);
   color: var(--muted);

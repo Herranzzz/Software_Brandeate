@@ -104,6 +104,19 @@ function hasRepeatedQuantity(orderItem: Order["items"][number]) {
   return (orderItem.quantity ?? 0) > 1;
 }
 
+function getRefundedQuantity(orderItem: Order["items"][number]) {
+  return Math.max(orderItem.refunded_quantity ?? 0, 0);
+}
+
+function isItemFullyRefunded(orderItem: Order["items"][number]) {
+  const qty = orderItem.quantity ?? 0;
+  return qty > 0 && getRefundedQuantity(orderItem) >= qty;
+}
+
+function isOrderCancelled(order: Order) {
+  return order.status === "cancelled" || Boolean(order.cancelled_at);
+}
+
 function getOrderItemsLabel(order: Order) {
   const items = getOrderItems(order);
   if (items.length === 0) {
@@ -977,9 +990,11 @@ export function OrdersWorkbench({
                       const additionalItemsCount = getAdditionalItemsCount(order);
                       const fichaHref = `/orders/${order.id}`;
 
+                      const orderCancelled = isOrderCancelled(order);
+
                       return (
                         <tr
-                          className={`table-row ${selectedOrderId === order.id ? "orders-ops-row-active" : ""} ${selectedIds.includes(order.id) ? "orders-ops-row-selected" : ""}`}
+                          className={`table-row ${selectedOrderId === order.id ? "orders-ops-row-active" : ""} ${selectedIds.includes(order.id) ? "orders-ops-row-selected" : ""} ${orderCancelled ? "order-row--cancelled" : ""}`}
                           data-status={operationalStatus.rowStatus}
                           key={order.id}
                           onMouseDown={(e) => handleRowMouseDown(order.id, idx, e)}
@@ -1002,12 +1017,20 @@ export function OrdersWorkbench({
                           <td>{shopMap.get(order.shop_id) ?? `Shop #${order.shop_id}`}</td>
                           <td>
                             <div className="orders-cell-stack">
-                              {displayItems.map((displayItem, index) => (
-                                <div className="orders-cell-line" key={`${order.id}-title-${displayItem.id ?? index}`}>
+                              {displayItems.map((displayItem, index) => {
+                                const refundedQty = getRefundedQuantity(displayItem);
+                                const fullyRefunded = isItemFullyRefunded(displayItem);
+                                return (
+                                <div className={`orders-cell-line ${fullyRefunded ? "order-item--refunded" : ""}`} key={`${order.id}-title-${displayItem.id ?? index}`}>
                                   <div className="orders-cell-line-top">
-                                    <div className="table-primary">{displayItem?.title ?? displayItem?.name ?? "Sin item"}</div>
+                                    <div className="table-primary order-item__name">{displayItem?.title ?? displayItem?.name ?? "Sin item"}</div>
                                     {getOrderItemQuantityLabel(displayItem) ? (
                                       <span className="badge badge-quantity">{getOrderItemQuantityLabel(displayItem)}</span>
+                                    ) : null}
+                                    {refundedQty > 0 ? (
+                                      <span className="badge-refunded" title={fullyRefunded ? "Artículo reembolsado" : `${refundedQty} de ${displayItem.quantity} reembolsado`}>
+                                        {fullyRefunded ? "Reembolsado" : `Reembolso ${refundedQty}/${displayItem.quantity}`}
+                                      </span>
                                     ) : null}
                                   </div>
                                   {displayItem.design_link ? (
@@ -1021,7 +1044,8 @@ export function OrdersWorkbench({
                                     <div className="table-secondary">Misma línea de Shopify · misma personalización</div>
                                   ) : null}
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                             {additionalItemsCount > 0 ? (
                               <div className="table-secondary">{getOrderItems(order).length} líneas de producto en el pedido</div>
@@ -1029,8 +1053,10 @@ export function OrdersWorkbench({
                           </td>
                           <td>
                             <div className="orders-cell-stack">
-                              {displayItems.map((displayItem, index) => (
-                                <div className="orders-cell-line" key={`${order.id}-variant-${displayItem.id ?? index}`}>
+                              {displayItems.map((displayItem, index) => {
+                                const fullyRefunded = isItemFullyRefunded(displayItem);
+                                return (
+                                <div className={`orders-cell-line ${fullyRefunded ? "order-item--refunded" : ""}`} key={`${order.id}-variant-${displayItem.id ?? index}`}>
                                   <div className="orders-cell-line-top">
                                     <div className="table-primary">{getVariantLabel(displayItem)}</div>
                                     {getOrderItemQuantityLabel(displayItem) ? (
@@ -1038,7 +1064,8 @@ export function OrdersWorkbench({
                                     ) : null}
                                   </div>
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </td>
                           <td>

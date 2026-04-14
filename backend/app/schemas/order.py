@@ -16,6 +16,7 @@ class OrderItemBase(BaseModel):
     title: str | None = Field(default=None, max_length=255)
     variant_title: str | None = Field(default=None, max_length=255)
     quantity: int = Field(ge=1)
+    refunded_quantity: int = Field(default=0, ge=0)
     properties_json: dict | list | None = None
     customization_id: str | None = Field(default=None, max_length=255)
     design_link: str | None = Field(default=None, max_length=2048)
@@ -54,6 +55,7 @@ class OrderItemListRead(BaseModel):
     title: str | None
     variant_title: str | None
     quantity: int
+    refunded_quantity: int = 0
     design_link: str | None
     customization_provider: str | None = None
     design_status: DesignStatus | None = None
@@ -159,6 +161,8 @@ class OrderListRead(BaseModel):
     channel: str | None
     shopify_financial_status: str | None
     shopify_fulfillment_status: str | None
+    cancelled_at: datetime | None = None
+    cancel_reason: str | None = None
     created_at: datetime
     prepared_by_employee_id: int | None = None
     prepared_at: datetime | None = None
@@ -214,6 +218,8 @@ class OrderRead(BaseModel):
     channel: str | None
     shopify_financial_status: str | None
     shopify_fulfillment_status: str | None
+    cancelled_at: datetime | None = None
+    cancel_reason: str | None = None
     fulfillment_orders_json: dict | list | None
     created_at: datetime
     prepared_by_employee_id: int | None = None

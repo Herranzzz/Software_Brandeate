@@ -235,6 +235,11 @@ export function ProductionQueue({ initialOrders, shops }: ProductionQueueProps) 
     });
 
     return base.filter((order) => {
+      // Hide cancelled Shopify orders from the production queue — operators
+      // should never prepare an order that was cancelled or fully refunded.
+      if (order.status === "cancelled" || order.cancelled_at) {
+        return false;
+      }
       if (selectedShopId && String(order.shop_id) !== selectedShopId) {
         return false;
       }

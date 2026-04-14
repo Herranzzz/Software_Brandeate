@@ -8,6 +8,7 @@ export const orderStatusOptions: OrderStatus[] = [
   "shipped",
   "delivered",
   "exception",
+  "cancelled",
 ];
 
 export const productionStatusOptions: ProductionStatus[] = [
@@ -35,6 +36,7 @@ const orderStatusMeta: Record<OrderStatus, { className: string; label: string }>
   shipped: { className: "badge badge-status badge-status-shipped", label: "Shipped" },
   delivered: { className: "badge badge-status badge-status-delivered", label: "Delivered" },
   exception: { className: "badge badge-status badge-status-exception", label: "Exception" },
+  cancelled: { className: "badge badge-status badge-status-cancelled", label: "Cancelado" },
 };
 
 

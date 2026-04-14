@@ -71,6 +71,7 @@ query RecentOrders($first: Int!, $query: String, $after: String) {
         displayFulfillmentStatus
         sourceName
         cancelledAt
+        cancelReason
         createdAt
         note
         tags
@@ -179,6 +180,18 @@ query RecentOrders($first: Int!, $query: String, $after: String) {
             }
           }
         }
+        refunds(first: 20) {
+          id
+          createdAt
+          refundLineItems(first: 50) {
+            nodes {
+              quantity
+              lineItem {
+                id
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -196,6 +209,7 @@ query OrderLinkBackfill($first: Int!, $query: String!) {
         displayFulfillmentStatus
         sourceName
         cancelledAt
+        cancelReason
         createdAt
         note
         tags
@@ -300,6 +314,18 @@ query OrderLinkBackfill($first: Int!, $query: String!) {
               product {
                 id
                 title
+              }
+            }
+          }
+        }
+        refunds(first: 20) {
+          id
+          createdAt
+          refundLineItems(first: 50) {
+            nodes {
+              quantity
+              lineItem {
+                id
               }
             }
           }
@@ -490,6 +516,7 @@ class ShopifyLineItem:
     title: str
     sku: str
     quantity: int
+    refunded_quantity: int
     product_id: str | None
     variant_id: str | None
     variant_title: str | None
@@ -530,6 +557,7 @@ class ShopifyOrder:
     display_financial_status: str | None
     display_fulfillment_status: str | None
     cancelled_at: str | None
+    cancel_reason: str | None
     created_at: str
     note: str | None
     tags: list[str]
@@ -662,7 +690,11 @@ _running_shop_syncs: set[int] = set()
 
 def map_shopify_status_to_internal_order_status(shopify_order: ShopifyOrder) -> OrderStatus:
     if shopify_order.cancelled_at:
-        return OrderStatus.exception
+        return OrderStatus.cancelled
+
+    financial_status = (shopify_order.display_financial_status or "").upper()
+    if financial_status in {"REFUNDED", "VOIDED"}:
+        return OrderStatus.cancelled
 
     fulfillment_status = (shopify_order.display_fulfillment_status or "").upper()
 
@@ -1517,6 +1549,8 @@ def import_shopify_orders(
             existing_order.channel = shopify_order.source_name
             existing_order.shopify_financial_status = shopify_order.display_financial_status
             existing_order.shopify_fulfillment_status = shopify_order.display_fulfillment_status
+            existing_order.cancelled_at = parse_shopify_datetime(shopify_order.cancelled_at)
+            existing_order.cancel_reason = shopify_order.cancel_reason
             existing_order.fulfillment_orders_json = shopify_order.fulfillment_orders or None
             sync_order_items_from_shopify(existing_order, shopify_order)
             existing_order.is_personalized = infer_order_is_personalized(existing_order.items)
@@ -1570,6 +1604,8 @@ def import_shopify_orders(
             "channel": shopify_order.source_name,
             "shopify_financial_status": shopify_order.display_financial_status,
             "shopify_fulfillment_status": shopify_order.display_fulfillment_status,
+            "cancelled_at": parse_shopify_datetime(shopify_order.cancelled_at),
+            "cancel_reason": shopify_order.cancel_reason,
             "fulfillment_orders_json": shopify_order.fulfillment_orders or None,
         }
         imported_created_at = parse_shopify_datetime(shopify_order.created_at)
@@ -2478,6 +2514,8 @@ def _map_order(node: dict) -> ShopifyOrder:
     line_item_nodes = node.get("lineItems", {}).get("nodes", [])
     order_custom_attributes = _map_attributes(node.get("customAttributes") or [])
 
+    refunded_by_line_item: dict[str, int] = _aggregate_refunded_quantities(node.get("refunds") or [])
+
     fulfillments = [_map_fulfillment(fulfillment_node) for fulfillment_node in fulfillment_nodes]
     tracking_info = _first_tracking_info(fulfillments)
     latest_tracking_event = _latest_tracking_event(fulfillments)
@@ -2491,6 +2529,7 @@ def _map_order(node: dict) -> ShopifyOrder:
         display_financial_status=node.get("displayFinancialStatus"),
         display_fulfillment_status=node.get("displayFulfillmentStatus"),
         cancelled_at=node.get("cancelledAt"),
+        cancel_reason=_clean_text(node.get("cancelReason")),
         created_at=str(node.get("createdAt", "")),
         note=node.get("note"),
         tags=[tag for tag in (node.get("tags") or []) if isinstance(tag, str) and tag.strip()],
@@ -2526,7 +2565,12 @@ def _map_order(node: dict) -> ShopifyOrder:
         latest_tracking_occurred_at=latest_tracking_event.happened_at if latest_tracking_event else None,
         fulfillments=fulfillments,
         line_items=[
-            _map_line_item(item_node, node.get("note"), order_custom_attributes)
+            _map_line_item(
+                item_node,
+                node.get("note"),
+                order_custom_attributes,
+                refunded_by_line_item,
+            )
             for item_node in line_item_nodes
         ],
     )
@@ -2596,19 +2640,61 @@ def _serialize_catalog_variant(variant: ShopifyCatalogVariantPayload) -> dict:
     }
 
 
+def _aggregate_refunded_quantities(refund_nodes: list[dict] | dict) -> dict[str, int]:
+    """Sum refunded quantities per line-item GID across all refunds on an order.
+
+    The Shopify GraphQL shape for `refunds` is a list (not a connection) whose
+    entries contain a `refundLineItems.nodes` array.  Each entry has a
+    `quantity` and a `lineItem.id` (the original line-item GID).  A single
+    line item can appear in multiple refunds (partial refunds), so we sum.
+    """
+    aggregated: dict[str, int] = {}
+    if isinstance(refund_nodes, dict):
+        refund_nodes = refund_nodes.get("nodes") or refund_nodes.get("edges") or []
+    for refund in refund_nodes or []:
+        if not isinstance(refund, dict):
+            continue
+        refund_line_items = refund.get("refundLineItems") or {}
+        if isinstance(refund_line_items, dict):
+            entries = refund_line_items.get("nodes") or refund_line_items.get("edges") or []
+        else:
+            entries = refund_line_items or []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            line_item = entry.get("lineItem") or {}
+            gid = _clean_text(line_item.get("id"))
+            if not gid:
+                continue
+            try:
+                qty = int(entry.get("quantity", 0) or 0)
+            except (TypeError, ValueError):
+                qty = 0
+            if qty <= 0:
+                continue
+            aggregated[gid] = aggregated.get(gid, 0) + qty
+    return aggregated
+
+
 def _map_line_item(
     item_node: dict,
     order_note: str | None,
     order_custom_attributes: dict[str, str],
+    refunded_by_line_item: dict[str, int] | None = None,
 ) -> ShopifyLineItem:
     item_attributes = _map_attributes(item_node.get("customAttributes") or [])
     design_link = _extract_design_link(item_attributes, order_custom_attributes)
+    line_item_gid = _clean_text(item_node.get("id"))
+    refunded_quantity = 0
+    if refunded_by_line_item and line_item_gid:
+        refunded_quantity = refunded_by_line_item.get(line_item_gid, 0)
 
     return ShopifyLineItem(
-        id=_clean_text(item_node.get("id")),
+        id=line_item_gid,
         title=_clean_text(item_node.get("title")) or _clean_text(item_node.get("name")) or "",
         sku=str(item_node.get("sku", "")),
         quantity=int(item_node.get("quantity", 0)),
+        refunded_quantity=refunded_quantity,
         product_id=_clean_text(((item_node.get("variant") or {}).get("product") or {}).get("id")),
         variant_id=_clean_text((item_node.get("variant") or {}).get("id")),
         variant_title=_normalize_shopify_variant_title(_clean_text(item_node.get("variantTitle")))
@@ -3087,6 +3173,12 @@ def backfill_missing_shopify_order_links(
         order.customer_external_id = shopify_order.customer_id or order.customer_external_id
         order.shopify_financial_status = shopify_order.display_financial_status or order.shopify_financial_status
         order.shopify_fulfillment_status = shopify_order.display_fulfillment_status or order.shopify_fulfillment_status
+        parsed_cancelled_at = parse_shopify_datetime(shopify_order.cancelled_at)
+        if parsed_cancelled_at is not None:
+            order.cancelled_at = parsed_cancelled_at
+            order.cancel_reason = shopify_order.cancel_reason or order.cancel_reason
+            if order.status != OrderStatus.cancelled:
+                order.status = OrderStatus.cancelled
         order.fulfillment_orders_json = shopify_order.fulfillment_orders or order.fulfillment_orders_json
 
         sync_order_items_from_shopify(order, shopify_order)
@@ -3116,6 +3208,7 @@ def build_order_item_from_shopify(shopify_order: ShopifyOrder, line_item: Shopif
         title=line_item.title or "Untitled item",
         variant_title=_normalize_shopify_variant_title(line_item.variant_title),
         quantity=max(line_item.quantity, 1),
+        refunded_quantity=max(int(line_item.refunded_quantity or 0), 0),
         properties_json=line_item.custom_attributes or None,
         customization_id=line_item.customization_id,
         design_link=line_item.design_link,
@@ -3158,6 +3251,7 @@ def sync_order_items_from_shopify(order: Order, shopify_order: ShopifyOrder) -> 
             or item.variant_title
         )
         item.quantity = max(line_item.quantity, 1)
+        item.refunded_quantity = max(int(line_item.refunded_quantity or 0), 0)
         if line_item.custom_attributes:
             item.properties_json = line_item.custom_attributes
         item.customization_id = line_item.customization_id or item.customization_id

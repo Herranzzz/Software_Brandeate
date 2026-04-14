@@ -4,7 +4,8 @@ export type OrderStatus =
   | "ready_to_ship"
   | "shipped"
   | "delivered"
-  | "exception";
+  | "exception"
+  | "cancelled";
 
 export type ProductionStatus =
   | "pending_personalization"
@@ -151,6 +152,7 @@ export type OrderItem = {
   title: string | null;
   variant_title: string | null;
   quantity: number;
+  refunded_quantity: number;
   properties_json: unknown;
   customization_id: string | null;
   design_link: string | null;
@@ -204,6 +206,8 @@ export type Order = {
   channel: string | null;
   shopify_financial_status: string | null;
   shopify_fulfillment_status: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
   fulfillment_orders_json: unknown;
   created_at: string;
   prepared_by_employee_id: number | null;
