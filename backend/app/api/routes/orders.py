@@ -1488,24 +1488,31 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
         region_w = _mm_to_px(region_w_mm)
         region_h = _mm_to_px(region_h_mm)
 
-        # Decide how to scale based on the source's background.
+        # Scaling strategy per variant:
         #
-        # * WHITE background — fit-preserve inside the safe design region.
-        #   Any white gap between the design and the cut line blends with
-        #   the paper, so the visible print still looks clean.
+        # * 18×24 — ALWAYS fit-preserve inside the 180×240 mm region and
+        #   paste flush at the top-left corner of the sheet. The design
+        #   IS the 18×24 artwork; it never bleeds past its region and
+        #   never covers the full A4. The cut lines at the right and
+        #   bottom of the region sit on empty white paper.
         #
-        # * NON-WHITE background — scale to COVER the full sheet so the
-        #   design reaches (and extends past) the cut line. The dashed
-        #   cut line ends up drawn on top of actual artwork. If the
-        #   guillotine drifts by a millimetre or two, the final print
-        #   still has full-colour artwork to the edge instead of an
-        #   ugly white frame. PIL paste naturally clips any overflow
-        #   beyond the A4 / A3 sheet, so the canvas size stays fixed.
-        is_white_bg = _detect_image_background_is_white(img)
-        if is_white_bg:
+        # * 30×40 — branch on background: white-bg designs fit-preserve
+        #   inside the region below the top strip; non-white designs
+        #   cover-scale across the full A3 so the dashed cut line ends
+        #   up drawn on top of actual artwork. This protects against a
+        #   slightly-drifted guillotine leaving a white seam at the top.
+        #   PIL paste clips any overflow, so the canvas size stays fixed.
+        if print_variant == "18x24":
             scale = min(region_w / img.width, region_h / img.height)
+            paste_x, paste_y = region_x, region_y
         else:
-            scale = max(canvas_w / img.width, canvas_h / img.height)
+            is_white_bg = _detect_image_background_is_white(img)
+            if is_white_bg:
+                scale = min(region_w / img.width, region_h / img.height)
+                paste_x, paste_y = region_x, region_y
+            else:
+                scale = max(canvas_w / img.width, canvas_h / img.height)
+                paste_x, paste_y = 0, 0
 
         fit_w = max(1, int(round(img.width * scale)))
         fit_h = max(1, int(round(img.height * scale)))
@@ -1515,14 +1522,6 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
 
         # Pristine A4 / A3 white canvas at _PRINT_DPI.
         canvas = PilImage.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-        # White-bg designs sit inside the design region (below the top
-        # strip for 30×40, flush top-left for 18×24). Non-white designs
-        # start at the canvas origin so the cover-scaled artwork fills
-        # the whole sheet, intentionally bleeding past the cut line.
-        if is_white_bg:
-            paste_x, paste_y = region_x, region_y
-        else:
-            paste_x, paste_y = 0, 0
         canvas.paste(resized, (paste_x, paste_y))
         resized.close()
         resized = None
