@@ -1230,7 +1230,33 @@ def _unique_name(base: str, ext: str, used: set[str]) -> str:
 
 _30X40_PATTERN  = re.compile(r'30\s*[xX×*]\s*40', re.IGNORECASE)
 _18X24_PATTERN  = re.compile(r'18\s*[xX×*]\s*24', re.IGNORECASE)
-_CUT_MARGIN_MM  = 20  # 2 cm cut margin for A3 print PDFs
+
+# --- Fixed print-sheet geometry ------------------------------------------
+# The bulk-download "bleed" mode MUST produce files that always have the
+# same canvas dimensions for a given variant, so batch-printing at
+# fit-to-page comes out consistent. Dimensions are in millimetres; the
+# final PNG is rendered at _PRINT_DPI so a full A4 / A3 sheet lands on a
+# pixel-perfect canvas regardless of what size the source design was.
+_PRINT_DPI = 200
+
+_A4_W_MM = 210.0
+_A4_H_MM = 297.0
+_A3_W_MM = 297.0
+_A3_H_MM = 420.0
+
+# Nominal design regions anchored to the top-left corner of the sheet.
+# 18×24 fits A4 cleanly with visible bleed margin on the right and bottom.
+# 30×40 cannot literally fit A3 (A3 short edge is 297 mm < 300 mm), so we
+# use the largest 3:4 region that fits A3 while leaving a visible bleed
+# margin on both cut-line edges.
+_DESIGN_18X24_W_MM = 180.0
+_DESIGN_18X24_H_MM = 240.0
+_DESIGN_30X40_W_MM = 287.0
+_DESIGN_30X40_H_MM = 382.0
+
+
+def _mm_to_px(mm: float, dpi: int = _PRINT_DPI) -> int:
+    return int(round(mm * dpi / 25.4))
 
 
 def _detect_print_variant(item: "OrderItem") -> str | None:
@@ -1295,28 +1321,41 @@ def _draw_dashed_line_v(draw: object, y0: int, y1: int, x: int,
 
 
 def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: str) -> None:
-    """Draw cut/trim lines directly on the image and save as PNG.
+    """Render the design onto a fixed-size A4 (18×24) or A3 (30×40) sheet.
 
-    Uses PIL with thumbnail() to cap resolution at _CUT_MAX_DIM.
-    Peak memory: ~40 MB (one thumbnail + one slightly-larger canvas).
-    No reportlab needed.
+    Core guarantee: every PNG produced for a given variant has IDENTICAL
+    canvas pixel dimensions, so when an operator batch-prints at "fit to
+    page", every design comes out at the exact same physical size. No
+    more surprises where one 18×24 ends up tiny and the next one fills
+    the page.
 
-    30x40 (A3): 2 cm trim margin on right (landscape) or top (portrait).
-    18x24 (A4): design fills top-left; cut lines mark the 18×24 boundary
-    with extra white space representing the rest of the A4 page.
+    Pipeline:
+      1. Open + thumbnail-cap the source to bound peak memory.
+      2. Flatten any transparency onto a white background.
+      3. If the source is landscape, rotate it 90° so every design lands
+         on a portrait sheet the same way.
+      4. Fit-preserve (never stretch) the design into the nominal region
+         for this variant.
+      5. Paste anchored to the top-left corner of a pristine A4 / A3
+         white canvas at _PRINT_DPI.
+      6. Draw simple dashed cut lines at the right edge and bottom edge
+         of the design region, plus solid corner ticks for alignment.
+
+    Peak memory: source thumb (~17 MB) + resized (~20 MB) + A3 canvas
+    (~23 MB) ≈ 60 MB, within a 512 MB host's budget for sequential work.
     """
     import gc
     from PIL import Image as PilImage, ImageDraw
 
     img = None
+    resized = None
     canvas = None
     try:
         img = PilImage.open(image_path)
         img.thumbnail((_CUT_MAX_DIM, _CUT_MAX_DIM), PilImage.LANCZOS)
 
-        # Flatten any image with transparency onto a WHITE background.
-        # Without this, pasting RGBA onto an RGB canvas makes transparent
-        # pixels turn BLACK (PIL copies RGB channels ignoring alpha).
+        # Flatten transparency onto white. Without this, pasting RGBA
+        # onto an RGB canvas leaves transparent pixels black.
         has_transparency = (
             img.mode in ("RGBA", "LA")
             or (img.mode == "P" and "transparency" in img.info)
@@ -1334,95 +1373,86 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
             img.close()
             img = converted
 
-        w, h = img.size
-        is_landscape = w > h
+        # Always orient portrait. If the operator uploaded a landscape
+        # design, we rotate 90° counterclockwise so it fits the portrait
+        # sheet consistently with the other files in the batch.
+        if img.width > img.height:
+            rotated = img.rotate(90, expand=True)
+            img.close()
+            img = rotated
 
+        # Paper + design region for this variant.
         if print_variant == "30x40":
-            # 2 cm margin on one side.  A3 is 420×297 mm; design is 400×297
-            # (landscape) or 297×400 (portrait).  Margin ≈ 20/420 = 4.76%.
-            if is_landscape:
-                margin_px = max(int(w * 0.0476), 24)
-                canvas = PilImage.new("RGB", (w + margin_px, h), (255, 255, 255))
-                canvas.paste(img, (0, 0))
-                img.close(); img = None
-                draw = ImageDraw.Draw(canvas)
-                # Dashed vertical cut line at x = w
-                _draw_dashed_line_v(draw, 0, h, w,
-                                    _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
-                # Tick marks at top and bottom
-                tick = margin_px // 3
-                draw.line([(w, 0), (w + tick, 0)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
-                draw.line([(w, h - 1), (w + tick, h - 1)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
-            else:
-                margin_px = max(int(h * 0.0476), 24)
-                canvas = PilImage.new("RGB", (w, h + margin_px), (255, 255, 255))
-                canvas.paste(img, (0, margin_px))  # image below margin
-                img.close(); img = None
-                draw = ImageDraw.Draw(canvas)
-                # Dashed horizontal cut line at y = margin_px
-                _draw_dashed_line_h(draw, 0, w, margin_px,
-                                    _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
-                # Tick marks at left and right
-                tick = margin_px // 3
-                draw.line([(0, margin_px), (0, margin_px - tick)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
-                draw.line([(w - 1, margin_px), (w - 1, margin_px - tick)], fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
-
+            paper_w_mm = _A3_W_MM
+            paper_h_mm = _A3_H_MM
+            region_w_mm = _DESIGN_30X40_W_MM
+            region_h_mm = _DESIGN_30X40_H_MM
         elif print_variant == "18x24":
-            # A4 = 210 × 297 mm; design region = 180 × 240 mm.
-            # Render onto a TRUE A4-shaped canvas with the design region
-            # in the top-left corner, stretched to exactly fit the 18×24
-            # area (matches original reportlab preserveAspectRatio=False
-            # behavior).  White space fills the rest of the A4.
-            #
-            # This guarantees that when printed at A4, the cut lines fall
-            # at the real 18 cm and 24 cm marks — no misalignment, no
-            # tiny design floating in the corner.
-            A4_W_MM = 210.0
-            A4_H_MM = 297.0
-            DESIGN_W_MM = 180.0
-            DESIGN_H_MM = 240.0
-
-            if is_landscape:
-                # A4 landscape (297 × 210 mm), design 240 × 180 mm top-left
-                canvas_w = _CUT_MAX_DIM
-                canvas_h = int(round(canvas_w * (A4_W_MM / A4_H_MM)))
-                region_w = int(round(canvas_w * (DESIGN_H_MM / A4_H_MM)))
-                region_h = int(round(canvas_h * (DESIGN_W_MM / A4_W_MM)))
-            else:
-                # A4 portrait (210 × 297 mm), design 180 × 240 mm top-left
-                canvas_h = _CUT_MAX_DIM
-                canvas_w = int(round(canvas_h * (A4_W_MM / A4_H_MM)))
-                region_w = int(round(canvas_w * (DESIGN_W_MM / A4_W_MM)))
-                region_h = int(round(canvas_h * (DESIGN_H_MM / A4_H_MM)))
-
-            # Stretch image to exactly fit the design region
-            resized = img.resize((region_w, region_h), PilImage.LANCZOS)
-            img.close(); img = None
-
-            # Build white A4 canvas, paste design in top-left
-            canvas = PilImage.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-            canvas.paste(resized, (0, 0))
-            resized.close()
-
-            draw = ImageDraw.Draw(canvas)
-            # Vertical cut at x = region_w (right edge of design)
-            _draw_dashed_line_v(draw, 0, canvas_h, region_w,
-                                _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
-            # Horizontal cut at y = region_h (bottom edge of design)
-            _draw_dashed_line_h(draw, 0, canvas_w, region_h,
-                                _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
+            paper_w_mm = _A4_W_MM
+            paper_h_mm = _A4_H_MM
+            region_w_mm = _DESIGN_18X24_W_MM
+            region_h_mm = _DESIGN_18X24_H_MM
         else:
-            # No recognized variant — should not normally be called
-            canvas = img
-            img = None
+            # Unknown variant — save the source as PNG and bail.
+            img.save(output_path, "PNG", optimize=False)
+            return
 
-        out = canvas if canvas is not None else img
-        if out is not None:
-            out.save(output_path, "PNG", optimize=False)
+        canvas_w = _mm_to_px(paper_w_mm)
+        canvas_h = _mm_to_px(paper_h_mm)
+        region_w = _mm_to_px(region_w_mm)
+        region_h = _mm_to_px(region_h_mm)
+
+        # Fit-preserve: whichever axis runs out of room first decides the
+        # scale. We never stretch the artwork.
+        scale = min(region_w / img.width, region_h / img.height)
+        fit_w = max(1, int(round(img.width * scale)))
+        fit_h = max(1, int(round(img.height * scale)))
+        resized = img.resize((fit_w, fit_h), PilImage.LANCZOS)
+        img.close()
+        img = None
+
+        # Pristine A4 / A3 white canvas at _PRINT_DPI. The design sits
+        # anchored to the top-left so the cut lines on the right and
+        # bottom stay easy to find.
+        canvas = PilImage.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+        canvas.paste(resized, (0, 0))
+        resized.close()
+        resized = None
+
+        draw = ImageDraw.Draw(canvas)
+        # Right edge of the design region: dashed vertical cut line.
+        _draw_dashed_line_v(draw, 0, region_h, region_w,
+                             _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
+        # Bottom edge of the design region: dashed horizontal cut line.
+        _draw_dashed_line_h(draw, 0, region_w, region_h,
+                             _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP)
+
+        # Solid corner ticks extending a few mm past the design region so
+        # the cutter can quickly line up the blade. We add ticks at the
+        # three outside corners that aren't the sheet corner.
+        tick = _mm_to_px(4)
+        # Top-right: tick pointing right from (region_w, 0)
+        draw.line([(region_w, 0), (min(canvas_w - 1, region_w + tick), 0)],
+                  fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
+        # Bottom-left: tick pointing down from (0, region_h)
+        draw.line([(0, region_h), (0, min(canvas_h - 1, region_h + tick))],
+                  fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
+        # Bottom-right corner: L-shaped tick extending right + down.
+        draw.line([(region_w, region_h), (min(canvas_w - 1, region_w + tick), region_h)],
+                  fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
+        draw.line([(region_w, region_h), (region_w, min(canvas_h - 1, region_h + tick))],
+                  fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH)
+
+        canvas.save(output_path, "PNG", optimize=False)
     finally:
         if canvas is not None:
             try:
                 canvas.close()
+            except Exception:
+                pass
+        if resized is not None:
+            try:
+                resized.close()
             except Exception:
                 pass
         if img is not None:
@@ -1430,7 +1460,7 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
                 img.close()
             except Exception:
                 pass
-        del canvas, img
+        del canvas, resized, img
         gc.collect()
 
 
