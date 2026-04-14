@@ -1259,6 +1259,53 @@ def _mm_to_px(mm: float, dpi: int = _PRINT_DPI) -> int:
     return int(round(mm * dpi / 25.4))
 
 
+def _detect_image_background_is_white(img, threshold: int = 235) -> bool:
+    """True if all four corners of the image look near-white.
+
+    Used by the bleed exporter to pick a scaling strategy: designs with a
+    white background can be fit-preserved inside the safe cut region
+    (any white border blends with the paper), but designs with a
+    coloured / photographic background need to be scaled to cover the
+    full sheet so the cut line falls on real artwork — otherwise a
+    cutter drift of 1–2 mm leaves a visible white strip around the print.
+
+    Detection is intentionally coarse: small patches at the four corners
+    are averaged and compared against a brightness threshold. Corners
+    are the right signal because print artwork that "has a background"
+    almost always fills the whole canvas, whereas transparent PNGs and
+    white-background JPEGs look clean at the corners.
+    """
+    w, h = img.size
+    if w < 2 or h < 2:
+        return True  # degenerate — fit-preserve is the safer default
+
+    patch = max(1, min(16, w // 4, h // 4))
+    boxes = [
+        (0, 0, patch, patch),
+        (w - patch, 0, w, patch),
+        (0, h - patch, patch, h),
+        (w - patch, h - patch, w, h),
+    ]
+
+    for box in boxes:
+        region = img.crop(box)
+        if region.mode != "RGB":
+            converted = region.convert("RGB")
+            region.close()
+            region = converted
+        pixels = list(region.getdata())
+        region.close()
+        if not pixels:
+            return False
+        total = 0
+        for r, g, b in pixels:
+            total += r + g + b
+        avg_brightness = total / (len(pixels) * 3)
+        if avg_brightness < threshold:
+            return False
+    return True
+
+
 def _detect_print_variant(item: "OrderItem") -> str | None:
     """Return '30x40', '18x24', or None based on variant/name."""
     variant = (item.variant_title or "").strip()
@@ -1334,10 +1381,15 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
       2. Flatten any transparency onto a white background.
       3. If the source is landscape, rotate it 90° so every design lands
          on a portrait sheet the same way.
-      4. Fit-preserve (never stretch) the design into the nominal region
-         for this variant.
+      4. Detect whether the background is white and pick a scaling
+         strategy:
+           - white bg → fit-preserve inside the safe cut region
+           - non-white bg → scale to cover the full A4/A3 sheet so the
+             artwork bleeds past the cut line and the blade never
+             leaves a white strip
       5. Paste anchored to the top-left corner of a pristine A4 / A3
-         white canvas at _PRINT_DPI.
+         white canvas at _PRINT_DPI. Any overflow past the sheet edges
+         is clipped by PIL's paste so the canvas keeps its fixed size.
       6. Draw simple dashed cut lines at the right edge and bottom edge
          of the design region, plus solid corner ticks for alignment.
 
@@ -1402,9 +1454,24 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
         region_w = _mm_to_px(region_w_mm)
         region_h = _mm_to_px(region_h_mm)
 
-        # Fit-preserve: whichever axis runs out of room first decides the
-        # scale. We never stretch the artwork.
-        scale = min(region_w / img.width, region_h / img.height)
+        # Decide how to scale based on the source's background.
+        #
+        # * WHITE background — fit-preserve inside the safe cut region.
+        #   Any white gap between the design and the cut line blends
+        #   with the paper, so the visible print still looks clean.
+        #
+        # * NON-WHITE background — scale to COVER the full sheet so the
+        #   design reaches (and extends past) the cut line. The dashed
+        #   cut line ends up drawn on top of actual artwork. If the
+        #   guillotine drifts by a millimetre or two, the final print
+        #   still has full-colour artwork to the edge instead of an
+        #   ugly white frame. PIL paste naturally clips any overflow
+        #   beyond the A4 / A3 sheet, so the canvas size stays fixed.
+        if _detect_image_background_is_white(img):
+            scale = min(region_w / img.width, region_h / img.height)
+        else:
+            scale = max(canvas_w / img.width, canvas_h / img.height)
+
         fit_w = max(1, int(round(img.width * scale)))
         fit_h = max(1, int(round(img.height * scale)))
         resized = img.resize((fit_w, fit_h), PilImage.LANCZOS)
