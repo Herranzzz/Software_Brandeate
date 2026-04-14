@@ -1295,8 +1295,26 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
     try:
         img = PilImage.open(image_path)
         img.thumbnail((_CUT_MAX_DIM, _CUT_MAX_DIM), PilImage.LANCZOS)
-        if img.mode not in ("RGB", "RGBA"):
-            img = img.convert("RGB")
+
+        # Flatten any image with transparency onto a WHITE background.
+        # Without this, pasting RGBA onto an RGB canvas makes transparent
+        # pixels turn BLACK (PIL copies RGB channels ignoring alpha).
+        has_transparency = (
+            img.mode in ("RGBA", "LA")
+            or (img.mode == "P" and "transparency" in img.info)
+        )
+        if has_transparency:
+            rgba = img.convert("RGBA")
+            flattened = PilImage.new("RGB", rgba.size, (255, 255, 255))
+            flattened.paste(rgba, mask=rgba.split()[3])
+            if rgba is not img:
+                rgba.close()
+            img.close()
+            img = flattened
+        elif img.mode != "RGB":
+            converted = img.convert("RGB")
+            img.close()
+            img = converted
 
         w, h = img.size
         is_landscape = w > h
@@ -1417,6 +1435,65 @@ def _download_asset_to_temp(url: str) -> tuple[str, str]:
     except Exception:
         _safe_remove(temp_path)
         raise
+
+
+def _flatten_alpha_if_needed(image_path: str) -> str:
+    """If the image has transparency, flatten it onto a WHITE background
+    and return the new path (the original is deleted).  Otherwise return
+    the original path untouched.
+
+    Memory-safe: uses lazy Image.open() to check mode without decoding
+    pixels, and thumbnail() to cap resolution before flattening.
+    """
+    import gc
+    try:
+        from PIL import Image as PilImage
+    except Exception:
+        return image_path  # PIL not available — pass through
+
+    try:
+        with PilImage.open(image_path) as probe:
+            mode = probe.mode
+            has_alpha = (
+                mode in ("RGBA", "LA")
+                or (mode == "P" and "transparency" in probe.info)
+            )
+        if not has_alpha:
+            return image_path
+    except Exception:
+        return image_path  # can't read — let downstream handle it
+
+    img = None
+    flattened = None
+    out_fd, out_path = tempfile.mkstemp(prefix="flat-", suffix=".png")
+    os.close(out_fd)
+    try:
+        img = PilImage.open(image_path)
+        img.thumbnail((_CUT_MAX_DIM, _CUT_MAX_DIM), PilImage.LANCZOS)
+        rgba = img.convert("RGBA")
+        flattened = PilImage.new("RGB", rgba.size, (255, 255, 255))
+        flattened.paste(rgba, mask=rgba.split()[3])
+        if rgba is not img:
+            rgba.close()
+        flattened.save(out_path, "PNG", optimize=False)
+        _safe_remove(image_path)
+        return out_path
+    except Exception:
+        _safe_remove(out_path)
+        return image_path
+    finally:
+        if flattened is not None:
+            try:
+                flattened.close()
+            except Exception:
+                pass
+        if img is not None:
+            try:
+                img.close()
+            except Exception:
+                pass
+        del flattened, img
+        gc.collect()
 
 
 def _build_design_download_jobs(orders: list[Order]) -> tuple[list[dict], list[dict]]:
@@ -1562,6 +1639,13 @@ def _run_bulk_design_job(job_id: str) -> None:
                         except Exception:
                             # If cut-line generation fails, fall back to raw image
                             _safe_remove(cut_path)
+                    else:
+                        # Flatten transparency onto white if needed (so PNGs
+                        # with transparent backgrounds don't appear black).
+                        flattened_path = _flatten_alpha_if_needed(temp_path)
+                        if flattened_path != temp_path:
+                            temp_path = flattened_path
+                            ext = ".png"
 
                     suffix = f" [{print_variant}]" if print_variant else ""
                     filename = _unique_name(current_job["base"] + suffix, ext, used_names)
@@ -1844,6 +1928,11 @@ def bulk_download_designs(
                             ext = ".png"
                         except Exception:
                             _safe_remove(cut_path)
+                    else:
+                        flattened_path = _flatten_alpha_if_needed(temp_path)
+                        if flattened_path != temp_path:
+                            temp_path = flattened_path
+                            ext = ".png"
 
                     suffix = f" [{print_variant}]" if print_variant else ""
                     filename = _unique_name(job["base"] + suffix, ext, used_names)
