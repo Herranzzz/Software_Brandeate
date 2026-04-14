@@ -1050,7 +1050,6 @@ _DESIGN_FETCH_TIMEOUT = 15  # seconds per asset
 _DESIGN_FETCH_PARALLELISM = 1  # sequential — keep peak RAM low on 512MB hosts
 _DESIGN_FETCH_CHUNK_SIZE = 64 * 1024  # 64 KB chunks — smaller = less peak RAM
 _DESIGN_MAX_ASSET_BYTES = 15 * 1024 * 1024  # 15 MB max per design file
-_DESIGN_MAX_FILES_PER_JOB = 60  # hard cap on files per ZIP to prevent OOM
 _DESIGN_JOB_TTL_SECONDS = 2 * 60 * 60
 _DESIGN_JOB_CLEANUP_INTERVAL_SECONDS = 60
 _DESIGN_DOWNLOAD_TOKEN_TTL_SECONDS = 10 * 60
@@ -1249,7 +1248,25 @@ def _is_30x40_product(item: "OrderItem") -> bool:
     return _detect_print_variant(item) == "30x40"
 
 
-_CUT_MAX_DIM = 3000  # thumbnail cap — keeps peak RAM under ~45 MB
+_CUT_MAX_DIM = 2400  # thumbnail cap — keeps peak RAM under ~30 MB per file
+
+
+def _release_memory_to_os() -> None:
+    """Force glibc malloc to return freed memory to the OS.
+
+    Without this, Python's RSS keeps growing across many image-processing
+    iterations even though gc.collect() frees the Python objects — glibc
+    holds on to the freed arenas. malloc_trim(0) forces the release.
+    No-op on non-glibc systems (macOS, BSDs).
+    """
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6", use_errno=False)
+        libc.malloc_trim(0)
+    except Exception:
+        pass  # not glibc — nothing to do
 _CUT_LINE_COLOR = (229, 57, 53)  # red matching previous reportlab color
 _CUT_LINE_WIDTH = 3
 _CUT_DASH = 18
@@ -1590,10 +1607,9 @@ def _run_bulk_design_job(job_id: str) -> None:
         # Release ORM objects immediately
         del orders
         gc.collect()
-
-        # Hard cap on number of files to prevent OOM on low-memory hosts
-        if len(download_jobs) > _DESIGN_MAX_FILES_PER_JOB:
-            download_jobs = download_jobs[:_DESIGN_MAX_FILES_PER_JOB]
+        # No hard cap on file count — process all selected files.
+        # Memory is kept bounded by sequential processing, thumbnail()
+        # capping per-file RAM, gc.collect() + malloc_trim() between files.
 
         with _design_jobs_lock:
             job = _design_jobs.get(job_id)
@@ -1666,7 +1682,7 @@ def _run_bulk_design_job(job_id: str) -> None:
                     })
                 finally:
                     _safe_remove(temp_path)
-                    gc.collect()
+                    _release_memory_to_os()
                     ok_count, failed_count, no_design_count = _summarize_design_results(results)
                     with _design_jobs_lock:
                         job = _design_jobs.get(job_id)
@@ -1953,7 +1969,7 @@ def bulk_download_designs(
                     })
                 finally:
                     _safe_remove(temp_path)
-                    gc.collect()
+                    _release_memory_to_os()
 
         ok_count = sum(1 for r in results if r["status"] == "ok")
         failed_count = sum(1 for r in results if r["status"] == "failed")
