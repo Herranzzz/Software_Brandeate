@@ -64,6 +64,8 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
     ? ((ordersResult.value as { orders?: Order[] }).orders ?? [])
     : [];
 
+  const exampleShipment = sustainabilityOrders.find((o) => o.shipment?.public_token)?.shipment;
+  const publicTrackingExample = exampleShipment ? `/tracking/${exampleShipment.public_token}` : null;
 
   return (
     <div className="stack">
@@ -187,7 +189,22 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
                     </p>
                   </div>
                 </div>
-                <ShopifyTrackingLinkPanel shopId={primaryShop.id} />
+                <div className="trk-settings-layout">
+                  <ShopifyTrackingLinkPanel shopId={primaryShop.id} />
+                  {publicTrackingExample && (
+                    <div className="trk-phone-wrap">
+                      <div className="trk-phone-label">
+                        <span>Vista del cliente</span>
+                        <a href={publicTrackingExample} target="_blank" rel="noreferrer" className="trk-phone-open-link">Abrir ↗</a>
+                      </div>
+                      <div className="trk-phone-frame">
+                        <div className="trk-phone-notch" />
+                        <iframe src={publicTrackingExample} className="trk-phone-iframe" title="Vista previa tracking" sandbox="allow-scripts allow-same-origin" />
+                      </div>
+                      <p className="trk-phone-hint">Pedido real con tu configuración actual</p>
+                    </div>
+                  )}
+                </div>
               </Card>
 
               <Card className="stack settings-section-card portal-glass-card">

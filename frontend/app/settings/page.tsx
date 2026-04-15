@@ -251,18 +251,39 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             />
           ) : (
             <div className="settings-shipping-grid">
-              {shops.map((shop) => (
-                <article className="shop-settings-card" key={shop.id}>
-                  <div className="shop-settings-card-head">
-                    <div>
-                      <div className="table-primary">{shop.name}</div>
-                      <div className="table-secondary">/{shop.slug}</div>
+              {shops.map((shop) => {
+                const exampleToken = sustainabilityOrders
+                  .find((o) => o.shop_id === shop.id && o.shipment?.public_token)
+                  ?.shipment?.public_token;
+                const trackingExample = exampleToken ? `/tracking/${exampleToken}` : null;
+                return (
+                  <article className="shop-settings-card" key={shop.id}>
+                    <div className="shop-settings-card-head">
+                      <div>
+                        <div className="table-primary">{shop.name}</div>
+                        <div className="table-secondary">/{shop.slug}</div>
+                      </div>
+                      <span className="portal-soft-pill">Shop #{shop.id}</span>
                     </div>
-                    <span className="portal-soft-pill">Shop #{shop.id}</span>
-                  </div>
-                  <ShopifyTrackingLinkPanel shopId={shop.id} />
-                </article>
-              ))}
+                    <div className="trk-settings-layout">
+                      <ShopifyTrackingLinkPanel shopId={shop.id} />
+                      {trackingExample && (
+                        <div className="trk-phone-wrap">
+                          <div className="trk-phone-label">
+                            <span>Vista del cliente</span>
+                            <a href={trackingExample} target="_blank" rel="noreferrer" className="trk-phone-open-link">Abrir ↗</a>
+                          </div>
+                          <div className="trk-phone-frame">
+                            <div className="trk-phone-notch" />
+                            <iframe src={trackingExample} className="trk-phone-iframe" title="Vista previa tracking" sandbox="allow-scripts allow-same-origin" />
+                          </div>
+                          <p className="trk-phone-hint">Pedido real con tu configuración actual</p>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </Card>
