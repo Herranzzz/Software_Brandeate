@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { AppModal } from "@/components/app-modal";
 import { CTT_SERVICE_OPTIONS, CTT_WEIGHT_BANDS } from "@/lib/ctt";
-import { printLabelsSequential } from "@/lib/print-utils";
+import { printLabelsSequential, type PrintLabelFailure } from "@/lib/print-utils";
 import type { Order, Shop } from "@/lib/types";
 
 
@@ -52,6 +52,7 @@ export function BulkLabelModal({ orders, shop, onClose, onComplete }: BulkLabelM
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<BulkLabelResponse | null>(null);
   const [printProgress, setPrintProgress] = useState<{ done: number; total: number } | null>(null);
+  const [printFailures, setPrintFailures] = useState<PrintLabelFailure[]>([]);
 
   const eligibleOrders = orders.filter((o) => !o.shipment?.tracking_number);
   const alreadyShippedOrders = orders.filter((o) => Boolean(o.shipment?.tracking_number));
@@ -87,11 +88,12 @@ export function BulkLabelModal({ orders, shop, onClose, onComplete }: BulkLabelM
       if (autoPrint && createdCodes.length > 0) {
         setPhase("printing");
         setPrintProgress({ done: 0, total: createdCodes.length });
-        await printLabelsSequential(
+        const failures = await printLabelsSequential(
           createdCodes,
           { format: printFormat === "ZPL" ? "ZPL" : "PDF" },
           (done, total) => setPrintProgress({ done, total }),
         );
+        setPrintFailures(failures);
       }
 
       setPhase("done");
@@ -292,7 +294,36 @@ export function BulkLabelModal({ orders, shop, onClose, onComplete }: BulkLabelM
             {response.created_count > 0 ? (
               <div className="feedback feedback-success">
                 {response.created_count} etiqueta{response.created_count !== 1 ? "s" : ""} creada{response.created_count !== 1 ? "s" : ""} correctamente en CTT Express.
-                {autoPrint ? " Impresas automáticamente." : ""}
+                {autoPrint && printFailures.length === 0 ? " Impresas automáticamente." : ""}
+                {autoPrint && printFailures.length > 0
+                  ? ` ${response.created_count - printFailures.length} de ${response.created_count} enviadas a imprimir.`
+                  : ""}
+              </div>
+            ) : null}
+
+            {printFailures.length > 0 ? (
+              <div className="stack">
+                <div className="feedback feedback-error">
+                  {printFailures.length} etiqueta{printFailures.length !== 1 ? "s" : ""} no se pudo imprimir automáticamente. Las etiquetas sí se crearon en CTT; puedes reimprimirlas manualmente desde el pedido.
+                </div>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Tracking</th>
+                        <th>Motivo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {printFailures.map((failure) => (
+                        <tr className="table-row" key={failure.trackingCode}>
+                          <td className="table-primary">{failure.trackingCode}</td>
+                          <td className="table-secondary">{failure.error.message}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : null}
 

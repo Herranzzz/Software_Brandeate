@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import ssl
 import threading
 import time
@@ -8,6 +9,14 @@ from urllib import error, request
 from urllib.parse import urlencode
 
 from app.core.config import get_settings
+
+
+# Hard timeout (seconds) applied to every outbound HTTP request to CTT.
+# Without this, urlopen() blocks indefinitely when CTT is slow or unreachable,
+# which in turn makes the bulk label download in the UI hang forever.
+_CTT_TOKEN_TIMEOUT_SECONDS = 15
+_CTT_REQUEST_TIMEOUT_SECONDS = 25
+_CTT_LABEL_TIMEOUT_SECONDS = 30
 
 
 def _ssl_context() -> ssl.SSLContext | None:
@@ -79,11 +88,23 @@ def get_token() -> str:
             method="POST",
         )
         try:
-            with request.urlopen(req, context=_ssl_context()) as resp:
+            with request.urlopen(
+                req,
+                context=_ssl_context(),
+                timeout=_CTT_TOKEN_TIMEOUT_SECONDS,
+            ) as resp:
                 payload = json.loads(resp.read())
         except error.HTTPError as exc:
             raise CTTError(
                 f"Token request failed ({exc.code}) for {base}: {exc.read().decode()}"
+            ) from exc
+        except (socket.timeout, TimeoutError) as exc:
+            raise CTTError(
+                f"Token request timed out after {_CTT_TOKEN_TIMEOUT_SECONDS}s for {base}"
+            ) from exc
+        except error.URLError as exc:
+            raise CTTError(
+                f"Token request network error for {base}: {exc.reason}"
             ) from exc
 
         token = payload["access_token"]
@@ -154,10 +175,18 @@ def _request_json(
         method=method,
     )
     try:
-        with request.urlopen(req, context=_ssl_context()) as resp:
+        with request.urlopen(
+            req,
+            context=_ssl_context(),
+            timeout=_CTT_REQUEST_TIMEOUT_SECONDS,
+        ) as resp:
             raw = resp.read()
     except error.HTTPError as exc:
         raise CTTError(f"CTT request failed ({exc.code}) {method} {path}: {exc.read().decode()}") from exc
+    except (socket.timeout, TimeoutError) as exc:
+        raise CTTError(
+            f"CTT request timed out after {_CTT_REQUEST_TIMEOUT_SECONDS}s {method} {path}"
+        ) from exc
     except error.URLError as exc:
         raise CTTError(f"CTT request network error {method} {path}: {exc.reason}") from exc
 
@@ -193,10 +222,22 @@ def get_label(
         method="GET",
     )
     try:
-        with request.urlopen(req, context=_ssl_context()) as resp:
+        with request.urlopen(
+            req,
+            context=_ssl_context(),
+            timeout=_CTT_LABEL_TIMEOUT_SECONDS,
+        ) as resp:
             raw = resp.read()
     except error.HTTPError as exc:
         raise CTTError(f"Get label failed ({exc.code}): {exc.read().decode()}") from exc
+    except (socket.timeout, TimeoutError) as exc:
+        raise CTTError(
+            f"Get label timed out after {_CTT_LABEL_TIMEOUT_SECONDS}s for {tracking_code}"
+        ) from exc
+    except error.URLError as exc:
+        raise CTTError(
+            f"Get label network error for {tracking_code}: {exc.reason}"
+        ) from exc
 
     # CTT returns JSON with base64-encoded PDF in data[0].label
     try:
@@ -237,12 +278,24 @@ def get_pod(
         method="GET",
     )
     try:
-        with request.urlopen(req, context=_ssl_context()) as resp:
+        with request.urlopen(
+            req,
+            context=_ssl_context(),
+            timeout=_CTT_LABEL_TIMEOUT_SECONDS,
+        ) as resp:
             return resp.read()
     except error.HTTPError as exc:
         if exc.code == 404:
             return None
         raise CTTError(f"Get POD failed ({exc.code}): {exc.read().decode()}") from exc
+    except (socket.timeout, TimeoutError) as exc:
+        raise CTTError(
+            f"Get POD timed out after {_CTT_LABEL_TIMEOUT_SECONDS}s for {tracking_code}"
+        ) from exc
+    except error.URLError as exc:
+        raise CTTError(
+            f"Get POD network error for {tracking_code}: {exc.reason}"
+        ) from exc
 
 
 def get_pickup_points(
@@ -277,11 +330,23 @@ def get_pickup_points(
         method="POST",
     )
     try:
-        with request.urlopen(req, context=_ssl_context()) as resp:
+        with request.urlopen(
+            req,
+            context=_ssl_context(),
+            timeout=_CTT_REQUEST_TIMEOUT_SECONDS,
+        ) as resp:
             raw = resp.read()
     except error.HTTPError as exc:
         raise CTTError(
             f"Get pickup points failed ({exc.code}): {exc.read().decode()}"
+        ) from exc
+    except (socket.timeout, TimeoutError) as exc:
+        raise CTTError(
+            f"Get pickup points timed out after {_CTT_REQUEST_TIMEOUT_SECONDS}s"
+        ) from exc
+    except error.URLError as exc:
+        raise CTTError(
+            f"Get pickup points network error: {exc.reason}"
         ) from exc
 
     payload = json.loads(raw)
