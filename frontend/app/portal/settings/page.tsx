@@ -65,6 +65,12 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
     ? ((ordersResult.value as { orders?: Order[] }).orders ?? [])
     : [];
 
+  // Find a real public_token from any order with a shipment to use as preview example
+  const exampleShipment = sustainabilityOrders.find((o) => o.shipment?.public_token)?.shipment;
+  const publicTrackingExample = exampleShipment
+    ? `/tracking/${exampleShipment.public_token}`
+    : null;
+
   return (
     <div className="stack">
       <PageHeader
@@ -190,7 +196,7 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
                   shopId={primaryShop.id}
                   shopName={primaryShop.name}
                   initialConfig={primaryShop.tracking_config ?? null}
-                  publicTrackingExample={null}
+                  publicTrackingExample={publicTrackingExample}
                 />
               </Card>
 

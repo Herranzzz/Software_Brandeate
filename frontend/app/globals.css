@@ -17348,6 +17348,96 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   white-space: nowrap;
 }
 
+/* ── Tracking settings layout (form + phone preview) ────────────────────── */
+.trk-settings-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 32px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .trk-settings-layout {
+    grid-template-columns: 1fr;
+  }
+  .trk-phone-wrap {
+    order: -1;
+  }
+}
+
+.trk-phone-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 24px;
+}
+
+.trk-phone-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.trk-phone-open-link {
+  font-size: 0.78rem;
+  color: var(--accent, #2563eb);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.trk-phone-frame {
+  width: 260px;
+  height: 520px;
+  border-radius: 36px;
+  border: 8px solid #1a1a1a;
+  background: #1a1a1a;
+  box-shadow:
+    0 0 0 2px #333,
+    0 24px 48px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.trk-phone-notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 22px;
+  background: #1a1a1a;
+  border-radius: 0 0 18px 18px;
+  z-index: 10;
+}
+
+.trk-phone-iframe {
+  width: 375px;
+  height: 812px;
+  border: none;
+  transform-origin: top left;
+  transform: scale(calc(244 / 375));
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.trk-phone-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+  margin: 0;
+}
+
+
 /* ── Shopify tracking link panel ─────────────────────────────────────────── */
 .trk-link-panel {
   display: flex;

@@ -57,7 +57,9 @@ export function PortalTrackingSettings({
   }
 
   return (
-    <div className="stack">
+    <div className="trk-settings-layout">
+      {/* ── Left column: form ─────────────────────────────────── */}
+      <div className="stack">
       <div className="crm-form-grid">
         <div className="field">
           <label htmlFor="trk-display-name">Nombre de marca</label>
@@ -191,10 +193,36 @@ export function PortalTrackingSettings({
             rel="noreferrer"
             target="_blank"
           >
-            Previsualizar tracking ↗
+            Abrir en pestaña ↗
           </a>
         )}
       </div>
-    </div>
+      </div>{/* end stack / left column */}
+
+    {/* ── Right column: phone preview ───────────────────────── */}
+    {publicTrackingExample && (
+      <div className="trk-phone-wrap">
+        <div className="trk-phone-label">
+          <span>Vista del cliente</span>
+          <a href={publicTrackingExample} target="_blank" rel="noreferrer" className="trk-phone-open-link">
+            Abrir ↗
+          </a>
+        </div>
+        <div className="trk-phone-frame">
+          <div className="trk-phone-notch" />
+          <iframe
+            src={publicTrackingExample}
+            className="trk-phone-iframe"
+            title="Vista previa del tracking del cliente"
+            sandbox="allow-scripts allow-same-origin"
+          />
+        </div>
+        <p className="trk-phone-hint">
+          Pedido real de tu tienda con tu configuración actual
+        </p>
+      </div>
+    )}
+  </div>
   );
 }
+
