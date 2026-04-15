@@ -118,6 +118,7 @@ export async function fetchOrders(params?: {
   channel?: string;
   carrier?: string;
   shipping_status?: string;
+  prepared_by_employee_id?: number;
   q?: string;
   page?: string | number;
   per_page?: string | number;
@@ -172,6 +173,9 @@ export async function fetchOrders(params?: {
   }
   if (params?.shipping_status) {
     searchParams.set("shipping_status", String(params.shipping_status));
+  }
+  if (params?.prepared_by_employee_id !== undefined) {
+    searchParams.set("prepared_by_employee_id", String(params.prepared_by_employee_id));
   }
   if (params?.q) {
     searchParams.set("q", params.q);

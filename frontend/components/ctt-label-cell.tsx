@@ -22,17 +22,13 @@ type CttLabelCellProps = {
   onOrderUpdated?: (order: Order) => void;
 };
 
-function isOrderAlreadyPrepared(order: Order): boolean {
-  // Mirrors the backend `_prepared_order_state` helper so the UI shows the
-  // same truth: packed/completed production OR status == ready_to_ship.
-  return (
-    order.production_status === "packed" ||
-    order.production_status === "completed" ||
-    order.status === "ready_to_ship"
-  );
-}
-
 type Status = "idle" | "loading" | "success" | "error";
+
+// The single "Preparar" button has two possible outcomes once inside the modal:
+//  - "prepare"  → create the CTT label (backend auto-marks order as packed)
+//                 but DO NOT print. Lands in the employee's print queue.
+//  - "print"    → create the CTT label + print it right away (current behavior).
+type SubmitMode = "prepare" | "print";
 
 export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLabelCellProps) {
   const { toast } = useToast();
@@ -49,33 +45,12 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
   const [isRefreshingOrder, setIsRefreshingOrder] = useState(false);
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [isPrintingLabel, setIsPrintingLabel] = useState(false);
-  const [isMarkingPrepared, setIsMarkingPrepared] = useState(false);
+  // Tracks which of the two sticky-bar buttons the user clicked so we can
+  // label them correctly ("Preparando…" vs "Creando e imprimiendo…") and so
+  // the close-after-success branch knows whether a toast is needed.
+  const [submitMode, setSubmitMode] = useState<SubmitMode | null>(null);
 
-  const alreadyPrepared = isOrderAlreadyPrepared(order);
   const hasShipmentAlready = Boolean(existingLabelUrl);
-
-  async function handleMarkPrepared() {
-    if (isMarkingPrepared || alreadyPrepared) return;
-    setIsMarkingPrepared(true);
-    try {
-      const res = await fetch(`/api/orders/${order.id}/production-status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ production_status: "packed" }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { detail?: string } | null;
-        throw new Error(body?.detail ?? "No se pudo marcar como preparado");
-      }
-      const updated = (await res.json()) as Order;
-      onOrderUpdated?.(updated);
-      toast("Pedido preparado · pendiente de etiqueta", "success");
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Error al marcar preparado", "error");
-    } finally {
-      setIsMarkingPrepared(false);
-    }
-  }
 
   const [recipientName, setRecipientName] = useState(initialContact.recipientName);
   const [recipientEmail, setRecipientEmail] = useState(initialContact.recipientEmail);
@@ -213,8 +188,9 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
     }
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(mode: SubmitMode) {
     setStatus("loading");
+    setSubmitMode(mode);
     setError("");
     setLabelUrl("");
 
@@ -271,15 +247,30 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
 
       onShipmentCreated?.(shipping_code);
 
-      // Auto-print: trigger print dialog immediately after creation
-      try {
-        await printLabel(shipping_code, { format: "PDF" });
-      } catch {
-        // Print failed silently — user can still click the print button
+      if (mode === "print") {
+        // Auto-print: trigger print dialog immediately after creation.
+        try {
+          await printLabel(shipping_code, { format: "PDF" });
+        } catch {
+          // Print failed silently — user can still click the print button
+          // from the success screen.
+        }
+      } else {
+        // "Preparar sin imprimir": label is ready in CTT's system and the
+        // backend auto-marked the order as packed (see _mark_order_prepared).
+        // Close the modal straight away so the user can move to the next
+        // order, and nudge them toward the employee print queue.
+        toast(
+          `Pedido preparado · etiqueta en cola de impresión (${shipping_code})`,
+          "success",
+        );
+        closeModal();
       }
     } catch (err) {
       setStatus("error");
       setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setSubmitMode(null);
     }
   }
 
@@ -296,32 +287,17 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
   return (
     <>
       <div className="ctt-label-cell-actions">
-        {!hasShipmentAlready ? (
-          <button
-            className={`button-small table-action ${alreadyPrepared ? "button-success-ghost" : "button"}`}
-            disabled={isMarkingPrepared || alreadyPrepared}
-            onClick={handleMarkPrepared}
-            title={
-              alreadyPrepared
-                ? "Ya marcado como preparado. Pendiente de imprimir etiqueta."
-                : "Marca el pedido como preparado sin crear la etiqueta. Aparecerá en la cola de impresión."
-            }
-            type="button"
-          >
-            {alreadyPrepared
-              ? "✓ Preparado"
-              : isMarkingPrepared
-                ? "Preparando..."
-                : "Preparar pedido"}
-          </button>
-        ) : null}
         <button
-          className="button-secondary table-action"
+          className={`button table-action ${hasShipmentAlready ? "button-secondary" : ""}`}
           onClick={openModal}
-          title={existingLabelUrl ? "Ver etiqueta CTT disponible" : "Crear envío CTT Express y descargar etiqueta"}
+          title={
+            hasShipmentAlready
+              ? "Ver etiqueta CTT ya creada"
+              : "Crear etiqueta y elegir entre preparar (sin imprimir) o imprimir ahora"
+          }
           type="button"
         >
-          {existingLabelUrl ? "Ver etiqueta CTT" : "CTT etiqueta"}
+          {hasShipmentAlready ? "Ver etiqueta" : "Preparar"}
         </button>
       </div>
 
@@ -514,21 +490,37 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
                   />
                 </div>
 
-                <div className="ctt-create-sticky-bar">
+                <div className="ctt-create-sticky-bar ctt-create-sticky-bar-split">
                   <div className="ctt-create-sticky-copy">
-                    <strong>Crear etiqueta CTT</strong>
+                    <strong>¿Preparar o imprimir ahora?</strong>
                     <span>
                       Servicio {shippingTypeCode || "pendiente"} · {Math.max(parseInt(itemCount, 10) || 1, 1)} bulto(s)
                     </span>
                   </div>
-                  <button
-                    className="button ctt-create-sticky-button"
-                    disabled={isLoading || !canSubmit}
-                    onClick={handleSubmit}
-                    type="button"
-                  >
-                    {isLoading ? "Creando envío..." : "Crear envío y mostrar etiqueta"}
-                  </button>
+                  <div className="ctt-create-sticky-actions">
+                    <button
+                      className="button-secondary ctt-create-sticky-button"
+                      disabled={isLoading || !canSubmit}
+                      onClick={() => handleSubmit("prepare")}
+                      title="Crea la etiqueta y marca el pedido como preparado. Aparecerá en tu cola de impresión para imprimirla junto al resto."
+                      type="button"
+                    >
+                      {isLoading && submitMode === "prepare"
+                        ? "Preparando..."
+                        : "Preparar pedido"}
+                    </button>
+                    <button
+                      className="button ctt-create-sticky-button"
+                      disabled={isLoading || !canSubmit}
+                      onClick={() => handleSubmit("print")}
+                      title="Crea la etiqueta y envíala directamente a la impresora."
+                      type="button"
+                    >
+                      {isLoading && submitMode === "print"
+                        ? "Creando e imprimiendo..."
+                        : "Imprimir etiqueta"}
+                    </button>
+                  </div>
                 </div>
 
                 {status === "error" ? (

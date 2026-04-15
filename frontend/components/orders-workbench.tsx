@@ -40,7 +40,6 @@ import type {
   Order,
   OrderPriority,
   PickBatch,
-  ProductionStatus,
   Shop,
 } from "@/lib/types";
 
@@ -697,19 +696,6 @@ export function OrdersWorkbench({
     }
   }
 
-  function handleBulkProductionStatus(productionStatus: ProductionStatus) {
-    if (selectedCount === 0) {
-      return;
-    }
-    runBulkAction<Order[]>("/api/orders/bulk/production-status", {
-      order_ids: selectedIds,
-      production_status: productionStatus,
-    }, (updated) => {
-      updateOrdersFromBulk(updated);
-      toast(`Producción actualizada (${updated.length})`, "success");
-    });
-  }
-
   function handleBulkPriority(priority: OrderPriority) {
     if (selectedCount === 0) {
       return;
@@ -863,15 +849,6 @@ export function OrdersWorkbench({
                 type="button"
               >
                 Descargar diseños
-              </button>
-              <button
-                className="button-secondary"
-                disabled={isPending}
-                onClick={() => handleBulkProductionStatus("packed" as ProductionStatus)}
-                title={`Marca ${selectedCount} pedidos como preparados sin crear etiquetas. Aparecerán en la cola de impresión.`}
-                type="button"
-              >
-                Marcar preparados
               </button>
               <button
                 className="button bulk-label-button"

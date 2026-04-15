@@ -377,6 +377,7 @@ def _build_order_filters(
     overdue_sla: bool | None = None,
     shipping_status: str | None = None,
     has_shipment: bool | None = None,
+    prepared_by_employee_id: int | None = None,
 ) -> sa.Select:
     query = base_query
     if status is not None:
@@ -462,6 +463,11 @@ def _build_order_filters(
             query = query.where(Order.shipment.has())
         else:
             query = query.where(~Order.shipment.has())
+    if prepared_by_employee_id is not None:
+        # Scopes the employee print queue so each person only sees labels they
+        # prepared themselves (the user wants "desde tu nombre" — their own
+        # pile, not the whole warehouse).
+        query = query.where(Order.prepared_by_employee_id == prepared_by_employee_id)
     return query
 
 
@@ -486,6 +492,7 @@ def list_orders(
     overdue_sla: bool | None = None,
     shipping_status: str | None = None,
     has_shipment: bool | None = None,
+    prepared_by_employee_id: int | None = None,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=DEFAULT_ORDERS_PER_PAGE, ge=1, le=MAX_ORDERS_PER_PAGE),
     db: Session = Depends(get_db),
@@ -515,6 +522,7 @@ def list_orders(
         overdue_sla=overdue_sla,
         shipping_status=shipping_status,
         has_shipment=has_shipment,
+        prepared_by_employee_id=prepared_by_employee_id,
     )
 
     # Contar total antes de paginar para X-Total-Count
