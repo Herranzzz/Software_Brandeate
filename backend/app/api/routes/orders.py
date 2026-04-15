@@ -1583,33 +1583,19 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
                 fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
             )
         else:
-            # 18×24: design anchored top-left, dashed cut lines at the
-            # right and bottom edges of the 180×240 region.
+            # 18×24: design anchored top-left. The dashed cut lines run
+            # edge-to-edge across the whole A4 sheet — the vertical one
+            # goes from the top of the paper to the bottom, and the
+            # horizontal one from the left edge to the right edge.
+            # Extending them beyond the region corner gives the cutter
+            # a continuous guide line to follow with the guillotine.
             _draw_dashed_line_v(
-                draw, 0, region_h, region_w,
+                draw, 0, canvas_h, region_w,
                 _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP,
             )
             _draw_dashed_line_h(
-                draw, 0, region_w, region_h,
+                draw, 0, canvas_w, region_h,
                 _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP,
-            )
-            # Solid corner ticks so the cutter can line up the blade at
-            # the three outside corners that aren't the sheet corner.
-            draw.line(
-                [(region_w, 0), (min(canvas_w - 1, region_w + tick), 0)],
-                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
-            )
-            draw.line(
-                [(0, region_h), (0, min(canvas_h - 1, region_h + tick))],
-                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
-            )
-            draw.line(
-                [(region_w, region_h), (min(canvas_w - 1, region_w + tick), region_h)],
-                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
-            )
-            draw.line(
-                [(region_w, region_h), (region_w, min(canvas_h - 1, region_h + tick))],
-                fill=_CUT_LINE_COLOR, width=_CUT_LINE_WIDTH,
             )
 
         canvas.save(output_path, "PNG", optimize=False)
