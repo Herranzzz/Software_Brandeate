@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 
 import { BulkLabelModal } from "@/components/bulk-label-modal";
 import { Card } from "@/components/card";
+import { EmployeesTabNav } from "@/components/employees-tab-nav";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/components/toast";
 import { fetchOrders } from "@/lib/api";
@@ -17,20 +18,13 @@ type PrintQueueScope = "mine" | "all";
 
 // ─── Kiosk-printing setup card ───────────────────────────────────────────────
 
-const BAT_SCRIPT = `@echo off
-REM Brandeate - Acceso directo para maquinas de etiquetas (Windows)
-REM Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.
-set CHROME="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-if not exist %CHROME% set CHROME="C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
-start "" %CHROME% --kiosk-printing ${typeof window !== "undefined" ? window.location.origin : ""}
-`;
+function buildBatScript(origin: string) {
+  return `@echo off\r\nREM Brandeate - Acceso directo para maquinas de etiquetas (Windows)\r\nREM Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.\r\nset CHROME="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"\r\nif not exist %CHROME% set CHROME="C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"\r\nstart "" %CHROME% --kiosk-printing ${origin}\r\n`;
+}
 
-const COMMAND_SCRIPT = `#!/bin/bash
-# Brandeate - Acceso directo para maquinas de etiquetas (Mac)
-# Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.
-# Primera vez: click derecho -> Abrir. Luego doble clic normal.
-open -a "Google Chrome" --args --kiosk-printing ${typeof window !== "undefined" ? window.location.origin : ""}
-`;
+function buildCommandScript(origin: string) {
+  return `#!/bin/bash\n# Brandeate - Acceso directo para maquinas de etiquetas (Mac)\n# Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.\n# Primera vez: click derecho -> Abrir. Luego doble clic normal.\nopen -a "Google Chrome" --args --kiosk-printing ${origin}\n`;
+}
 
 function detectOS(): "windows" | "mac" | "other" {
   if (typeof navigator === "undefined") return "other";
@@ -45,17 +39,19 @@ function KioskSetupCard({ onDismiss }: { onDismiss: () => void }) {
 
   function download() {
     const isWindows = os === "windows";
-    const content = isWindows ? BAT_SCRIPT : COMMAND_SCRIPT;
+    const origin = window.location.origin;
+    const content = isWindows ? buildBatScript(origin) : buildCommandScript(origin);
     const filename = isWindows
       ? "abrir-chrome-impresora.bat"
       : "abrir-chrome-impresora.command";
-    const mime = isWindows ? "text/plain" : "application/octet-stream";
-    const blob = new Blob([content], { type: mime });
+    const blob = new Blob([content], { type: "application/octet-stream" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
@@ -411,7 +407,7 @@ export function PrintQueuePanel({
   return (
     <div className="stack">
       <PageHeader
-        eyebrow="Cola de impresión"
+        eyebrow="Equipo"
         title={headerTitle}
         description="Pedidos que ya has preparado con etiqueta lista. Imprime todo el lote del tirón para liberar el turno — los pedidos impresos desaparecen de la cola automáticamente."
         actions={
@@ -438,6 +434,7 @@ export function PrintQueuePanel({
         }
       />
 
+      <EmployeesTabNav />
       {showSetupCard ? <KioskSetupCard onDismiss={dismissSetupCard} /> : null}
 
       <div className="print-queue-stats">

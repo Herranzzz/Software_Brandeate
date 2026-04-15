@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition, type Dispatch, type SetStateAction } 
 
 import { AppModal } from "@/components/app-modal";
 import { Card } from "@/components/card";
+import { EmployeesTabNav } from "@/components/employees-tab-nav";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { formatDateTime } from "@/lib/format";
@@ -539,6 +540,7 @@ export function EmployeesManagementPanel({
           </button>
         }
       />
+      <EmployeesTabNav />
 
       <section className="admin-dashboard-timebar employees-filter-row">
         <span className="admin-dashboard-timebar-label">Métricas</span>

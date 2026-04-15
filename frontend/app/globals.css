@@ -21028,6 +21028,38 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   padding: 0 4px;
 }
 
+/* ─── Employees tab nav ─────────────────────────────────────────────────────── */
+.employees-tab-nav {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--border, #e6e8ef);
+  padding-bottom: 0;
+  margin-bottom: 4px;
+}
+
+.employees-tab-nav-item {
+  padding: 8px 18px 10px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--muted, #6b7280);
+  border-radius: 8px 8px 0 0;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.employees-tab-nav-item:hover {
+  color: var(--text, #111827);
+}
+
+.employees-tab-nav-item-active {
+  color: var(--accent, #1e40af);
+  border-bottom-color: var(--accent, #1e40af);
+  background: transparent;
+}
+
+
 /* ─── Kiosk setup card ──────────────────────────────────────────────────────── */
 .kiosk-setup-card {
   display: flex;

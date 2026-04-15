@@ -213,7 +213,6 @@ const navGroups = [
     label: "Equipo",
     items: [
       { href: "/employees", label: "Empleados", icon: EmployeesIcon },
-      { href: "/employees/print-queue", label: "Cola de impresión", icon: EmployeesIcon },
     ],
   },
   {
