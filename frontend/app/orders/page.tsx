@@ -35,13 +35,46 @@ function readBooleanParam(value?: string) {
   return undefined;
 }
 
-function quickFilterToApiParams(quick?: string): Record<string, string | boolean | undefined> {
+// Every quick filter pill must translate into server-side query params so the
+// backend returns the correct *paginated* set. Client-side filtering on top
+// only sees the current page (250 orders out of potentially thousands) and
+// silently wipes results when the recent slice doesn't contain matches.
+function quickFilterToApiParams(quick?: string): {
+  status?: string;
+  production_status?: string;
+  is_prepared?: boolean;
+  has_shipment?: boolean;
+  has_incident?: boolean;
+  shipping_status?: string;
+} {
   switch (quick) {
-    case "has_incident":      return { has_incident: true };
-    case "in_production":     return { production_status: "in_production" };
-    case "not_prepared":      return { is_prepared: false };
-    case "delivered":         return { status: "delivered" };
-    default:                  return {};
+    case "has_incident":
+      return { has_incident: true };
+    case "in_production":
+      return { production_status: "in_production" };
+    case "not_prepared":
+      return { is_prepared: false };
+    case "prepared":
+      return { is_prepared: true };
+    case "not_downloaded":
+      return { production_status: "pending_personalization", has_shipment: false };
+    case "delivered":
+      return { status: "delivered" };
+    case "shipping_in_transit":
+      return {
+        shipping_status: "in_transit,picked_up,pickup_available,attempted_delivery",
+      };
+    case "shipping_out_for_delivery":
+      return { shipping_status: "out_for_delivery" };
+    case "shipping_exception":
+      return { shipping_status: "exception" };
+    case "label_no_update":
+      // No precise backend filter (requires event-history inspection). Returning
+      // no server filter keeps the pill working as a client-side narrowing on
+      // whichever page the user is looking at.
+      return {};
+    default:
+      return {};
   }
 }
 
@@ -60,10 +93,18 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       shop_id: params.shop_id,
       is_personalized: readBooleanParam(params.is_personalized),
       design_status: params.design_status,
-      production_status: (params.production_status ?? quickParams.production_status) as string | undefined,
-      status: (params.status ?? quickParams.status) as string | undefined,
-      has_incident: params.has_incident !== undefined ? readBooleanParam(params.has_incident) : quickParams.has_incident as boolean | undefined,
-      is_prepared: params.is_prepared !== undefined ? readBooleanParam(params.is_prepared) : quickParams.is_prepared as boolean | undefined,
+      production_status: params.production_status ?? quickParams.production_status,
+      status: params.status ?? quickParams.status,
+      has_incident:
+        params.has_incident !== undefined
+          ? readBooleanParam(params.has_incident)
+          : quickParams.has_incident,
+      is_prepared:
+        params.is_prepared !== undefined
+          ? readBooleanParam(params.is_prepared)
+          : quickParams.is_prepared,
+      has_shipment: quickParams.has_shipment,
+      shipping_status: quickParams.shipping_status,
       priority: params.priority,
       sku: params.sku,
       variant_title: params.variant_title,

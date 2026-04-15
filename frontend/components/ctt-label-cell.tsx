@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { AppModal } from "@/components/app-modal";
+import { useToast } from "@/components/toast";
 import {
   CTT_SERVICE_OPTIONS,
   CTT_WEIGHT_BANDS,
@@ -21,9 +22,20 @@ type CttLabelCellProps = {
   onOrderUpdated?: (order: Order) => void;
 };
 
+function isOrderAlreadyPrepared(order: Order): boolean {
+  // Mirrors the backend `_prepared_order_state` helper so the UI shows the
+  // same truth: packed/completed production OR status == ready_to_ship.
+  return (
+    order.production_status === "packed" ||
+    order.production_status === "completed" ||
+    order.status === "ready_to_ship"
+  );
+}
+
 type Status = "idle" | "loading" | "success" | "error";
 
 export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLabelCellProps) {
+  const { toast } = useToast();
   const initialContact = getOrderShippingContact(order);
   const existingLabelUrl = getOrderShipmentLabelUrl(order);
   const existingDownloadUrl = getOrderShipmentLabelUrl(order, { download: true });
@@ -37,6 +49,33 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
   const [isRefreshingOrder, setIsRefreshingOrder] = useState(false);
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [isPrintingLabel, setIsPrintingLabel] = useState(false);
+  const [isMarkingPrepared, setIsMarkingPrepared] = useState(false);
+
+  const alreadyPrepared = isOrderAlreadyPrepared(order);
+  const hasShipmentAlready = Boolean(existingLabelUrl);
+
+  async function handleMarkPrepared() {
+    if (isMarkingPrepared || alreadyPrepared) return;
+    setIsMarkingPrepared(true);
+    try {
+      const res = await fetch(`/api/orders/${order.id}/production-status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ production_status: "packed" }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { detail?: string } | null;
+        throw new Error(body?.detail ?? "No se pudo marcar como preparado");
+      }
+      const updated = (await res.json()) as Order;
+      onOrderUpdated?.(updated);
+      toast("Pedido preparado · pendiente de etiqueta", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Error al marcar preparado", "error");
+    } finally {
+      setIsMarkingPrepared(false);
+    }
+  }
 
   const [recipientName, setRecipientName] = useState(initialContact.recipientName);
   const [recipientEmail, setRecipientEmail] = useState(initialContact.recipientEmail);
@@ -256,14 +295,35 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
 
   return (
     <>
-      <button
-        className="button-secondary table-action"
-        onClick={openModal}
-        title={existingLabelUrl ? "Ver etiqueta CTT disponible" : "Crear envío CTT Express y descargar etiqueta"}
-        type="button"
-      >
-        {existingLabelUrl ? "Ver etiqueta CTT" : "CTT etiqueta"}
-      </button>
+      <div className="ctt-label-cell-actions">
+        {!hasShipmentAlready ? (
+          <button
+            className={`button-small table-action ${alreadyPrepared ? "button-success-ghost" : "button"}`}
+            disabled={isMarkingPrepared || alreadyPrepared}
+            onClick={handleMarkPrepared}
+            title={
+              alreadyPrepared
+                ? "Ya marcado como preparado. Pendiente de imprimir etiqueta."
+                : "Marca el pedido como preparado sin crear la etiqueta. Aparecerá en la cola de impresión."
+            }
+            type="button"
+          >
+            {alreadyPrepared
+              ? "✓ Preparado"
+              : isMarkingPrepared
+                ? "Preparando..."
+                : "Preparar pedido"}
+          </button>
+        ) : null}
+        <button
+          className="button-secondary table-action"
+          onClick={openModal}
+          title={existingLabelUrl ? "Ver etiqueta CTT disponible" : "Crear envío CTT Express y descargar etiqueta"}
+          type="button"
+        >
+          {existingLabelUrl ? "Ver etiqueta CTT" : "CTT etiqueta"}
+        </button>
+      </div>
 
       <AppModal
         actions={(

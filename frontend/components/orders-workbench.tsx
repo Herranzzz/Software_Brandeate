@@ -273,30 +273,36 @@ function hasRealCarrierEvent(order: Order): boolean {
 }
 
 function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
+  // This client-side matcher is a safety net on top of the server filters.
+  // It MUST be at least as permissive as the backend — if it rejects rows the
+  // backend accepts, the list will appear empty even when the server returned
+  // matching orders. Keep these branches aligned with
+  // `_build_order_filters` + `quickFilterToApiParams`.
   switch (filter) {
     case "has_incident":
       return order.has_open_incident;
 
     case "not_prepared":
-      // No shipment and not yet shipped/delivered
-      return (
-        !order.shipment &&
-        order.status !== "shipped" &&
-        order.status !== "ready_to_ship" &&
-        order.status !== "delivered"
+      // Backend: is_prepared=false → NOT (packed|completed|ready_to_ship).
+      return !(
+        order.production_status === "packed" ||
+        order.production_status === "completed" ||
+        order.status === "ready_to_ship"
       );
 
     case "prepared":
-      // Prepared and waiting for carrier pickup (ready_to_ship or production completed)
+      // Backend: is_prepared=true → packed|completed|ready_to_ship.
+      // Previously this excluded "packed", which caused the pill to render an
+      // empty list even when the backend had returned dozens of packed orders.
       return (
-        order.status === "ready_to_ship" ||
-        (order.production_status === "completed" &&
-          order.status !== "shipped" &&
-          order.status !== "delivered")
+        order.production_status === "packed" ||
+        order.production_status === "completed" ||
+        order.status === "ready_to_ship"
       );
 
     case "label_no_update":
-      // Has a tracking number but carrier hasn't scanned it yet (only label_created events or none)
+      // Client-only filter (no backend equivalent). Has a tracking number but
+      // carrier hasn't scanned it yet — only label_created events or none.
       return (
         Boolean(order.shipment?.tracking_number?.trim()) &&
         order.status !== "delivered" &&
@@ -315,7 +321,10 @@ function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
     }
 
     case "shipping_out_for_delivery":
-      return getShipmentState(order) === "out_for_delivery";
+      return (
+        getShipmentState(order) === "out_for_delivery" ||
+        order.shipment?.shipping_status === "out_for_delivery"
+      );
 
     case "shipping_exception":
       return (
@@ -324,16 +333,13 @@ function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
       );
 
     case "not_downloaded":
-      // Has no shipment and design hasn't been downloaded (production_status still at initial state)
+      // Backend: production_status=pending_personalization + has_shipment=false.
       return (
         !order.shipment &&
-        order.status !== "shipped" &&
-        order.status !== "delivered" &&
         (order.production_status === "pending_personalization" || !order.production_status)
       );
 
     case "in_production":
-      // Design downloaded, currently being printed (not yet packed/shipped)
       return order.production_status === "in_production";
 
     case "delivered":
@@ -857,6 +863,15 @@ export function OrdersWorkbench({
                 type="button"
               >
                 Descargar diseños
+              </button>
+              <button
+                className="button-secondary"
+                disabled={isPending}
+                onClick={() => handleBulkProductionStatus("packed" as ProductionStatus)}
+                title={`Marca ${selectedCount} pedidos como preparados sin crear etiquetas. Aparecerán en la cola de impresión.`}
+                type="button"
+              >
+                Marcar preparados
               </button>
               <button
                 className="button bulk-label-button"

@@ -108,6 +108,7 @@ export async function fetchOrders(params?: {
   design_status?: string;
   has_pending_asset?: boolean;
   is_prepared?: boolean;
+  has_shipment?: boolean;
   priority?: string;
   shop_id?: string | number;
   is_personalized?: string | boolean;
@@ -141,6 +142,9 @@ export async function fetchOrders(params?: {
   }
   if (params?.is_prepared !== undefined) {
     searchParams.set("is_prepared", String(params.is_prepared));
+  }
+  if (params?.has_shipment !== undefined) {
+    searchParams.set("has_shipment", String(params.has_shipment));
   }
   if (params?.priority) {
     searchParams.set("priority", String(params.priority));

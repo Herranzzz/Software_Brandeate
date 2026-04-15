@@ -213,6 +213,7 @@ const navGroups = [
     label: "Equipo",
     items: [
       { href: "/employees", label: "Empleados", icon: EmployeesIcon },
+      { href: "/employees/print-queue", label: "Cola de impresión", icon: EmployeesIcon },
     ],
   },
   {
@@ -226,7 +227,16 @@ const navGroups = [
 
 function isActive(pathname: string, href: string) {
   if (href === "/dashboard") return pathname === "/dashboard";
-  return pathname === href || pathname.startsWith(`${href}/`);
+  if (pathname === href) return true;
+  if (!pathname.startsWith(`${href}/`)) return false;
+  // Prefer the longest-matching nav href so a parent route (e.g. "/employees")
+  // does not stay highlighted when a child route (e.g. "/employees/print-queue")
+  // also exists in the sidebar.
+  const allHrefs = navGroups.flatMap((group) => group.items.map((item) => item.href));
+  const hasMoreSpecific = allHrefs.some(
+    (other) => other !== href && other.length > href.length && (pathname === other || pathname.startsWith(`${other}/`)),
+  );
+  return !hasMoreSpecific;
 }
 
 function getInitials(name?: string | null) {

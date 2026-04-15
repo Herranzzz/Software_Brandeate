@@ -376,6 +376,7 @@ def _build_order_filters(
     is_blocked: bool | None = None,
     overdue_sla: bool | None = None,
     shipping_status: str | None = None,
+    has_shipment: bool | None = None,
 ) -> sa.Select:
     query = base_query
     if status is not None:
@@ -444,7 +445,23 @@ def _build_order_filters(
             Shipment.shipping_status.notin_(_resolved),
         )
     if shipping_status is not None and shipping_status.strip():
-        query = query.where(Order.shipment.has(Shipment.shipping_status == shipping_status.strip()))
+        # Accept a comma-separated list so the frontend can express shipping
+        # groups like "in_transit,picked_up,pickup_available,attempted_delivery"
+        # in a single round-trip. Falls back to exact match for a single value.
+        statuses = [value.strip() for value in shipping_status.split(",") if value.strip()]
+        if len(statuses) == 1:
+            query = query.where(Order.shipment.has(Shipment.shipping_status == statuses[0]))
+        elif len(statuses) > 1:
+            query = query.where(Order.shipment.has(Shipment.shipping_status.in_(statuses)))
+    if has_shipment is not None:
+        # `has_shipment=True` → order already has a shipment row (label created).
+        # `has_shipment=False` → order still has no shipment (ready to be labeled).
+        # Drives the new "print queue" employee view: prepared orders without a
+        # shipment are the exact set that still need a label printed.
+        if has_shipment:
+            query = query.where(Order.shipment.has())
+        else:
+            query = query.where(~Order.shipment.has())
     return query
 
 
@@ -468,6 +485,7 @@ def list_orders(
     is_blocked: bool | None = None,
     overdue_sla: bool | None = None,
     shipping_status: str | None = None,
+    has_shipment: bool | None = None,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=DEFAULT_ORDERS_PER_PAGE, ge=1, le=MAX_ORDERS_PER_PAGE),
     db: Session = Depends(get_db),
@@ -496,6 +514,7 @@ def list_orders(
         is_blocked=is_blocked,
         overdue_sla=overdue_sla,
         shipping_status=shipping_status,
+        has_shipment=has_shipment,
     )
 
     # Contar total antes de paginar para X-Total-Count

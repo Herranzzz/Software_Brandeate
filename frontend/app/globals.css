@@ -20877,6 +20877,109 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 .button-danger-secondary:hover { background: var(--danger-soft); }
 
+.ctt-label-cell-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.ctt-label-cell-actions .table-action {
+  white-space: nowrap;
+}
+
+.button-success-ghost {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--success-soft, #e6f7ee);
+  border: 1px solid var(--success, #1f9d55);
+  color: var(--success, #1f9d55);
+  cursor: default;
+  opacity: 0.9;
+}
+.button-success-ghost:disabled {
+  cursor: default;
+}
+
+/* ─── Print queue (cola de impresión) ──────────────────────────────────── */
+
+.print-queue-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.print-queue-print-all {
+  font-size: 0.95rem;
+  padding: 12px 22px;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(30, 64, 175, 0.2);
+}
+.print-queue-print-all:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+}
+
+.print-queue-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .print-queue-stats { grid-template-columns: 1fr; }
+}
+
+.print-queue-stat {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e6e8ef);
+  border-radius: 14px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.print-queue-stat-primary {
+  background: linear-gradient(135deg, #eff4ff 0%, #dde9ff 100%);
+  border-color: #c2d4ff;
+}
+.print-queue-stat-value {
+  font-size: 2.2rem;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--text, #111827);
+}
+
+.print-queue-selection-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.print-queue-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.print-queue-empty {
+  padding: 40px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.print-queue-empty strong {
+  font-size: 1.1rem;
+}
+
+.table-row-selected {
+  background: var(--accent-soft, #eff4ff);
+}
+
 
 /* ── Sprint 2: SLA Badge ───────────────────────────────────────────────────── */
 .sla-badge {
