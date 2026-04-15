@@ -7,6 +7,7 @@ import { PortalTenantControl } from "@/components/portal-tenant-control";
 import { ShopCatalogManager } from "@/components/shop-catalog-manager";
 import { TenantShopifyPanel } from "@/components/tenant-shopify-panel";
 import { PortalTrackingSettings } from "@/components/portal-tracking-settings";
+import { ShopifyTrackingLinkPanel } from "@/components/shopify-tracking-link-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 import { PortalBillingPanel } from "@/components/portal-billing-panel";
 import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
@@ -191,6 +192,20 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
                   initialConfig={primaryShop.tracking_config ?? null}
                   publicTrackingExample={null}
                 />
+              </Card>
+
+              <Card className="stack settings-section-card portal-glass-card">
+                <div className="settings-section-head">
+                  <div>
+                    <span className="eyebrow">🔗 Shopify</span>
+                    <h3 className="section-title section-title-small">Enlace de tracking en Shopify</h3>
+                    <p className="subtitle">
+                      Qué enlace recibe el cliente en el email de envío de Shopify. Puedes usar la
+                      página de seguimiento personalizada de Brandeate o el link directo del transportista.
+                    </p>
+                  </div>
+                </div>
+                <ShopifyTrackingLinkPanel shopId={primaryShop.id} />
               </Card>
 
               <Card className="stack settings-section-card portal-glass-card">

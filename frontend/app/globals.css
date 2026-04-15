@@ -17348,6 +17348,100 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   white-space: nowrap;
 }
 
+/* ── Shopify tracking link panel ─────────────────────────────────────────── */
+.trk-link-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.trk-link-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.trk-link-row:last-child {
+  border-bottom: none;
+}
+
+.trk-link-carrier-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.trk-link-options {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.trk-link-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--surface, #fff);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  text-align: left;
+  flex: 1;
+  min-width: 170px;
+}
+
+.trk-link-option:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #f0f7ff;
+}
+
+.trk-link-option-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px #bfdbfe44;
+  cursor: default;
+}
+
+.trk-link-option-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.trk-link-option-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  flex: 1;
+}
+
+.trk-link-option-label small {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.trk-link-option-check {
+  font-size: 1rem;
+  color: #2563eb;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+@media (max-width: 600px) {
+  .trk-link-row { flex-direction: column; align-items: flex-start; }
+  .trk-link-options { width: 100%; }
+}
+
+
 /* ── Footer ── */
 .trk2-footer {
   border-top: 1px solid #e5e7eb;
