@@ -18,13 +18,6 @@ type PrintQueueScope = "mine" | "all";
 
 // ─── Kiosk-printing setup card ───────────────────────────────────────────────
 
-function buildBatScript(origin: string) {
-  return `@echo off\r\nREM Brandeate - Acceso directo para maquinas de etiquetas (Windows)\r\nREM Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.\r\nset CHROME="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"\r\nif not exist %CHROME% set CHROME="C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"\r\nstart "" %CHROME% --kiosk-printing ${origin}\r\n`;
-}
-
-function buildCommandScript(origin: string) {
-  return `#!/bin/bash\n# Brandeate - Acceso directo para maquinas de etiquetas (Mac)\n# Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.\n# Primera vez: click derecho -> Abrir. Luego doble clic normal.\nopen -a "Google Chrome" --args --kiosk-printing ${origin}\n`;
-}
 
 function detectOS(): "windows" | "mac" | "other" {
   if (typeof navigator === "undefined") return "other";
@@ -38,21 +31,8 @@ function KioskSetupCard({ onDismiss }: { onDismiss: () => void }) {
   const os = detectOS();
 
   function download() {
-    const isWindows = os === "windows";
-    const origin = window.location.origin;
-    const content = isWindows ? buildBatScript(origin) : buildCommandScript(origin);
-    const filename = isWindows
-      ? "abrir-chrome-impresora.bat"
-      : "abrir-chrome-impresora.command";
-    const blob = new Blob([content], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const osParam = os === "mac" ? "mac" : "windows";
+    window.location.href = `/api/kiosk-script?os=${osParam}`;
   }
 
   return (
