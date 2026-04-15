@@ -3,8 +3,36 @@
 import { useEffect, useState, useTransition } from "react";
 
 import { useToast } from "@/components/toast";
-import { fetchAvailableCarriers, fetchCarrierConfigs, upsertCarrierConfig } from "@/lib/api";
 import type { CarrierConfig, CarrierInfo } from "@/lib/types";
+
+
+// These fetch via Next.js proxy routes so the server cookie is forwarded
+async function fetchCarriersViaProxy(): Promise<CarrierInfo[]> {
+  const res = await fetch("/api/carrier-configs/available", { cache: "no-store" });
+  if (!res.ok) throw new Error("Error cargando carriers");
+  return res.json() as Promise<CarrierInfo[]>;
+}
+
+async function fetchConfigsViaProxy(shopId: number): Promise<CarrierConfig[]> {
+  const res = await fetch(`/api/carrier-configs?shop_id=${shopId}`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Error cargando configuración");
+  return res.json() as Promise<CarrierConfig[]>;
+}
+
+async function upsertConfigViaProxy(body: {
+  shop_id: number;
+  carrier_code: string;
+  is_enabled: boolean;
+  config_json?: Record<string, unknown> | null;
+}): Promise<CarrierConfig> {
+  const res = await fetch("/api/carrier-configs", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Error al guardar");
+  return res.json() as Promise<CarrierConfig>;
+}
 
 
 type Props = {
@@ -21,7 +49,7 @@ export function ShopifyTrackingLinkPanel({ shopId }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchAvailableCarriers(), fetchCarrierConfigs(shopId)])
+    Promise.all([fetchCarriersViaProxy(), fetchConfigsViaProxy(shopId)])
       .then(([c, cfgs]) => {
         setCarriers(c.filter((car) => car.supports_tracking));
         setConfigs(cfgs);
@@ -32,7 +60,10 @@ export function ShopifyTrackingLinkPanel({ shopId }: Props) {
 
   function usesBranded(code: string): boolean {
     const cfg = configs.find((c) => c.carrier_code === code);
-    return Boolean(cfg?.config_json && (cfg.config_json as Record<string, unknown>).use_branded_tracking_link === true);
+    return Boolean(
+      cfg?.config_json &&
+        (cfg.config_json as Record<string, unknown>).use_branded_tracking_link === true,
+    );
   }
 
   function handleToggle(carrier: CarrierInfo, wantBranded: boolean) {
@@ -40,7 +71,7 @@ export function ShopifyTrackingLinkPanel({ shopId }: Props) {
     const prevJson = (existing?.config_json as Record<string, unknown> | null | undefined) ?? {};
     startTransition(async () => {
       try {
-        const updated = await upsertCarrierConfig({
+        const updated = await upsertConfigViaProxy({
           shop_id: shopId,
           carrier_code: carrier.code,
           is_enabled: existing?.is_enabled ?? true,
@@ -54,8 +85,8 @@ export function ShopifyTrackingLinkPanel({ shopId }: Props) {
         });
         toast(
           wantBranded
-            ? `${carrier.name}: el cliente verá el tracking de Brandeate`
-            : `${carrier.name}: el cliente verá el tracking del transportista`,
+            ? `${carrier.name}: se enviará el tracking de Brandeate a Shopify`
+            : `${carrier.name}: Shopify gestionará el tracking sin enlace personalizado`,
           "success",
         );
       } catch {
@@ -75,8 +106,8 @@ export function ShopifyTrackingLinkPanel({ shopId }: Props) {
   return (
     <div className="trk-link-panel">
       <p className="table-secondary" style={{ marginBottom: 16 }}>
-        Elige qué enlace se envía a Shopify cuando se crea la etiqueta. Shopify lo incluye en
-        el email de envío que recibe el cliente.
+        Elige qué enlace se envía a Shopify al crear la etiqueta. Shopify lo incluye en el email
+        de envío al cliente.
       </p>
 
       {carriers.map((carrier) => {
@@ -86,34 +117,34 @@ export function ShopifyTrackingLinkPanel({ shopId }: Props) {
             <div className="trk-link-carrier-name">{carrier.name}</div>
 
             <div className="trk-link-options">
-              {/* Opción: transportista nativo */}
+              {/* Opción: sin enlace personalizado */}
               <button
                 type="button"
                 className={`trk-link-option ${!branded ? "trk-link-option-active" : ""}`}
                 onClick={() => { if (branded) handleToggle(carrier, false); }}
                 disabled={!branded}
-                title="El cliente hace clic en el tracking del propio transportista (CTT, DHL…)"
+                title="Shopify gestiona el seguimiento sin enlace personalizado"
               >
-                <span className="trk-link-option-icon">🚚</span>
+                <span className="trk-link-option-icon">📦</span>
                 <span className="trk-link-option-label">
-                  Transportista
-                  <small>Link nativo del carrier</small>
+                  Sin enlace personalizado
+                  <small>Shopify gestiona el seguimiento</small>
                 </span>
                 {!branded && <span className="trk-link-option-check">✓</span>}
               </button>
 
-              {/* Opción: Brandeate */}
+              {/* Opción: tracking Brandeate */}
               <button
                 type="button"
                 className={`trk-link-option ${branded ? "trk-link-option-active" : ""}`}
                 onClick={() => { if (!branded) handleToggle(carrier, true); }}
                 disabled={branded}
-                title="El cliente ve tu página de tracking personalizada con tu logo y colores"
+                title="El cliente recibe el enlace a la página de tracking de Brandeate"
               >
                 <span className="trk-link-option-icon">✨</span>
                 <span className="trk-link-option-label">
-                  Brandeate
-                  <small>Tu página de tracking personalizada</small>
+                  Tracking de Brandeate
+                  <small>Enlace personalizado en el email de Shopify</small>
                 </span>
                 {branded && <span className="trk-link-option-check">✓</span>}
               </button>
