@@ -7,6 +7,7 @@ import { PortalTenantControl } from "@/components/portal-tenant-control";
 import { ShopCatalogManager } from "@/components/shop-catalog-manager";
 import { TenantShopifyPanel } from "@/components/tenant-shopify-panel";
 import { ShopifyTrackingLinkPanel } from "@/components/shopify-tracking-link-panel";
+import { TrackingBrandingPanel } from "@/components/tracking-branding-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 import { PortalBillingPanel } from "@/components/portal-billing-panel";
 import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
@@ -189,6 +190,12 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
                     </p>
                   </div>
                 </div>
+                <TrackingBrandingPanel
+                  shopId={primaryShop.id}
+                  shopName={primaryShop.name}
+                  initialConfig={primaryShop.tracking_config ?? null}
+                />
+
                 <div className="trk-settings-layout">
                   <ShopifyTrackingLinkPanel shopId={primaryShop.id} />
                   {publicTrackingExample && (

@@ -17348,6 +17348,27 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   white-space: nowrap;
 }
 
+/* ── Tracking branding panel ─────────────────────────────────────────────── */
+.trk-branding-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.trk-branding-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 700px) {
+  .trk-branding-fields { grid-template-columns: 1fr; }
+}
+
+
 /* ── Tracking settings layout (form + phone preview) ────────────────────── */
 .trk-settings-layout {
   display: grid;

@@ -7,6 +7,7 @@ import { ShippingRulesManager } from "@/components/shipping-rules-manager";
 import { ShopifySyncPanel } from "@/components/shopify-sync-panel";
 import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
 import { ShopifyTrackingLinkPanel } from "@/components/shopify-tracking-link-panel";
+import { TrackingBrandingPanel } from "@/components/tracking-branding-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 
 import { SettingsTabs } from "@/components/settings-tabs";
@@ -265,6 +266,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                       </div>
                       <span className="portal-soft-pill">Shop #{shop.id}</span>
                     </div>
+                    <TrackingBrandingPanel
+                      shopId={shop.id}
+                      shopName={shop.name}
+                      initialConfig={shop.tracking_config ?? null}
+                    />
+
                     <div className="trk-settings-layout">
                       <ShopifyTrackingLinkPanel shopId={shop.id} />
                       {trackingExample && (
