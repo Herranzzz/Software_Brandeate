@@ -15,6 +15,76 @@ import type { Order, Shop } from "@/lib/types";
 
 type PrintQueueScope = "mine" | "all";
 
+// ─── Kiosk-printing setup card ───────────────────────────────────────────────
+
+const BAT_SCRIPT = `@echo off
+REM Brandeate - Acceso directo para maquinas de etiquetas (Windows)
+REM Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.
+set CHROME="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+if not exist %CHROME% set CHROME="C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+start "" %CHROME% --kiosk-printing ${typeof window !== "undefined" ? window.location.origin : ""}
+`;
+
+const COMMAND_SCRIPT = `#!/bin/bash
+# Brandeate - Acceso directo para maquinas de etiquetas (Mac)
+# Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.
+# Primera vez: click derecho -> Abrir. Luego doble clic normal.
+open -a "Google Chrome" --args --kiosk-printing ${typeof window !== "undefined" ? window.location.origin : ""}
+`;
+
+function detectOS(): "windows" | "mac" | "other" {
+  if (typeof navigator === "undefined") return "other";
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes("win")) return "windows";
+  if (ua.includes("mac")) return "mac";
+  return "other";
+}
+
+function KioskSetupCard({ onDismiss }: { onDismiss: () => void }) {
+  const os = detectOS();
+
+  function download() {
+    const isWindows = os === "windows";
+    const content = isWindows ? BAT_SCRIPT : COMMAND_SCRIPT;
+    const filename = isWindows
+      ? "abrir-chrome-impresora.bat"
+      : "abrir-chrome-impresora.command";
+    const mime = isWindows ? "text/plain" : "application/octet-stream";
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="kiosk-setup-card">
+      <div className="kiosk-setup-icon">🖨️</div>
+      <div className="kiosk-setup-body">
+        <strong>Configura impresión directa en esta máquina</strong>
+        <p className="muted">
+          Descarga el acceso directo y úsalo para abrir la app. Con él, al pulsar
+          "Imprimir" las etiquetas van directo a la impresora sin ningún diálogo.
+        </p>
+        <div className="kiosk-setup-actions">
+          <button className="button" onClick={download} type="button">
+            {os === "windows"
+              ? "⬇ Descargar acceso directo (Windows)"
+              : os === "mac"
+                ? "⬇ Descargar acceso directo (Mac)"
+                : "⬇ Descargar acceso directo"}
+          </button>
+          <button className="button-link muted" onClick={onDismiss} type="button">
+            Ya está configurado · ocultar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type PrintQueuePanelProps = {
   initialOrders: Order[];
   initialTotal: number;
@@ -76,6 +146,15 @@ export function PrintQueuePanel({
   const [isRemoving, setIsRemoving] = useState<number | null>(null);
   const [printProgress, setPrintProgress] = useState<{ done: number; total: number } | null>(null);
   const [lastPrintFailures, setLastPrintFailures] = useState<PrintLabelFailure[]>([]);
+  const [showSetupCard, setShowSetupCard] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("kiosk_setup_dismissed") !== "1";
+  });
+
+  function dismissSetupCard() {
+    localStorage.setItem("kiosk_setup_dismissed", "1");
+    setShowSetupCard(false);
+  }
 
   // Keep local list in sync when the server component re-renders after navigation
   // or refresh() — otherwise freshly prepared orders pushed by a teammate wouldn't
@@ -358,6 +437,8 @@ export function PrintQueuePanel({
           </div>
         }
       />
+
+      {showSetupCard ? <KioskSetupCard onDismiss={dismissSetupCard} /> : null}
 
       <div className="print-queue-stats">
         <div className="print-queue-stat print-queue-stat-primary">

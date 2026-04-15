@@ -21028,6 +21028,47 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   padding: 0 4px;
 }
 
+/* ─── Kiosk setup card ──────────────────────────────────────────────────────── */
+.kiosk-setup-card {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid #c2d4ff;
+  background: linear-gradient(135deg, #eff4ff 0%, #e8f0ff 100%);
+}
+
+.kiosk-setup-icon {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.kiosk-setup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.kiosk-setup-body p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.kiosk-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+@media (max-width: 600px) {
+  .kiosk-setup-card { flex-direction: column; }
+}
+
 
 /* ── Sprint 2: SLA Badge ───────────────────────────────────────────────────── */
 .sla-badge {
