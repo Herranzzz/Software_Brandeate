@@ -3,8 +3,16 @@
 import { useState, useTransition } from "react";
 
 import { useToast } from "@/components/toast";
-import { updateShopTrackingConfig } from "@/lib/api";
 import type { TrackingConfig } from "@/lib/types";
+
+async function saveTrackingConfig(shopId: number, config: TrackingConfig): Promise<void> {
+  const res = await fetch(`/api/shops/${shopId}/tracking-config`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) throw new Error("Error al guardar");
+}
 
 
 type Props = {
@@ -24,7 +32,7 @@ export function TrackingBrandingPanel({ shopId, shopName, initialConfig }: Props
   function handleSave() {
     startTransition(async () => {
       try {
-        await updateShopTrackingConfig(shopId, {
+        await saveTrackingConfig(shopId, {
           ...initialConfig,
           logo_url: logoUrl.trim() || undefined,
           accent_color: accentColor.trim() || undefined,
