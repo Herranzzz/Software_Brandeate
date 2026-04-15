@@ -1,0 +1,14 @@
+#!/bin/bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  Brandeate · Acceso directo para máquinas de etiquetas (Mac)
+#
+#  Abre Chrome con --kiosk-printing para que window.print() envíe
+#  directamente a la impresora sin mostrar ningún diálogo.
+#
+#  INSTRUCCIONES:
+#    1. Copia este archivo al escritorio de cada máquina con impresora.
+#    2. La primera vez: click derecho → Abrir (para dar permiso de ejecución).
+#    3. A partir de entonces: doble clic abre Chrome listo para imprimir.
+# ─────────────────────────────────────────────────────────────────────────────
+
+open -a "Google Chrome" --args --kiosk-printing https://app.brandeate.com
