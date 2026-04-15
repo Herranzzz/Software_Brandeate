@@ -6,7 +6,6 @@ import { PortalClientAccountsManager } from "@/components/portal-client-accounts
 import { PortalTenantControl } from "@/components/portal-tenant-control";
 import { ShopCatalogManager } from "@/components/shop-catalog-manager";
 import { TenantShopifyPanel } from "@/components/tenant-shopify-panel";
-import { PortalTrackingSettings } from "@/components/portal-tracking-settings";
 import { ShopifyTrackingLinkPanel } from "@/components/shopify-tracking-link-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 import { PortalBillingPanel } from "@/components/portal-billing-panel";
@@ -65,11 +64,6 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
     ? ((ordersResult.value as { orders?: Order[] }).orders ?? [])
     : [];
 
-  // Find a real public_token from any order with a shipment to use as preview example
-  const exampleShipment = sustainabilityOrders.find((o) => o.shipment?.public_token)?.shipment;
-  const publicTrackingExample = exampleShipment
-    ? `/tracking/${exampleShipment.public_token}`
-    : null;
 
   return (
     <div className="stack">
@@ -185,29 +179,11 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
               <Card className="stack settings-section-card portal-glass-card">
                 <div className="settings-section-head">
                   <div>
-                    <span className="eyebrow">📦 Seguimiento</span>
-                    <h3 className="section-title section-title-small">Página de tracking del cliente</h3>
-                    <p className="subtitle">
-                      Personaliza lo que ve tu cliente final: mensaje, botón de vuelta a tu tienda y código de descuento.
-                    </p>
-                  </div>
-                </div>
-                <PortalTrackingSettings
-                  shopId={primaryShop.id}
-                  shopName={primaryShop.name}
-                  initialConfig={primaryShop.tracking_config ?? null}
-                  publicTrackingExample={publicTrackingExample}
-                />
-              </Card>
-
-              <Card className="stack settings-section-card portal-glass-card">
-                <div className="settings-section-head">
-                  <div>
-                    <span className="eyebrow">🔗 Shopify</span>
+                    <span className="eyebrow">📦 Tracking</span>
                     <h3 className="section-title section-title-small">Enlace de tracking en Shopify</h3>
                     <p className="subtitle">
-                      Qué enlace recibe el cliente en el email de envío de Shopify. Puedes usar la
-                      página de seguimiento personalizada de Brandeate o el link directo del transportista.
+                      Elige qué enlace recibe el cliente en el email de envío de Shopify: la página de
+                      seguimiento de Brandeate o el enlace nativo del transportista.
                     </p>
                   </div>
                 </div>

@@ -6,7 +6,6 @@ import { ShopShippingSettingsForm } from "@/components/shop-shipping-settings-fo
 import { ShippingRulesManager } from "@/components/shipping-rules-manager";
 import { ShopifySyncPanel } from "@/components/shopify-sync-panel";
 import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
-import { PortalTrackingSettings } from "@/components/portal-tracking-settings";
 import { ShopifyTrackingLinkPanel } from "@/components/shopify-tracking-link-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 
@@ -238,9 +237,10 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           <div className="settings-section-head">
             <div>
               <span className="eyebrow">📦 Tracking</span>
-              <h3 className="section-title section-title-small">Página de tracking por tienda</h3>
+              <h3 className="section-title section-title-small">Enlace de tracking en Shopify</h3>
               <p className="subtitle">
-                Configura el branding, los CTAs y los códigos de descuento que verá el cliente final en su página de seguimiento.
+                Elige qué enlace recibe el cliente en el email de envío de Shopify: la página de seguimiento
+                de Brandeate o el enlace nativo del transportista.
               </p>
             </div>
           </div>
@@ -251,37 +251,18 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             />
           ) : (
             <div className="settings-shipping-grid">
-              {shops.map((shop) => {
-                const exampleToken = sustainabilityOrders
-                  .find((o) => o.shop_id === shop.id && o.shipment?.public_token)
-                  ?.shipment?.public_token;
-                const trackingExample = exampleToken ? `/tracking/${exampleToken}` : null;
-                return (
-                  <article className="shop-settings-card" key={shop.id}>
-                    <div className="shop-settings-card-head">
-                      <div>
-                        <div className="table-primary">{shop.name}</div>
-                        <div className="table-secondary">/{shop.slug}</div>
-                      </div>
-                      <span className="portal-soft-pill">Shop #{shop.id}</span>
+              {shops.map((shop) => (
+                <article className="shop-settings-card" key={shop.id}>
+                  <div className="shop-settings-card-head">
+                    <div>
+                      <div className="table-primary">{shop.name}</div>
+                      <div className="table-secondary">/{shop.slug}</div>
                     </div>
-                    <PortalTrackingSettings
-                      shopId={shop.id}
-                      shopName={shop.name}
-                      initialConfig={shop.tracking_config ?? null}
-                      publicTrackingExample={trackingExample}
-                    />
-                    <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid var(--border)" }}>
-                      <div style={{ marginBottom: 12 }}>
-                        <span className="eyebrow">🔗 Shopify</span>
-                        <h4 style={{ margin: "4px 0 2px", fontSize: "0.95rem", fontWeight: 700 }}>Enlace de tracking en Shopify</h4>
-                        <p className="table-secondary">Elige qué enlace recibe el cliente en el email de envío.</p>
-                      </div>
-                      <ShopifyTrackingLinkPanel shopId={shop.id} />
-                    </div>
-                  </article>
-                );
-              })}
+                    <span className="portal-soft-pill">Shop #{shop.id}</span>
+                  </div>
+                  <ShopifyTrackingLinkPanel shopId={shop.id} />
+                </article>
+              ))}
             </div>
           )}
         </Card>
