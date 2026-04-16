@@ -8,7 +8,11 @@ REM
 REM  INSTRUCCIONES:
 REM    1. Copia este archivo al escritorio de cada máquina con impresora.
 REM    2. Haz doble clic para abrir Chrome listo para imprimir.
-REM    3. (Opcional) Click derecho → "Crear acceso directo" y ponlo en la barra.
+REM
+REM  POR QUÉ --user-data-dir:
+REM    Si Chrome ya está abierto, "start chrome.exe --kiosk-printing" abre una
+REM    ventana en el proceso existente y el flag se ignora. Con --user-data-dir
+REM    se fuerza un proceso nuevo que siempre arranca con la flag activa.
 REM ─────────────────────────────────────────────────────────────────────────────
 
 REM Ruta de Chrome estándar — cámbiala si está instalado en otro lugar
@@ -19,8 +23,10 @@ if not exist %CHROME% (
     set CHROME="C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
 )
 
-REM Abre Chrome con la flag de impresión directa
-start "" %CHROME% --kiosk-printing https://app.brandeate.com
+REM Perfil separado para que --kiosk-printing siempre esté activo
+set KIOSK_DIR=%LOCALAPPDATA%\ChromeKioskPrint
+
+start "" %CHROME% --kiosk-printing --user-data-dir="%KIOSK_DIR%" https://app.brandeate.com/employees/print-queue
 
 REM Si Chrome no se encuentra en ninguna ruta estándar, avisa al usuario
 if errorlevel 1 (

@@ -123,55 +123,8 @@ export async function printLabel(
     throw err;
   }
 
-  const blobUrl = URL.createObjectURL(blob);
-
-  return new Promise<void>((resolve) => {
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("aria-hidden", "true");
-    iframe.style.cssText =
-      "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;border:none;";
-
-    let settled = false;
-    let printDelayId = 0;
-
-    function cleanup() {
-      if (settled) return;
-      settled = true;
-      if (printDelayId) {
-        window.clearTimeout(printDelayId);
-      }
-      setTimeout(() => {
-        if (document.body.contains(iframe)) {
-          document.body.removeChild(iframe);
-        }
-        URL.revokeObjectURL(blobUrl);
-        resolve();
-      }, IFRAME_CLEANUP_DELAY_MS);
-    }
-
-    iframe.onload = () => {
-      if (settled || printDelayId) {
-        return;
-      }
-      // Delay slightly so the browser PDF viewer is fully ready before print.
-      printDelayId = window.setTimeout(() => {
-        try {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-        } catch {
-          // swallow — cleanup will still resolve so sequential flow advances
-        }
-        cleanup();
-      }, PDF_RENDER_DELAY_MS);
-    };
-
-    iframe.onerror = () => {
-      cleanup();
-    };
-
-    iframe.src = blobUrl;
-    document.body.appendChild(iframe);
-  });
+  // Reuse the same HTML-wrapper approach so kiosk-printing works here too.
+  return printBlobOnce(blob);
 }
 
 export type PrintLabelFailure = {
@@ -202,15 +155,49 @@ async function mergePdfBlobs(blobs: Blob[]): Promise<Blob> {
 
 /**
  * Print a PDF blob directly via a hidden iframe (one print dialog).
+ *
+ * IMPORTANT — kiosk-printing compatibility:
+ * Loading a PDF blob directly in an <iframe> makes Chrome hand it to the
+ * built-in PDF viewer plugin, whose print path BYPASSES --kiosk-printing.
+ * To ensure the flag works we wrap the PDF in an HTML page and embed it via
+ * <embed>. The <iframe> then loads HTML (not PDF), so contentWindow.print()
+ * goes through the browser's HTML print path, which DOES respect the flag.
+ *
+ * The PDF embed needs extra render time before print() is safe to call, so
+ * we use PDF_EMBED_RENDER_DELAY_MS (larger than the plain PDF delay).
  */
+const PDF_EMBED_RENDER_DELAY_MS = 1400;
+
 function printBlobOnce(blob: Blob): Promise<void> {
-  const blobUrl = URL.createObjectURL(blob);
+  const pdfUrl = URL.createObjectURL(blob);
+
+  // Build a minimal HTML wrapper that embeds the PDF.
+  const html = [
+    "<!DOCTYPE html>",
+    "<html>",
+    "<head>",
+    "<style>",
+    "  * { margin:0; padding:0; box-sizing:border-box; }",
+    "  html, body { width:100%; height:100%; overflow:hidden; }",
+    "  embed { display:block; width:100%; height:100%; }",
+    "  @media print { html, body, embed { width:100%; height:100%; } }",
+    "</style>",
+    "</head>",
+    "<body>",
+    `  <embed src="${pdfUrl}" type="application/pdf">`,
+    "</body>",
+    "</html>",
+  ].join("\n");
+
+  const htmlBlob = new Blob([html], { type: "text/html" });
+  const htmlUrl = URL.createObjectURL(htmlBlob);
 
   return new Promise<void>((resolve) => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("aria-hidden", "true");
+    // Give the iframe real dimensions so the PDF embed renders correctly.
     iframe.style.cssText =
-      "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;border:none;";
+      "position:fixed;top:-9999px;left:-9999px;width:595px;height:842px;opacity:0;border:none;pointer-events:none;";
 
     let settled = false;
     let printDelayId = 0;
@@ -221,26 +208,28 @@ function printBlobOnce(blob: Blob): Promise<void> {
       if (printDelayId) window.clearTimeout(printDelayId);
       setTimeout(() => {
         if (document.body.contains(iframe)) document.body.removeChild(iframe);
-        URL.revokeObjectURL(blobUrl);
+        URL.revokeObjectURL(htmlUrl);
+        URL.revokeObjectURL(pdfUrl);
         resolve();
       }, IFRAME_CLEANUP_DELAY_MS);
     }
 
     iframe.onload = () => {
       if (settled || printDelayId) return;
+      // Wait for the PDF embed inside the HTML to finish rendering.
       printDelayId = window.setTimeout(() => {
         try {
           iframe.contentWindow?.focus();
           iframe.contentWindow?.print();
         } catch {
-          // swallow
+          // swallow — cleanup will still resolve so the flow advances
         }
         cleanup();
-      }, PDF_RENDER_DELAY_MS);
+      }, PDF_EMBED_RENDER_DELAY_MS);
     };
 
     iframe.onerror = () => cleanup();
-    iframe.src = blobUrl;
+    iframe.src = htmlUrl;
     document.body.appendChild(iframe);
   });
 }
