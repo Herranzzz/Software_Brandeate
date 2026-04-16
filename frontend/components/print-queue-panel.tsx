@@ -10,7 +10,7 @@ import { EmployeesTabNav } from "@/components/employees-tab-nav";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/components/toast";
 import { fetchOrders } from "@/lib/api";
-import { printLabelsSequential, type PrintLabelFailure } from "@/lib/print-utils";
+import { printLabelsMerged, type PrintLabelFailure } from "@/lib/print-utils";
 import type { Order, Shop } from "@/lib/types";
 
 
@@ -120,12 +120,19 @@ export function PrintQueuePanel({
   const [modalOrders, setModalOrders] = useState<Order[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRemoving, setIsRemoving] = useState<number | null>(null);
-  const [printProgress, setPrintProgress] = useState<{ done: number; total: number } | null>(null);
+  const [isBulkRemoving, setIsBulkRemoving] = useState(false);
+  const [printProgress, setPrintProgress] = useState<{ done: number; total: number; phase: "downloading" | "printing" } | null>(null);
   const [lastPrintFailures, setLastPrintFailures] = useState<PrintLabelFailure[]>([]);
   const [showSetupCard, setShowSetupCard] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("kiosk_setup_dismissed") !== "1";
   });
+
+  // Track which order IDs were in the queue at page load (the "pre-session"
+  // set). Any order that arrives after that is considered "this session".
+  const [sessionBaseIds] = useState<Set<number>>(
+    () => new Set(initialOrders.map((o) => o.id)),
+  );
 
   function dismissSetupCard() {
     localStorage.setItem("kiosk_setup_dismissed", "1");
@@ -180,6 +187,13 @@ export function PrintQueuePanel({
   const selectedCount = selectedIds.size;
   const hasSelection = selectedCount > 0;
 
+  // Orders that arrived after the page load (new this session).
+  const sessionOrderIds = useMemo(
+    () => new Set(orders.filter((o) => !sessionBaseIds.has(o.id)).map((o) => o.id)),
+    [orders, sessionBaseIds],
+  );
+  const sessionCount = sessionOrderIds.size;
+
   // How many orders in the queue already have a label ready vs still need one
   // created. Drives the "listos para imprimir" stat.
   const readyCount = useMemo(
@@ -214,6 +228,63 @@ export function PrintQueuePanel({
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(visibleOrders.map((o) => o.id)));
+    }
+  }
+
+  function selectSession() {
+    if (sessionCount === 0) return;
+    // If all session orders are already selected, deselect them. Otherwise select them.
+    const allSelected = [...sessionOrderIds].every((id) => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of sessionOrderIds) next.delete(id);
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => new Set([...prev, ...sessionOrderIds]));
+    }
+  }
+
+  async function removeSelected() {
+    if (isBulkRemoving || selectedCount === 0) return;
+    const idsToRemove = [...selectedIds];
+    setIsBulkRemoving(true);
+    try {
+      const results = await Promise.allSettled(
+        idsToRemove.map((id) =>
+          fetch(`/api/orders/${id}/production-status`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ production_status: "in_production" }),
+          }).then((res) => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return id;
+          }),
+        ),
+      );
+      const removed = results
+        .filter((r): r is PromiseFulfilledResult<number> => r.status === "fulfilled")
+        .map((r) => r.value);
+      const failed = results.filter((r) => r.status === "rejected").length;
+
+      if (removed.length > 0) {
+        setOrders((prev) => prev.filter((o) => !removed.includes(o.id)));
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of removed) next.delete(id);
+          return next;
+        });
+      }
+      if (failed > 0) {
+        toast(`${removed.length} quitados · ${failed} con error`, "warning");
+      } else {
+        toast(`${removed.length} pedido${removed.length !== 1 ? "s" : ""} devuelto${removed.length !== 1 ? "s" : ""} a producción`, "success");
+      }
+    } catch {
+      toast("Error al quitar los pedidos seleccionados", "error");
+    } finally {
+      setIsBulkRemoving(false);
     }
   }
 
@@ -259,13 +330,17 @@ export function PrintQueuePanel({
     setLastPrintFailures([]);
 
     if (ready.length > 0) {
-      setPrintProgress({ done: 0, total: ready.length });
+      setPrintProgress({ done: 0, total: ready.length, phase: "downloading" });
       const trackingCodes = ready.map((o) => getTrackingCode(o)!);
       try {
-        const failures = await printLabelsSequential(
+        const failures = await printLabelsMerged(
           trackingCodes,
           { format: "PDF" },
-          (done, total) => setPrintProgress({ done, total }),
+          (done, total) => {
+            // Once all are fetched the merge+print step starts.
+            const phase = done < total ? "downloading" : "printing";
+            setPrintProgress({ done, total, phase });
+          },
         );
         setLastPrintFailures(failures);
 
@@ -384,6 +459,11 @@ export function PrintQueuePanel({
     : "Etiquetas de todo el equipo";
   const isPrinting = printProgress !== null;
 
+  function printProgressLabel(progress: { done: number; total: number; phase: "downloading" | "printing" }) {
+    if (progress.phase === "printing") return "Abriendo PDF...";
+    return `Descargando ${progress.done}/${progress.total}...`;
+  }
+
   return (
     <div className="stack">
       <PageHeader
@@ -407,7 +487,7 @@ export function PrintQueuePanel({
               type="button"
             >
               {isPrinting && printProgress
-                ? `Imprimiendo ${printProgress.done}/${printProgress.total}...`
+                ? printProgressLabel(printProgress)
                 : `Imprimir todas (${totalCount})`}
             </button>
           </div>
@@ -435,14 +515,21 @@ export function PrintQueuePanel({
           </span>
         </div>
         <div className="print-queue-stat">
+          <span className="eyebrow">Esta sesión</span>
+          <strong className="print-queue-stat-value">{sessionCount}</strong>
+          <span className="muted">
+            {sessionCount > 0
+              ? "nuevas desde que abriste la página"
+              : "sin pedidos nuevos aún"}
+          </span>
+        </div>
+        <div className="print-queue-stat">
           <span className="eyebrow">Selección</span>
           <strong className="print-queue-stat-value">{selectedCount}</strong>
           <span className="muted">
             {hasSelection
               ? "Toca Imprimir seleccionadas"
-              : initialTotal !== totalCount
-                ? `${initialTotal} al cargar`
-                : "Elige pedidos o imprime todo"}
+              : "Elige pedidos o imprime todo"}
           </span>
         </div>
       </div>
@@ -480,24 +567,45 @@ export function PrintQueuePanel({
               ))}
             </select>
           </div>
-          {hasSelection ? (
-            <div className="print-queue-selection-tools">
-              <span className="muted">{selectedCount} seleccionadas</span>
-              <button className="button-secondary" onClick={() => setSelectedIds(new Set())} type="button">
-                Limpiar selección
-              </button>
+          <div className="print-queue-selection-tools">
+            {sessionCount > 0 && (
               <button
-                className="button"
-                disabled={isPrinting}
-                onClick={printSelected}
+                className="button-secondary"
+                onClick={selectSession}
+                title="Seleccionar los pedidos que han llegado a la cola durante esta sesión"
                 type="button"
               >
-                {isPrinting && printProgress
-                  ? `Imprimiendo ${printProgress.done}/${printProgress.total}...`
-                  : `Imprimir seleccionadas (${selectedCount})`}
+                Esta sesión ({sessionCount})
               </button>
-            </div>
-          ) : null}
+            )}
+            {hasSelection ? (
+              <>
+                <span className="muted">{selectedCount} seleccionadas</span>
+                <button
+                  className="button-secondary"
+                  disabled={isBulkRemoving || isPrinting}
+                  onClick={() => void removeSelected()}
+                  title="Devolver a producción todos los seleccionados"
+                  type="button"
+                >
+                  {isBulkRemoving ? "Quitando..." : `Quitar selección (${selectedCount})`}
+                </button>
+                <button className="button-link muted" onClick={() => setSelectedIds(new Set())} type="button">
+                  Limpiar
+                </button>
+                <button
+                  className="button"
+                  disabled={isPrinting || isBulkRemoving}
+                  onClick={printSelected}
+                  type="button"
+                >
+                  {isPrinting && printProgress
+                    ? printProgressLabel(printProgress)
+                    : `Imprimir seleccionadas (${selectedCount})`}
+                </button>
+              </>
+            ) : null}
+          </div>
         </div>
 
         {scope === "all" && preparerStats.length > 0 ? (
