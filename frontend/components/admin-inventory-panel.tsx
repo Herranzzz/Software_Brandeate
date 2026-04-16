@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback, useTransition } from "react";
+import { useState, useCallback, useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import {
   adjustInventoryStock,
+  generateReplenishmentPOsClient,
   receiveInboundShipment,
   syncInventoryFromCatalog,
   syncInventoryFromShopify,
@@ -23,6 +24,7 @@ import type {
   Supplier,
 } from "@/lib/types";
 import { ReplenishmentTab } from "@/components/replenishment-tab";
+import { useToast } from "@/components/toast";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -925,7 +927,10 @@ export function AdminInventoryPanel({
   const [isSyncingCatalog, startCatalogSync] = useTransition();
   const [shopifySyncResult, setShopifySyncResult] = useState<ShopifyInventorySyncResult | null>(null);
   const [isSyncingShopify, startShopifySync] = useTransition();
+  const [isBulkEnabling, startBulkEnable] = useTransition();
+  const [isAutoGenerating, startAutoGenerate] = useTransition();
   const router = useRouter();
+  const { toast } = useToast();
 
   // ── KPI computations ────────────────────────────────────────────────────────
 
@@ -938,6 +943,74 @@ export function AdminInventoryPanel({
   ).length;
 
   const todayMovementsCount = movements.filter((m) => isToday(m.created_at)).length;
+
+  // ── Automation metrics ──────────────────────────────────────────────────────
+
+  const autoMetrics = useMemo(() => {
+    const eligible = items.filter(
+      (i) =>
+        i.is_active &&
+        i.primary_supplier_id != null &&
+        i.reorder_point != null &&
+        i.cost_price != null &&
+        Number(i.cost_price) > 0,
+    );
+    const enabled = eligible.filter((i) => i.replenishment_auto_enabled);
+    const eligibleNotEnabled = eligible.filter((i) => !i.replenishment_auto_enabled);
+    const missingConfig = items.filter(
+      (i) =>
+        i.is_active &&
+        (i.primary_supplier_id == null || i.reorder_point == null || i.cost_price == null),
+    );
+    const pct = eligible.length === 0
+      ? 0
+      : Math.round((enabled.length / eligible.length) * 100);
+    return { eligible, enabled, eligibleNotEnabled, missingConfig, pct };
+  }, [items]);
+
+  async function handleBulkEnableAuto() {
+    if (autoMetrics.eligibleNotEnabled.length === 0) return;
+    startBulkEnable(async () => {
+      const results = await Promise.allSettled(
+        autoMetrics.eligibleNotEnabled.map((it) =>
+          updateInventoryItemClient(it.id, { replenishment_auto_enabled: true }),
+        ),
+      );
+      const updated = results
+        .filter((r): r is PromiseFulfilledResult<InventoryItem> => r.status === "fulfilled")
+        .map((r) => r.value);
+      if (updated.length > 0) {
+        setItems((prev) => {
+          const byId = new Map(updated.map((u) => [u.id, u]));
+          return prev.map((i) => byId.get(i.id) ?? i);
+        });
+      }
+      const failed = results.length - updated.length;
+      toast(
+        failed === 0
+          ? `Auto-reposición activada en ${updated.length} SKU${updated.length === 1 ? "" : "s"}`
+          : `${updated.length} activados, ${failed} fallaron`,
+        failed === 0 ? "success" : "warning",
+      );
+      router.refresh();
+    });
+  }
+
+  async function handleAutoGenerateFromCriticals() {
+    if (!shopId || recommendations.length === 0) return;
+    startAutoGenerate(async () => {
+      try {
+        const result = await generateReplenishmentPOsClient(shopId);
+        toast(
+          `Generadas ${result.purchase_orders_created} orden${result.purchase_orders_created === 1 ? "" : "es"} de compra`,
+          result.purchase_orders_created > 0 ? "success" : "info",
+        );
+        router.refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Error al generar POs", "error");
+      }
+    });
+  }
 
   // ── SKU tab ──────────────────────────────────────────────────────────────────
 
@@ -1009,158 +1082,234 @@ export function AdminInventoryPanel({
 
       {/* ── Tab: Resumen ──────────────────────────────────────────────────────── */}
       {activeTab === "resumen" && (
-        <div className="stack">
-          <div className="sga-kpi-strip">
-            <div className="sga-kpi">
-              <div className="sga-kpi-value">{items.length}</div>
-              <div className="sga-kpi-label">Total SKUs</div>
-              <div className="sga-kpi-sub">referencias activas</div>
+        <div className="stack" style={{ gap: 20 }}>
+          {/* Automation hero */}
+          <div className="sga-hero">
+            <div className="sga-hero-icon" aria-hidden>🤖</div>
+            <div className="sga-hero-body">
+              <p className="sga-hero-title">
+                {autoMetrics.eligible.length === 0
+                  ? "Configura tu primera reposición automática"
+                  : autoMetrics.pct === 100
+                    ? "Tu almacén se repone solo"
+                    : `Reposición automática — ${autoMetrics.pct}% cubierta`}
+              </p>
+              <div className="sga-hero-meta">
+                {autoMetrics.eligible.length === 0 ? (
+                  <span>
+                    Asigna un proveedor principal y coste a tus SKUs para que Brandeate
+                    genere POs cuando el stock baje del punto de reposición.
+                  </span>
+                ) : (
+                  <>
+                    <span className="sga-hero-progress">
+                      <span className={`sga-pulse-dot${autoMetrics.pct < 100 ? " is-warning" : ""}`} />
+                      {autoMetrics.enabled.length}
+                      <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                        /{autoMetrics.eligible.length} SKUs
+                      </span>
+                    </span>
+                    <span className="sga-hero-progress-bar" aria-hidden>
+                      <span
+                        className="sga-hero-progress-fill"
+                        style={{ width: `${autoMetrics.pct}%` }}
+                      />
+                    </span>
+                    {autoMetrics.missingConfig.length > 0 && (
+                      <span>
+                        · <strong>{autoMetrics.missingConfig.length}</strong> sin configurar
+                      </span>
+                    )}
+                    {recommendations.length > 0 && (
+                      <span>
+                        · <strong>{recommendations.length}</strong> recomendaci{recommendations.length === 1 ? "ón" : "ones"} activas
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+            {autoMetrics.eligibleNotEnabled.length > 0 ? (
+              <button
+                className="sga-hero-cta"
+                disabled={isBulkEnabling}
+                onClick={handleBulkEnableAuto}
+                type="button"
+              >
+                {isBulkEnabling
+                  ? "Activando…"
+                  : `Activar en ${autoMetrics.eligibleNotEnabled.length} elegibles`}
+              </button>
+            ) : recommendations.length > 0 && shopId ? (
+              <button
+                className="sga-hero-cta"
+                disabled={isAutoGenerating}
+                onClick={handleAutoGenerateFromCriticals}
+                type="button"
+              >
+                {isAutoGenerating ? "Generando…" : `Generar ${recommendations.length} PO${recommendations.length === 1 ? "" : "s"}`}
+              </button>
+            ) : (
+              <button
+                className="sga-hero-cta"
+                onClick={() => setActiveTab("skus")}
+                type="button"
+              >
+                Configurar SKUs
+              </button>
+            )}
+          </div>
+
+          {/* KPI cards */}
+          <div className="sga-kpi-grid">
+            <div className="sga-kpi-card">
+              <div className="sga-kpi-card-head">
+                <span className="sga-kpi-card-icon" aria-hidden>📦</span>
+                <span className="sga-kpi-card-label">SKUs activos</span>
+              </div>
+              <div className="sga-kpi-card-value">{items.length}</div>
+              <div className="sga-kpi-card-foot">
+                {autoMetrics.enabled.length} con auto-reposición
+              </div>
             </div>
 
-            <div className={`sga-kpi${criticalCount > 0 ? " is-danger" : ""}`}>
-              <div className="sga-kpi-value">{criticalCount}</div>
-              <div className="sga-kpi-label">Stock crítico</div>
-              <div className="sga-kpi-sub">en o bajo punto de reposición</div>
+            <div className={`sga-kpi-card${criticalCount > 0 ? " is-critical" : " is-success"}`}>
+              <div className="sga-kpi-card-head">
+                <span className="sga-kpi-card-icon" aria-hidden>{criticalCount > 0 ? "⚠️" : "✓"}</span>
+                <span className="sga-kpi-card-label">Stock crítico</span>
+              </div>
+              <div className="sga-kpi-card-value">{criticalCount}</div>
+              <div className="sga-kpi-card-foot">
+                {criticalCount === 0 ? "Todo en rango" : "igual o bajo punto de reposición"}
+              </div>
             </div>
 
-            <div className={`sga-kpi${pendingInboundCount > 0 ? " is-warning" : ""}`}>
-              <div className="sga-kpi-value">{pendingInboundCount}</div>
-              <div className="sga-kpi-label">Entradas pendientes</div>
-              <div className="sga-kpi-sub">enviadas o en tránsito</div>
+            <div className={`sga-kpi-card${pendingInboundCount > 0 ? " is-warning" : ""}`}>
+              <div className="sga-kpi-card-head">
+                <span className="sga-kpi-card-icon" aria-hidden>🚚</span>
+                <span className="sga-kpi-card-label">Entradas pendientes</span>
+              </div>
+              <div className="sga-kpi-card-value">{pendingInboundCount}</div>
+              <div className="sga-kpi-card-foot">
+                {pendingInboundCount === 0 ? "Sin envíos en tránsito" : "enviadas o en tránsito"}
+              </div>
             </div>
 
-            <div className="sga-kpi">
-              <div className="sga-kpi-value">{todayMovementsCount}</div>
-              <div className="sga-kpi-label">Movimientos hoy</div>
-              <div className="sga-kpi-sub">registros del día</div>
+            <div className="sga-kpi-card">
+              <div className="sga-kpi-card-head">
+                <span className="sga-kpi-card-icon" aria-hidden>⚡</span>
+                <span className="sga-kpi-card-label">Actividad hoy</span>
+              </div>
+              <div className="sga-kpi-card-value">{todayMovementsCount}</div>
+              <div className="sga-kpi-card-foot">
+                movimientos registrados
+              </div>
             </div>
           </div>
 
+          {/* Actionable recommendations */}
           {alerts.length > 0 && (
-            <div className="sga-reorder-banner">
-              <strong>{alerts.length} SKUs necesitan reposición</strong>
-              <span style={{ fontSize: 13, color: "var(--muted)", marginLeft: 8 }}>
-                Stock igual o inferior al punto de reposición.
-              </span>
+            <div className="sga-action-card is-critical">
+              <div className="sga-action-card-icon" aria-hidden>⚠</div>
+              <div className="sga-action-card-body">
+                <div className="sga-action-card-title">
+                  {alerts.length} SKU{alerts.length === 1 ? "" : "s"} necesita{alerts.length === 1 ? "" : "n"} reposición
+                </div>
+                <div className="sga-action-card-meta">
+                  Stock igual o inferior al punto de reposición configurado.
+                </div>
+              </div>
               <button
-                className="button-secondary"
-                onClick={() => setActiveTab("skus")}
-                style={{ marginLeft: "auto", fontSize: 13 }}
+                className="sga-hero-cta"
+                onClick={() => setActiveTab(recommendations.length > 0 ? "reposicion" : "skus")}
                 type="button"
               >
-                Ver SKUs →
+                {recommendations.length > 0 ? "Ver recomendaciones →" : "Ver SKUs →"}
               </button>
             </div>
           )}
 
-          {/* Últimas entradas */}
-          <div>
-            <div className="sga-section-head">
-              <span className="sga-section-title">Últimas entradas</span>
-              <button
-                className="button-secondary"
-                onClick={() => setActiveTab("entradas")}
-                style={{ fontSize: 13 }}
-                type="button"
-              >
-                Ver todas
-              </button>
+          {/* Dos columnas: Últimas entradas + Actividad */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16 }}>
+            <div className="sga-surface">
+              <div className="sga-surface-head">
+                <span className="sga-surface-title">Últimas entradas</span>
+                <button
+                  className="sga-surface-link"
+                  onClick={() => setActiveTab("entradas")}
+                  type="button"
+                >
+                  Ver todas →
+                </button>
+              </div>
+              {shipments.length === 0 ? (
+                <p className="sga-empty" style={{ margin: 0 }}>Sin entradas registradas.</p>
+              ) : (
+                <div className="sga-timeline">
+                  {shipments.slice(0, 5).map((s) => (
+                    <div
+                      key={s.id}
+                      className="sga-timeline-row"
+                      onClick={() => setActiveTab("entradas")}
+                      role="button"
+                      style={{ cursor: "pointer" }}
+                    >
+                      <div
+                        className={`sga-timeline-dot${s.status === "received" || s.status === "closed" ? " is-in" : ""}`}
+                      />
+                      <div className="sga-timeline-body">
+                        <div className="sga-timeline-title">#{s.reference}</div>
+                        <div className="sga-timeline-meta">
+                          {s.lines.length} líneas · llega {formatDate(s.expected_arrival)}
+                        </div>
+                      </div>
+                      <StatusBadge status={s.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {shipments.length === 0 ? (
-              <p className="sga-empty">Sin entradas registradas.</p>
-            ) : (
-              <div className="sga-table-wrap">
-                <table className="sga-table">
-                  <thead>
-                    <tr>
-                      <th>Referencia</th>
-                      <th>Estado</th>
-                      <th>Líneas</th>
-                      <th>Llegada esperada</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shipments.slice(0, 5).map((s) => (
-                      <tr
-                        key={s.id}
-                        onClick={() => setActiveTab("entradas")}
-                        style={{ cursor: "pointer" }}
-                      >
-                        <td>
-                          <strong>#{s.reference}</strong>
-                        </td>
-                        <td>
-                          <StatusBadge status={s.status} />
-                        </td>
-                        <td>{s.lines.length}</td>
-                        <td>{formatDate(s.expected_arrival)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="sga-surface">
+              <div className="sga-surface-head">
+                <span className="sga-surface-title">Actividad reciente</span>
+                <button
+                  className="sga-surface-link"
+                  onClick={() => setActiveTab("movimientos")}
+                  type="button"
+                >
+                  Ver todo →
+                </button>
               </div>
-            )}
-          </div>
-
-          {/* Últimos movimientos */}
-          <div>
-            <div className="sga-section-head">
-              <span className="sga-section-title">Últimos movimientos</span>
-              <button
-                className="button-secondary"
-                onClick={() => setActiveTab("movimientos")}
-                style={{ fontSize: 13 }}
-                type="button"
-              >
-                Ver todos
-              </button>
+              {movements.length === 0 ? (
+                <p className="sga-empty" style={{ margin: 0 }}>Sin movimientos registrados.</p>
+              ) : (
+                <div className="sga-timeline">
+                  {movements.slice(0, 8).map((m) => {
+                    const tone = m.qty_delta > 0 ? "is-in" : m.qty_delta < 0 ? "is-out" : "is-adj";
+                    return (
+                      <div key={m.id} className="sga-timeline-row">
+                        <div className={`sga-timeline-dot ${tone}`} />
+                        <div className="sga-timeline-body">
+                          <div className="sga-timeline-title">
+                            <code style={{ fontSize: 12.5, opacity: .85 }}>{m.sku}</code>
+                            <span style={{ color: "var(--muted)", marginLeft: 6 }}>
+                              · {MOVEMENT_LABELS[m.movement_type] ?? m.movement_type}
+                            </span>
+                          </div>
+                          <div className="sga-timeline-meta">
+                            {formatRelative(m.created_at)} · saldo {m.qty_after}
+                          </div>
+                        </div>
+                        <span className={`sga-timeline-delta ${m.qty_delta >= 0 ? "is-pos" : "is-neg"}`}>
+                          {m.qty_delta >= 0 ? `+${m.qty_delta}` : m.qty_delta}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-
-            {movements.length === 0 ? (
-              <p className="sga-empty">Sin movimientos registrados.</p>
-            ) : (
-              <div className="sga-table-wrap">
-                <table className="sga-table">
-                  <thead>
-                    <tr>
-                      <th>Cuando</th>
-                      <th>SKU</th>
-                      <th>Tipo</th>
-                      <th>Δ Uds.</th>
-                      <th>Después</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {movements.slice(0, 10).map((m) => (
-                      <tr key={m.id}>
-                        <td style={{ color: "var(--muted)", fontSize: 12 }}>
-                          {formatRelative(m.created_at)}
-                        </td>
-                        <td>
-                          <code>{m.sku}</code>
-                        </td>
-                        <td className="sga-movement-cell">
-                          {MOVEMENT_LABELS[m.movement_type] ?? m.movement_type}
-                        </td>
-                        <td>
-                          <span
-                            className={
-                              m.qty_delta >= 0
-                                ? "sga-delta-positive"
-                                : "sga-delta-negative"
-                            }
-                          >
-                            {m.qty_delta >= 0 ? `+${m.qty_delta}` : m.qty_delta}
-                          </span>
-                        </td>
-                        <td>{m.qty_after}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -1371,7 +1520,14 @@ export function AdminInventoryPanel({
                           <td>
                             <code>{item.sku}</code>
                           </td>
-                          <td>{item.name}</td>
+                          <td>
+                            <span>{item.name}</span>
+                            {item.replenishment_auto_enabled && (
+                              <span className="sga-auto-pill" title="Auto-reposición activa">
+                                Auto
+                              </span>
+                            )}
+                          </td>
                           <td style={{ color: "var(--muted)" }}>
                             {item.location ?? "—"}
                           </td>
@@ -1394,10 +1550,14 @@ export function AdminInventoryPanel({
                             {item.reorder_point ?? "—"}
                           </td>
                           <td>
-                            <span
-                              className={`sga-badge ${isCritical ? "sga-badge-critical" : "sga-badge-ok"}`}
-                            >
-                              {isCritical ? "Crítico" : "OK"}
+                            <span style={{ display: "inline-flex", alignItems: "center" }}>
+                              <span
+                                className={`sga-status-dot ${isCritical ? "is-critical" : "is-ok"}`}
+                                aria-hidden
+                              />
+                              <span style={{ fontSize: 13, color: isCritical ? "#dc2626" : "var(--muted)" }}>
+                                {isCritical ? "Crítico" : "OK"}
+                              </span>
                             </span>
                           </td>
                           <td>

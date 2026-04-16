@@ -206,7 +206,20 @@ function InvoicesIcon(props: IconProps) {
 
 /* ─── Nav structure ───────────────────────────────────────────────────────── */
 
-const navGroups = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: (props: IconProps) => ReactNode;
+  children?: Array<{
+    href: string;
+    label: string;
+    icon: (props: IconProps) => ReactNode;
+  }>;
+};
+
+type NavGroup = { label: string; items: NavItem[] };
+
+const navGroups: NavGroup[] = [
   {
     label: "Operativa",
     items: [
@@ -227,6 +240,7 @@ const navGroups = [
     items: [
       { href: "/client-accounts", label: "Cuentas cliente", icon: ClientAccountsIcon },
       { href: "/invoices", label: "Facturación", icon: InvoicesIcon },
+      { href: "/reporting", label: "Informes", icon: ReportingIcon },
     ],
   },
   {
@@ -238,15 +252,15 @@ const navGroups = [
   {
     label: "Aprovisionamiento",
     items: [
-      { href: "/inventario", label: "Inventario", icon: InventarioIcon },
-      { href: "/suppliers", label: "Proveedores", icon: SuppliersIcon },
-      { href: "/purchase-orders", label: "Órdenes de compra", icon: PurchaseOrdersIcon },
-    ],
-  },
-  {
-    label: "Análisis",
-    items: [
-      { href: "/reporting", label: "Informes", icon: ReportingIcon },
+      {
+        href: "/inventario",
+        label: "Inventario",
+        icon: InventarioIcon,
+        children: [
+          { href: "/suppliers", label: "Proveedores", icon: SuppliersIcon },
+          { href: "/purchase-orders", label: "Órdenes de compra", icon: PurchaseOrdersIcon },
+        ],
+      },
     ],
   },
 ];
@@ -258,7 +272,9 @@ function isActive(pathname: string, href: string) {
   // Prefer the longest-matching nav href so a parent route (e.g. "/employees")
   // does not stay highlighted when a child route (e.g. "/employees/print-queue")
   // also exists in the sidebar.
-  const allHrefs = navGroups.flatMap((group) => group.items.map((item) => item.href));
+  const allHrefs = navGroups.flatMap((group) =>
+    group.items.flatMap((item) => [item.href, ...(item.children?.map((c) => c.href) ?? [])]),
+  );
   const hasMoreSpecific = allHrefs.some(
     (other) => other !== href && other.length > href.length && (pathname === other || pathname.startsWith(`${other}/`)),
   );
@@ -345,16 +361,29 @@ export function AppShell({ children, currentUser }: AppShellProps) {
             <div className="tenant-nav-group" key={group.label}>
               <div className="tenant-nav-section">{group.label}</div>
               {group.items.map((item) => (
-                <Link
-                  className={`tenant-nav-link${isActive(pathname, item.href) ? " tenant-nav-link-active" : ""}`}
-                  href={item.href}
-                  key={item.href}
-                  prefetch={false}
-                  title={isSidebarCollapsed ? item.label : undefined}
-                >
-                  <item.icon className="tenant-nav-icon" />
-                  <span className="tenant-nav-link-label">{item.label}</span>
-                </Link>
+                <div key={item.href} className="tenant-nav-item">
+                  <Link
+                    className={`tenant-nav-link${isActive(pathname, item.href) ? " tenant-nav-link-active" : ""}`}
+                    href={item.href}
+                    prefetch={false}
+                    title={isSidebarCollapsed ? item.label : undefined}
+                  >
+                    <item.icon className="tenant-nav-icon" />
+                    <span className="tenant-nav-link-label">{item.label}</span>
+                  </Link>
+                  {item.children?.map((child) => (
+                    <Link
+                      className={`tenant-nav-link tenant-nav-link-child${isActive(pathname, child.href) ? " tenant-nav-link-active" : ""}`}
+                      href={child.href}
+                      key={child.href}
+                      prefetch={false}
+                      title={isSidebarCollapsed ? child.label : undefined}
+                    >
+                      <child.icon className="tenant-nav-icon" />
+                      <span className="tenant-nav-link-label">{child.label}</span>
+                    </Link>
+                  ))}
+                </div>
               ))}
             </div>
           ))}
@@ -443,15 +472,27 @@ export function AppShell({ children, currentUser }: AppShellProps) {
                 <div key={group.label} className="mobile-drawer-group">
                   <span className="mobile-drawer-section">{group.label}</span>
                   {group.items.map((item) => (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`mobile-drawer-link${isActive(pathname, item.href) ? " is-active" : ""}`}
-                      prefetch={false}
-                    >
-                      <item.icon className="mobile-bottom-nav-icon" />
-                      <span>{item.label}</span>
-                    </Link>
+                    <div key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={`mobile-drawer-link${isActive(pathname, item.href) ? " is-active" : ""}`}
+                        prefetch={false}
+                      >
+                        <item.icon className="mobile-bottom-nav-icon" />
+                        <span>{item.label}</span>
+                      </Link>
+                      {item.children?.map((child) => (
+                        <Link
+                          href={child.href}
+                          key={child.href}
+                          className={`mobile-drawer-link mobile-drawer-link-child${isActive(pathname, child.href) ? " is-active" : ""}`}
+                          prefetch={false}
+                        >
+                          <child.icon className="mobile-bottom-nav-icon" />
+                          <span>{child.label}</span>
+                        </Link>
+                      ))}
+                    </div>
                   ))}
                 </div>
               ))}
