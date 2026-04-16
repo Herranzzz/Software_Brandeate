@@ -1,7 +1,7 @@
-"""sga_suppliers_purchase_orders: suppliers, supplier_products, purchase_orders,
+"""sga: suppliers, supplier_products, purchase_orders,
 purchase_order_lines + replenishment columns on inventory_items
 
-Revision ID: 0044_sga_suppliers_purchase_orders
+Revision ID: 0044_sga
 Revises: 0043_marketing_email_flows
 Create Date: 2026-04-16
 """
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0044_sga_suppliers_purchase_orders"
+revision = "0044_sga"
 down_revision = "0043_marketing_email_flows"
 branch_labels = None
 depends_on = None
