@@ -37,9 +37,9 @@ export function MarketingConfigPanel({ shopId, shopName, initialConfig }: Props)
           tiktok_pixel_id: tiktokPixelId.trim() || null,
           gtm_container_id: gtmId.trim() || null,
         });
-        toast({ title: "Configuración guardada", description: `${shopName} actualizado` });
+        toast(`Configuración guardada — ${shopName}`);
       } catch {
-        toast({ title: "Error al guardar", variant: "destructive" });
+        toast("Error al guardar", "destructive");
       }
     });
   }

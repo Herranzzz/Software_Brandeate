@@ -60,9 +60,9 @@ function FlowCard({ flow, onUpdate }: FlowCardProps) {
       try {
         const updated = await updateFlow(flow.id, { is_enabled: !flow.is_enabled });
         onUpdate(updated);
-        toast({ title: updated.is_enabled ? "Flow activado" : "Flow desactivado" });
+        toast(updated.is_enabled ? "Flow activado" : "Flow desactivado");
       } catch {
-        toast({ title: "Error al guardar", variant: "destructive" });
+        toast("Error al guardar", "destructive");
       }
     });
   }
@@ -78,10 +78,10 @@ function FlowCard({ flow, onUpdate }: FlowCardProps) {
           delay_minutes: parseInt(delayMinutes, 10) || 0,
         });
         onUpdate(updated);
-        toast({ title: "Flow actualizado" });
+        toast("Flow actualizado");
         setIsExpanded(false);
       } catch {
-        toast({ title: "Error al guardar", variant: "destructive" });
+        toast("Error al guardar", "destructive");
       }
     });
   }
