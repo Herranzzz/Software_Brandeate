@@ -1,8 +1,9 @@
 """Inventory SGA — InventoryItem, InboundShipment, InboundShipmentLine, StockMovement"""
 
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -30,6 +31,28 @@ class InventoryItem(Base):
     location: Mapped[str | None] = mapped_column(String(120), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+
+    # ── SGA replenishment config ─────────────────────────────────────────────
+    primary_supplier_id: Mapped[int | None] = mapped_column(
+        ForeignKey("suppliers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    cost_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    lead_time_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    replenishment_auto_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    target_days_of_cover: Mapped[int] = mapped_column(
+        Integer, default=30, server_default="30"
+    )
+    safety_stock_days: Mapped[int] = mapped_column(
+        Integer, default=7, server_default="7"
+    )
+    consumption_lookback_days: Mapped[int] = mapped_column(
+        Integer, default=60, server_default="60"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -39,6 +62,12 @@ class InventoryItem(Base):
 
     shop = relationship("Shop")
     variant = relationship("ShopCatalogVariant")
+    primary_supplier = relationship("Supplier", foreign_keys=[primary_supplier_id])
+    supplier_products = relationship(
+        "SupplierProduct",
+        back_populates="inventory_item",
+        cascade="all, delete-orphan",
+    )
     movements = relationship(
         "StockMovement",
         back_populates="inventory_item",

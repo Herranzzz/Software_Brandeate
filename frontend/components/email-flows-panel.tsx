@@ -62,7 +62,7 @@ function FlowCard({ flow, onUpdate }: FlowCardProps) {
         onUpdate(updated);
         toast(updated.is_enabled ? "Flow activado" : "Flow desactivado");
       } catch {
-        toast("Error al guardar", "destructive");
+        toast("Error al guardar", "error");
       }
     });
   }
@@ -81,7 +81,7 @@ function FlowCard({ flow, onUpdate }: FlowCardProps) {
         toast("Flow actualizado");
         setIsExpanded(false);
       } catch {
-        toast("Error al guardar", "destructive");
+        toast("Error al guardar", "error");
       }
     });
   }

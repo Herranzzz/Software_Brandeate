@@ -144,6 +144,26 @@ function InventarioIcon(props: IconProps) {
   );
 }
 
+function SuppliersIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M4 8h11v9H4zM15 11h4l2 2.5V17h-6" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      <circle cx="8" cy="18.5" fill="currentColor" r="1.4" />
+      <circle cx="17.5" cy="18.5" fill="currentColor" r="1.4" />
+    </svg>
+  );
+}
+
+function PurchaseOrdersIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M5 6.5h14l-1.3 10a2 2 0 0 1-2 1.7H8.3a2 2 0 0 1-2-1.7L5 6.5z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      <path d="M9 4.5h6v3H9z" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M9 11.5h6M9 14h4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
 function ReportingIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -216,9 +236,16 @@ const navGroups = [
     ],
   },
   {
-    label: "Análisis",
+    label: "Aprovisionamiento",
     items: [
       { href: "/inventario", label: "Inventario", icon: InventarioIcon },
+      { href: "/suppliers", label: "Proveedores", icon: SuppliersIcon },
+      { href: "/purchase-orders", label: "Órdenes de compra", icon: PurchaseOrdersIcon },
+    ],
+  },
+  {
+    label: "Análisis",
+    items: [
       { href: "/reporting", label: "Informes", icon: ReportingIcon },
     ],
   },

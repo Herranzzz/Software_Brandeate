@@ -39,7 +39,7 @@ export function MarketingConfigPanel({ shopId, shopName, initialConfig }: Props)
         });
         toast(`Configuración guardada — ${shopName}`);
       } catch {
-        toast("Error al guardar", "destructive");
+        toast("Error al guardar", "error");
       }
     });
   }

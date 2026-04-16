@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -28,6 +29,13 @@ class InventoryItemRead(BaseModel):
     location: str | None = None
     notes: str | None = None
     is_active: bool
+    primary_supplier_id: int | None = None
+    cost_price: Decimal | None = None
+    lead_time_days: int | None = None
+    replenishment_auto_enabled: bool = False
+    target_days_of_cover: int = 30
+    safety_stock_days: int = 7
+    consumption_lookback_days: int = 60
     created_at: datetime
     updated_at: datetime
 
@@ -54,6 +62,13 @@ class InventoryItemUpdate(BaseModel):
     location: str | None = None
     notes: str | None = None
     is_active: bool | None = None
+    primary_supplier_id: int | None = None
+    cost_price: Decimal | None = None
+    lead_time_days: int | None = None
+    replenishment_auto_enabled: bool | None = None
+    target_days_of_cover: int | None = None
+    safety_stock_days: int | None = None
+    consumption_lookback_days: int | None = None
 
 
 # ---------------------------------------------------------------------------

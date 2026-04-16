@@ -9,6 +9,7 @@ import {
   syncInventoryFromCatalog,
   syncInventoryFromShopify,
   updateInboundShipment,
+  updateInventoryItemClient,
   type CatalogSyncResult,
   type ShopifyInventorySyncResult,
 } from "@/lib/api-client";
@@ -16,13 +17,16 @@ import type {
   InventoryItem,
   InboundShipment,
   InboundShipmentLine,
+  ReplenishmentRecommendation,
   StockMovement,
   StockMovementType,
+  Supplier,
 } from "@/lib/types";
+import { ReplenishmentTab } from "@/components/replenishment-tab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = "resumen" | "skus" | "entradas" | "movimientos";
+type Tab = "resumen" | "skus" | "reposicion" | "entradas" | "movimientos";
 
 type SyncStatusEntry = {
   shop_id: number;
@@ -42,6 +46,9 @@ type AdminInventoryPanelProps = {
   /** When set, "Sincronizar desde catálogo" uses this shop_id */
   shopId?: number;
   syncStatus?: SyncStatusEntry[];
+  recommendations?: ReplenishmentRecommendation[];
+  suppliers?: Supplier[];
+  hasMultipleShops?: boolean;
 };
 
 type AdjustState = {
@@ -285,6 +292,212 @@ function AdjustForm({
         </button>
       </div>
     </form>
+  );
+}
+
+// ── SKU Config Form (replenishment) ─────────────────────────────────────────
+
+function ConfigForm({
+  item,
+  suppliers,
+  onDone,
+}: {
+  item: InventoryItem;
+  suppliers: Supplier[];
+  onDone: (updated: InventoryItem | null) => void;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const [primarySupplierId, setPrimarySupplierId] = useState<string>(
+    item.primary_supplier_id != null ? String(item.primary_supplier_id) : "",
+  );
+  const [costPrice, setCostPrice] = useState<string>(item.cost_price ?? "");
+  const [leadTimeDays, setLeadTimeDays] = useState<string>(
+    item.lead_time_days != null ? String(item.lead_time_days) : "",
+  );
+  const [reorderPoint, setReorderPoint] = useState<string>(
+    item.reorder_point != null ? String(item.reorder_point) : "",
+  );
+  const [reorderQty, setReorderQty] = useState<string>(
+    item.reorder_qty != null ? String(item.reorder_qty) : "",
+  );
+  const [targetDays, setTargetDays] = useState<string>(
+    String(item.target_days_of_cover ?? 30),
+  );
+  const [safetyStockDays, setSafetyStockDays] = useState<string>(
+    String(item.safety_stock_days ?? 7),
+  );
+  const [lookbackDays, setLookbackDays] = useState<string>(
+    String(item.consumption_lookback_days ?? 60),
+  );
+  const [autoEnabled, setAutoEnabled] = useState<boolean>(
+    item.replenishment_auto_enabled,
+  );
+
+  const itemShopSuppliers = suppliers.filter((s) => s.shop_id === item.shop_id);
+
+  function handleSave() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const payload = {
+          primary_supplier_id: primarySupplierId
+            ? Number(primarySupplierId)
+            : null,
+          cost_price: costPrice.trim() || null,
+          lead_time_days: leadTimeDays.trim()
+            ? Number(leadTimeDays)
+            : null,
+          reorder_point: reorderPoint.trim()
+            ? Number(reorderPoint)
+            : null,
+          reorder_qty: reorderQty.trim() ? Number(reorderQty) : null,
+          target_days_of_cover: Number(targetDays) || 30,
+          safety_stock_days: Number(safetyStockDays) || 7,
+          consumption_lookback_days: Number(lookbackDays) || 60,
+          replenishment_auto_enabled: autoEnabled,
+        };
+        const updated = await updateInventoryItemClient(item.id, payload);
+        onDone(updated);
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Error al guardar");
+      }
+    });
+  }
+
+  return (
+    <div className="stack" style={{ gap: 12 }}>
+      <div className="invoice-form-grid">
+        <div className="form-field">
+          <label className="form-label">Proveedor principal</label>
+          <select
+            className="form-input form-select"
+            onChange={(e) => setPrimarySupplierId(e.target.value)}
+            value={primarySupplierId}
+          >
+            <option value="">— Sin proveedor —</option>
+            {itemShopSuppliers.map((s) => (
+              <option key={s.id} value={String(s.id)}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-field">
+          <label className="form-label">Precio de compra</label>
+          <input
+            className="form-input"
+            min="0"
+            onChange={(e) => setCostPrice(e.target.value)}
+            step="0.01"
+            type="number"
+            value={costPrice}
+          />
+        </div>
+        <div className="form-field">
+          <label className="form-label">Plazo de entrega (días)</label>
+          <input
+            className="form-input"
+            min="0"
+            onChange={(e) => setLeadTimeDays(e.target.value)}
+            placeholder="Usa el del proveedor si vacío"
+            type="number"
+            value={leadTimeDays}
+          />
+        </div>
+        <div className="form-field">
+          <label className="form-label">Punto de reposición</label>
+          <input
+            className="form-input"
+            min="0"
+            onChange={(e) => setReorderPoint(e.target.value)}
+            placeholder="Auto si vacío"
+            type="number"
+            value={reorderPoint}
+          />
+        </div>
+        <div className="form-field">
+          <label className="form-label">Cant. de reposición</label>
+          <input
+            className="form-input"
+            min="0"
+            onChange={(e) => setReorderQty(e.target.value)}
+            type="number"
+            value={reorderQty}
+          />
+        </div>
+        <div className="form-field">
+          <label className="form-label">Días de cobertura objetivo</label>
+          <input
+            className="form-input"
+            min="1"
+            onChange={(e) => setTargetDays(e.target.value)}
+            type="number"
+            value={targetDays}
+          />
+        </div>
+        <div className="form-field">
+          <label className="form-label">Stock de seguridad (días)</label>
+          <input
+            className="form-input"
+            min="0"
+            onChange={(e) => setSafetyStockDays(e.target.value)}
+            type="number"
+            value={safetyStockDays}
+          />
+        </div>
+        <div className="form-field">
+          <label className="form-label">Ventana de consumo (días)</label>
+          <input
+            className="form-input"
+            min="7"
+            onChange={(e) => setLookbackDays(e.target.value)}
+            type="number"
+            value={lookbackDays}
+          />
+        </div>
+        <div className="form-field invoice-form-full">
+          <label
+            className="form-label"
+            style={{ display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <input
+              checked={autoEnabled}
+              onChange={(e) => setAutoEnabled(e.target.checked)}
+              type="checkbox"
+            />
+            <span>Generar órdenes de compra automáticamente</span>
+          </label>
+        </div>
+      </div>
+
+      {error && (
+        <p className="form-error" style={{ margin: 0 }}>
+          {error}
+        </p>
+      )}
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          className="button-primary"
+          disabled={isPending}
+          onClick={handleSave}
+          type="button"
+        >
+          {isPending ? "Guardando…" : "Guardar configuración"}
+        </button>
+        <button
+          className="button-secondary"
+          onClick={() => onDone(null)}
+          type="button"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -698,12 +911,16 @@ export function AdminInventoryPanel({
   isAdmin,
   shopId,
   syncStatus = [],
+  recommendations = [],
+  suppliers = [],
+  hasMultipleShops = false,
 }: AdminInventoryPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("resumen");
   const [items, setItems] = useState<InventoryItem[]>(initialItems);
   const [shipments, setShipments] = useState<InboundShipment[]>(initialShipments);
   const [skuSearch, setSkuSearch] = useState("");
   const [adjustingId, setAdjustingId] = useState<number | null>(null);
+  const [configingId, setConfigingId] = useState<number | null>(null);
   const [catalogSyncResult, setCatalogSyncResult] = useState<CatalogSyncResult | null>(null);
   const [isSyncingCatalog, startCatalogSync] = useTransition();
   const [shopifySyncResult, setShopifySyncResult] = useState<ShopifyInventorySyncResult | null>(null);
@@ -739,6 +956,15 @@ export function AdminInventoryPanel({
     setAdjustingId(null);
   }, []);
 
+  const handleConfigDone = useCallback((updated: InventoryItem | null) => {
+    if (updated) {
+      setItems((prev) =>
+        prev.map((it) => (it.id === updated.id ? updated : it))
+      );
+    }
+    setConfigingId(null);
+  }, []);
+
   // ── Entradas tab ─────────────────────────────────────────────────────────────
 
   const handleShipmentReceived = useCallback((updated: InboundShipment) => {
@@ -757,6 +983,13 @@ export function AdminInventoryPanel({
           [
             { id: "resumen", label: "Resumen" },
             { id: "skus", label: "SKUs" },
+            {
+              id: "reposicion",
+              label:
+                recommendations.length > 0
+                  ? `Reposición (${recommendations.length})`
+                  : "Reposición",
+            },
             { id: "entradas", label: "Entradas" },
             { id: "movimientos", label: "Movimientos" },
           ] as { id: Tab; label: string }[]
@@ -1130,6 +1363,7 @@ export function AdminInventoryPanel({
                       item.reorder_point != null &&
                       item.stock_on_hand <= item.reorder_point;
                     const isAdjusting = adjustingId === item.id;
+                    const isConfiging = configingId === item.id;
 
                     return (
                       <>
@@ -1168,16 +1402,39 @@ export function AdminInventoryPanel({
                           </td>
                           <td>
                             {isAdmin && (
-                              <button
-                                className="button-secondary"
-                                onClick={() =>
-                                  setAdjustingId(isAdjusting ? null : item.id)
-                                }
-                                style={{ fontSize: 12, padding: "2px 10px" }}
-                                type="button"
-                              >
-                                {isAdjusting ? "Cerrar" : "Ajustar"}
-                              </button>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button
+                                  className="button-secondary"
+                                  onClick={() => {
+                                    setAdjustingId(isAdjusting ? null : item.id);
+                                    setConfigingId(null);
+                                  }}
+                                  style={{ fontSize: 12, padding: "2px 10px" }}
+                                  type="button"
+                                >
+                                  {isAdjusting ? "Cerrar" : "Ajustar"}
+                                </button>
+                                <button
+                                  className="button-secondary"
+                                  onClick={() => {
+                                    setConfigingId(isConfiging ? null : item.id);
+                                    setAdjustingId(null);
+                                  }}
+                                  style={{ fontSize: 12, padding: "2px 10px" }}
+                                  title={
+                                    item.replenishment_auto_enabled
+                                      ? "Auto-reposición activa"
+                                      : "Configurar reposición"
+                                  }
+                                  type="button"
+                                >
+                                  {isConfiging
+                                    ? "Cerrar"
+                                    : item.replenishment_auto_enabled
+                                      ? "Config ✓"
+                                      : "Config"}
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -1195,6 +1452,21 @@ export function AdminInventoryPanel({
                             </td>
                           </tr>
                         )}
+
+                        {isConfiging && (
+                          <tr key={`cfg-${item.id}`}>
+                            <td
+                              colSpan={9}
+                              style={{ background: "var(--surface)", padding: "12px 16px" }}
+                            >
+                              <ConfigForm
+                                item={item}
+                                onDone={handleConfigDone}
+                                suppliers={suppliers}
+                              />
+                            </td>
+                          </tr>
+                        )}
                       </>
                     );
                   })}
@@ -1203,6 +1475,15 @@ export function AdminInventoryPanel({
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Tab: Reposición ──────────────────────────────────────────────────── */}
+      {activeTab === "reposicion" && (
+        <ReplenishmentTab
+          hasMultipleShops={hasMultipleShops}
+          recommendations={recommendations}
+          shopId={shopId}
+        />
       )}
 
       {/* ── Tab: Entradas ────────────────────────────────────────────────────── */}

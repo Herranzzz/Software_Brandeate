@@ -7,7 +7,9 @@ import {
   fetchStockMovements,
   fetchInventoryAlerts,
   fetchInventorySyncStatus,
+  fetchReplenishmentRecommendations,
   fetchShops,
+  fetchSuppliers,
 } from "@/lib/api";
 
 type AdminInventarioPageProps = {
@@ -28,6 +30,8 @@ export default async function AdminInventarioPage({
     alertsResult,
     shopsResult,
     syncStatusResult,
+    suppliersResult,
+    recommendationsResult,
   ] = await Promise.allSettled([
     fetchInventoryItems({ shop_id: shopId, per_page: 200 }),
     fetchInboundShipments({ shop_id: shopId, per_page: 50 }),
@@ -35,6 +39,14 @@ export default async function AdminInventarioPage({
     fetchInventoryAlerts({ shop_id: shopId }),
     fetchShops(),
     fetchInventorySyncStatus(),
+    fetchSuppliers({ shop_id: shopId, per_page: 500 }),
+    shopId
+      ? fetchReplenishmentRecommendations(shopId)
+      : Promise.resolve({
+          recommendations: [],
+          total: 0,
+          shop_id: null,
+        }),
   ]);
 
   const items =
@@ -53,6 +65,14 @@ export default async function AdminInventarioPage({
     shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const syncStatus =
     syncStatusResult.status === "fulfilled" ? syncStatusResult.value : [];
+  const suppliers =
+    suppliersResult.status === "fulfilled"
+      ? suppliersResult.value.suppliers
+      : [];
+  const recommendations =
+    recommendationsResult.status === "fulfilled"
+      ? recommendationsResult.value.recommendations
+      : [];
 
   return (
     <div className="stack">
@@ -84,11 +104,14 @@ export default async function AdminInventarioPage({
 
       <AdminInventoryPanel
         alerts={alerts}
+        hasMultipleShops={shops.length > 1}
         inboundShipments={inboundShipments}
         isAdmin={true}
         items={items}
         movements={movements}
+        recommendations={recommendations}
         shopId={shopId}
+        suppliers={suppliers}
         syncStatus={syncStatus}
       />
     </div>

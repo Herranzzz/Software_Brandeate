@@ -7,6 +7,7 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.services.ctt_tracking_scheduler import scheduler as ctt_tracking_scheduler
 from app.services.email_flow_scheduler import start as email_flow_start, stop as email_flow_stop
+from app.services.replenishment_scheduler import start as replenishment_start, stop as replenishment_stop
 from app.services.shopify_scheduler import scheduler
 
 
@@ -16,10 +17,12 @@ async def lifespan(_app: FastAPI):
         scheduler.start()
         ctt_tracking_scheduler.start()
         email_flow_start()
+        replenishment_start()
     try:
         yield
     finally:
         if not get_settings().disable_scheduler:
+            replenishment_stop()
             email_flow_stop()
             ctt_tracking_scheduler.stop()
             scheduler.stop()

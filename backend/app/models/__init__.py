@@ -3,6 +3,8 @@ from app.models.email_flow import EmailFlow, EmailFlowLog, EmailFlowLogStatus, E
 from app.models.automation_event import AutomationActionType, AutomationEntityType, AutomationEvent
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus
 from app.models.inventory import InventoryItem, InboundShipment, InboundShipmentLine, StockMovement
+from app.models.supplier import Supplier, SupplierProduct
+from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus
 from app.models.return_ import Return, ReturnReason, ReturnStatus
 from app.models.incident import Incident, IncidentPriority, IncidentStatus, IncidentType
 from app.models.order import DesignStatus, DeliveryType, Order, OrderItem, OrderPriority, OrderStatus, ProductionStatus
@@ -29,6 +31,11 @@ __all__ = [
     "InboundShipment",
     "InboundShipmentLine",
     "StockMovement",
+    "Supplier",
+    "SupplierProduct",
+    "PurchaseOrder",
+    "PurchaseOrderLine",
+    "PurchaseOrderStatus",
     "Return",
     "ReturnReason",
     "ReturnStatus",

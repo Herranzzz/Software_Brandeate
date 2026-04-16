@@ -10,6 +10,11 @@ import type {
   InventoryItem,
   InboundShipment,
   InboundShipmentLine,
+  Supplier,
+  SupplierProduct,
+  PurchaseOrder,
+  PurchaseOrderStatus,
+  ReplenishmentGenerateResponse,
 } from "@/lib/types";
 
 export type CatalogSyncResult = {
@@ -48,6 +53,32 @@ export async function adjustInventoryStock(
 ): Promise<InventoryItem> {
   const res = await fetch(`/api/inventory/items/${id}/adjust`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return parseClientResponse<InventoryItem>(res);
+}
+
+export async function updateInventoryItemClient(
+  id: number,
+  data: Partial<{
+    name: string;
+    reorder_point: number | null;
+    reorder_qty: number | null;
+    location: string | null;
+    notes: string | null;
+    is_active: boolean;
+    primary_supplier_id: number | null;
+    cost_price: string | number | null;
+    lead_time_days: number | null;
+    replenishment_auto_enabled: boolean;
+    target_days_of_cover: number;
+    safety_stock_days: number;
+    consumption_lookback_days: number;
+  }>,
+): Promise<InventoryItem> {
+  const res = await fetch(`/api/inventory/items/${id}`, {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
@@ -166,4 +197,176 @@ export async function syncInventoryFromShopify(
     : `/api/inventory/sync-from-shopify`;
   const res = await fetch(url, { method: "POST" });
   return parseClientResponse<ShopifyInventorySyncResult>(res);
+}
+
+// ── SGA / Suppliers ───────────────────────────────────────────────────────────
+
+export async function createSupplierClient(payload: {
+  shop_id: number;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  contact_name?: string | null;
+  lead_time_days?: number;
+  currency?: string;
+  notes?: string | null;
+  [k: string]: unknown;
+}): Promise<Supplier> {
+  const res = await fetch("/api/suppliers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseClientResponse<Supplier>(res);
+}
+
+export async function updateSupplierClient(
+  id: number,
+  payload: Partial<Supplier>,
+): Promise<Supplier> {
+  const res = await fetch(`/api/suppliers/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseClientResponse<Supplier>(res);
+}
+
+export async function deleteSupplierClient(id: number): Promise<void> {
+  const res = await fetch(`/api/suppliers/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`Failed to delete supplier (${res.status})`);
+  }
+}
+
+export async function createSupplierProductClient(
+  supplierId: number,
+  payload: {
+    supplier_id: number;
+    inventory_item_id: number;
+    cost_price?: string | number | null;
+    supplier_sku?: string | null;
+    moq?: number;
+    pack_size?: number;
+    is_primary?: boolean;
+  },
+): Promise<SupplierProduct> {
+  const res = await fetch(`/api/suppliers/${supplierId}/products`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseClientResponse<SupplierProduct>(res);
+}
+
+export async function updateSupplierProductClient(
+  supplierId: number,
+  productId: number,
+  payload: Partial<SupplierProduct>,
+): Promise<SupplierProduct> {
+  const res = await fetch(`/api/suppliers/${supplierId}/products/${productId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseClientResponse<SupplierProduct>(res);
+}
+
+export async function deleteSupplierProductClient(
+  supplierId: number,
+  productId: number,
+): Promise<void> {
+  const res = await fetch(`/api/suppliers/${supplierId}/products/${productId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`Failed to delete (${res.status})`);
+  }
+}
+
+// ── SGA / Purchase Orders ─────────────────────────────────────────────────────
+
+export async function createPurchaseOrderClient(payload: {
+  shop_id: number;
+  supplier_id: number;
+  expected_arrival_date?: string | null;
+  notes?: string | null;
+  lines: Array<{
+    inventory_item_id?: number | null;
+    sku: string;
+    name?: string | null;
+    quantity_ordered: number;
+    unit_cost: string | number;
+  }>;
+}): Promise<PurchaseOrder> {
+  const res = await fetch("/api/purchase-orders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseClientResponse<PurchaseOrder>(res);
+}
+
+export async function updatePurchaseOrderClient(
+  id: number,
+  payload: Partial<PurchaseOrder>,
+): Promise<PurchaseOrder> {
+  const res = await fetch(`/api/purchase-orders/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseClientResponse<PurchaseOrder>(res);
+}
+
+export async function deletePurchaseOrderClient(id: number): Promise<void> {
+  const res = await fetch(`/api/purchase-orders/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`Failed to delete (${res.status})`);
+  }
+}
+
+export async function transitionPurchaseOrderStatusClient(
+  id: number,
+  status: PurchaseOrderStatus,
+  notes?: string,
+): Promise<PurchaseOrder> {
+  const res = await fetch(`/api/purchase-orders/${id}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, notes }),
+  });
+  return parseClientResponse<PurchaseOrder>(res);
+}
+
+export async function receivePurchaseOrderClient(
+  id: number,
+  payload: {
+    lines: Array<{ line_id: number; quantity_received: number }>;
+    notes?: string | null;
+  },
+): Promise<PurchaseOrder> {
+  const res = await fetch(`/api/purchase-orders/${id}/receive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseClientResponse<PurchaseOrder>(res);
+}
+
+// ── SGA / Replenishment ───────────────────────────────────────────────────────
+
+export async function generateReplenishmentPOsClient(
+  shopId: number,
+  inventoryItemIds?: number[],
+): Promise<ReplenishmentGenerateResponse> {
+  const res = await fetch("/api/replenishment/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      shop_id: shopId,
+      inventory_item_ids: inventoryItemIds ?? null,
+    }),
+  });
+  return parseClientResponse<ReplenishmentGenerateResponse>(res);
 }

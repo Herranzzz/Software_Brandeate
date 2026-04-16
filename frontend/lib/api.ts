@@ -31,6 +31,15 @@ import type {
   CarrierInfo,
   CarrierConfig,
   EmailFlow,
+  Supplier,
+  SupplierListResponse,
+  SupplierProduct,
+  SupplierProductListResponse,
+  PurchaseOrder,
+  PurchaseOrderListResponse,
+  PurchaseOrderStatus,
+  ReplenishmentRecommendationsResponse,
+  ReplenishmentGenerateResponse,
 } from "@/lib/types";
 
 
@@ -707,6 +716,13 @@ export async function updateInventoryItem(
     location: string | null;
     notes: string | null;
     is_active: boolean;
+    primary_supplier_id: number | null;
+    cost_price: string | number | null;
+    lead_time_days: number | null;
+    replenishment_auto_enabled: boolean;
+    target_days_of_cover: number;
+    safety_stock_days: number;
+    consumption_lookback_days: number;
   }>
 ): Promise<InventoryItem> {
   const headers = await buildAuthHeaders();
@@ -1083,4 +1099,226 @@ export async function fetchEmailFlows(shopId: number): Promise<EmailFlow[]> {
   const headers = await buildAuthHeaders();
   const res = await fetch(apiUrl(`/email-flows?shop_id=${shopId}`), { headers, cache: "no-store" });
   return parseResponse<EmailFlow[]>(res);
+}
+
+
+/* ─── SGA / Suppliers ─────────────────────────────────────────────────────── */
+
+export async function fetchSuppliers(params?: {
+  shop_id?: number;
+  is_active?: boolean;
+  page?: number;
+  per_page?: number;
+}): Promise<SupplierListResponse> {
+  const query = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) query.append(k, String(v));
+    });
+  }
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/suppliers?${query}`), { headers, cache: "no-store" });
+  return parseResponse<SupplierListResponse>(res);
+}
+
+export async function fetchSupplier(id: number): Promise<Supplier> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/suppliers/${id}`), { headers, cache: "no-store" });
+  return parseResponse<Supplier>(res);
+}
+
+export async function createSupplier(payload: Partial<Supplier> & { shop_id: number; name: string }): Promise<Supplier> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/suppliers`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<Supplier>(res);
+}
+
+export async function updateSupplier(id: number, payload: Partial<Supplier>): Promise<Supplier> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/suppliers/${id}`), {
+    method: "PATCH",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<Supplier>(res);
+}
+
+export async function deleteSupplier(id: number): Promise<void> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/suppliers/${id}`), { method: "DELETE", headers });
+  if (!res.ok) throw new Error(`Failed to delete supplier: ${res.status}`);
+}
+
+export async function fetchSupplierProducts(supplierId: number): Promise<SupplierProductListResponse> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/suppliers/${supplierId}/products`), { headers, cache: "no-store" });
+  return parseResponse<SupplierProductListResponse>(res);
+}
+
+export async function createSupplierProduct(
+  supplierId: number,
+  payload: Partial<SupplierProduct> & { supplier_id: number; inventory_item_id: number }
+): Promise<SupplierProduct> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/suppliers/${supplierId}/products`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<SupplierProduct>(res);
+}
+
+export async function updateSupplierProduct(
+  supplierId: number,
+  productId: number,
+  payload: Partial<SupplierProduct>
+): Promise<SupplierProduct> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/suppliers/${supplierId}/products/${productId}`), {
+    method: "PATCH",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<SupplierProduct>(res);
+}
+
+export async function deleteSupplierProduct(supplierId: number, productId: number): Promise<void> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/suppliers/${supplierId}/products/${productId}`), {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) throw new Error(`Failed to delete supplier product: ${res.status}`);
+}
+
+
+/* ─── SGA / Purchase Orders ───────────────────────────────────────────────── */
+
+export async function fetchPurchaseOrders(params?: {
+  shop_id?: number;
+  supplier_id?: number;
+  status?: PurchaseOrderStatus;
+  page?: number;
+  per_page?: number;
+}): Promise<PurchaseOrderListResponse> {
+  const query = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) query.append(k, String(v));
+    });
+  }
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/purchase-orders?${query}`), { headers, cache: "no-store" });
+  return parseResponse<PurchaseOrderListResponse>(res);
+}
+
+export async function fetchPurchaseOrder(id: number): Promise<PurchaseOrder> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/purchase-orders/${id}`), { headers, cache: "no-store" });
+  return parseResponse<PurchaseOrder>(res);
+}
+
+export async function createPurchaseOrder(payload: {
+  shop_id: number;
+  supplier_id: number;
+  expected_arrival_date?: string | null;
+  notes?: string | null;
+  supplier_reference?: string | null;
+  currency?: string;
+  tax_amount?: string | number;
+  shipping_cost?: string | number;
+  lines: Array<{
+    inventory_item_id?: number | null;
+    sku: string;
+    name?: string | null;
+    supplier_sku?: string | null;
+    quantity_ordered: number;
+    unit_cost: string | number;
+    notes?: string | null;
+  }>;
+}): Promise<PurchaseOrder> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/purchase-orders`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<PurchaseOrder>(res);
+}
+
+export async function updatePurchaseOrder(id: number, payload: Partial<PurchaseOrder>): Promise<PurchaseOrder> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/purchase-orders/${id}`), {
+    method: "PATCH",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<PurchaseOrder>(res);
+}
+
+export async function deletePurchaseOrder(id: number): Promise<void> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/purchase-orders/${id}`), { method: "DELETE", headers });
+  if (!res.ok) throw new Error(`Failed to delete purchase order: ${res.status}`);
+}
+
+export async function transitionPurchaseOrderStatus(
+  id: number,
+  status: PurchaseOrderStatus,
+  notes?: string
+): Promise<PurchaseOrder> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/purchase-orders/${id}/status`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ status, notes }),
+  });
+  return parseResponse<PurchaseOrder>(res);
+}
+
+export async function receivePurchaseOrder(
+  id: number,
+  payload: { lines: Array<{ line_id: number; quantity_received: number }>; notes?: string | null }
+): Promise<PurchaseOrder> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/purchase-orders/${id}/receive`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse<PurchaseOrder>(res);
+}
+
+
+/* ─── SGA / Replenishment ─────────────────────────────────────────────────── */
+
+export async function fetchReplenishmentRecommendations(
+  shopId: number
+): Promise<ReplenishmentRecommendationsResponse> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(
+    apiUrl(`/replenishment/recommendations?shop_id=${shopId}`),
+    { headers, cache: "no-store" }
+  );
+  return parseResponse<ReplenishmentRecommendationsResponse>(res);
+}
+
+export async function generateReplenishmentPOs(
+  shopId: number,
+  inventoryItemIds?: number[]
+): Promise<ReplenishmentGenerateResponse> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/replenishment/generate`), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      shop_id: shopId,
+      inventory_item_ids: inventoryItemIds ?? null,
+    }),
+  });
+  return parseResponse<ReplenishmentGenerateResponse>(res);
 }

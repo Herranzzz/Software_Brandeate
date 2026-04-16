@@ -798,6 +798,13 @@ export type InventoryItem = {
   location: string | null;
   notes: string | null;
   is_active: boolean;
+  primary_supplier_id: number | null;
+  cost_price: string | null; // Decimal as string
+  lead_time_days: number | null;
+  replenishment_auto_enabled: boolean;
+  target_days_of_cover: number;
+  safety_stock_days: number;
+  consumption_lookback_days: number;
   created_at: string;
   updated_at: string;
 };
@@ -881,6 +888,159 @@ export type StockMovementListResponse = {
 export type InventoryAlertsRead = {
   items: InventoryItem[];
   total: number;
+};
+
+// ── SGA / Suppliers & Purchase Orders ────────────────────────────────────────
+
+export type Supplier = {
+  id: number;
+  shop_id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  contact_name: string | null;
+  website: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  province: string | null;
+  postal_code: string | null;
+  country_code: string | null;
+  tax_id: string | null;
+  lead_time_days: number;
+  payment_terms: string | null;
+  currency: string;
+  minimum_order_value: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  products_count: number;
+};
+
+export type SupplierListResponse = {
+  suppliers: Supplier[];
+  total: number;
+};
+
+export type SupplierProduct = {
+  id: number;
+  supplier_id: number;
+  inventory_item_id: number;
+  inventory_item_sku: string | null;
+  inventory_item_name: string | null;
+  supplier_name: string | null;
+  supplier_sku: string | null;
+  cost_price: string | null;
+  currency: string;
+  moq: number;
+  pack_size: number;
+  lead_time_days_override: number | null;
+  is_primary: boolean;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SupplierProductListResponse = {
+  products: SupplierProduct[];
+  total: number;
+};
+
+export type PurchaseOrderStatus =
+  | "draft"
+  | "sent"
+  | "confirmed"
+  | "partially_received"
+  | "received"
+  | "cancelled";
+
+export type PurchaseOrderLine = {
+  id: number;
+  purchase_order_id: number;
+  inventory_item_id: number | null;
+  sku: string;
+  name: string | null;
+  supplier_sku: string | null;
+  quantity_ordered: number;
+  quantity_received: number;
+  quantity_cancelled: number;
+  unit_cost: string;
+  total_cost: string;
+  notes: string | null;
+};
+
+export type PurchaseOrder = {
+  id: number;
+  shop_id: number;
+  supplier_id: number;
+  supplier_name: string | null;
+  po_number: string;
+  status: PurchaseOrderStatus;
+  expected_arrival_date: string | null;
+  sent_at: string | null;
+  confirmed_at: string | null;
+  first_received_at: string | null;
+  fully_received_at: string | null;
+  cancelled_at: string | null;
+  subtotal: string;
+  tax_amount: string;
+  shipping_cost: string;
+  total: string;
+  currency: string;
+  notes: string | null;
+  supplier_reference: string | null;
+  created_by_user_id: number | null;
+  inbound_shipment_id: number | null;
+  auto_generated: boolean;
+  created_at: string;
+  updated_at: string;
+  lines: PurchaseOrderLine[];
+  total_quantity_ordered: number;
+  total_quantity_received: number;
+};
+
+export type PurchaseOrderListResponse = {
+  purchase_orders: PurchaseOrder[];
+  total: number;
+};
+
+export type ReplenishmentUrgency = "critical" | "high" | "medium" | "low";
+
+export type ReplenishmentRecommendation = {
+  inventory_item_id: number;
+  shop_id: number;
+  sku: string;
+  name: string;
+  stock_on_hand: number;
+  stock_reserved: number;
+  stock_available: number;
+  reorder_point: number | null;
+  computed_reorder_point: number;
+  daily_consumption_rate: number;
+  days_of_cover_remaining: number | null;
+  suggested_order_qty: number;
+  primary_supplier_id: number | null;
+  primary_supplier_name: string | null;
+  cost_price: string | null;
+  lead_time_days: number;
+  urgency: ReplenishmentUrgency;
+  reason: string;
+};
+
+export type ReplenishmentRecommendationsResponse = {
+  recommendations: ReplenishmentRecommendation[];
+  total: number;
+  shop_id: number | null;
+};
+
+export type ReplenishmentGenerateResponse = {
+  purchase_orders_created: number;
+  purchase_order_ids: number[];
+  items_skipped_no_supplier: number;
+  items_no_consumption: number;
+  total_items_evaluated: number;
 };
 
 /* ─── Invoices ────────────────────────────────────────────────────────────── */
