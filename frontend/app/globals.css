@@ -12457,6 +12457,22 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   transform: translateY(-2px);
 }
 
+/* Clickable KPI card (rendered as <a>) */
+.exp-kpi-card-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+.exp-kpi-card-link:hover {
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,.12));
+  transform: translateY(-3px);
+  border-color: var(--border-strong);
+}
+.exp-kpi-card-link:hover .exp-kpi-label {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* Rounded square icon — top-right, app-icon style */
 .exp-kpi-icon {
   grid-area: icon;

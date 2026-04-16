@@ -287,9 +287,9 @@ export default async function PortalPage({ searchParams }: PortalPageProps) {
       incidentsLinkLabel="Ver incidencias"
       incidentsTitle="Incidencias recientes"
       kpis={[
-        { label: "📦 Pedidos entrantes", value: String(analytics?.kpis.total_orders ?? orders.length), delta: `${pendingOrders} pendientes`, tone: "accent" },
-        { label: "⚠️ Incidencias abiertas", value: String(openIncidents), delta: `${urgentIncidents} prioritarias`, tone: "danger" },
-        { label: "🚚 Enviados", value: String(shippedOrders), delta: `${withShipment} con tracking`, tone: "default" },
+        { label: "📦 Pedidos entrantes", value: String(analytics?.kpis.total_orders ?? orders.length), delta: `${pendingOrders} pendientes`, tone: "accent", href: `/portal/orders${shopQuery}` },
+        { label: "⚠️ Incidencias abiertas", value: String(openIncidents), delta: `${urgentIncidents} prioritarias`, tone: "danger", href: incidentsLinkHref },
+        { label: "🚚 Enviados", value: String(shippedOrders), delta: "en el periodo seleccionado", tone: "default", href: `/portal/orders${shopQuery}` },
         { label: "🏪 Tiendas activas", value: String(tenantScope.shops.length), delta: tenantScope.shops.length > 1 ? "alcance de tu cuenta" : "cuenta actual", tone: "success" },
       ]}
       noteActions={

@@ -406,12 +406,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       incidentsLinkLabel="Ver incidencias"
       incidentsTitle="Incidencias recientes"
       kpis={[
-        { label: "Pendientes",           value: String(pendingOrders),     delta: "esperando revisión",              tone: "accent",  emoji: "⏳" },
-        { label: "Listos para enviar",   value: String(readyToShipOrders), delta: "esperando recogida",              tone: "warning", emoji: "📦" },
-        { label: "Enviados",             value: String(shippedOrders),     delta: `${withShipment} con tracking`,    tone: "blue",    emoji: "🚚" },
-        { label: "Entregados",           value: String(deliveredOrders),   delta: "ciclo cerrado",                   tone: "success", emoji: "✅" },
-        { label: "Incidencias abiertas", value: String(openIncidents),     delta: `${urgentIncidents} prioritarias`, tone: "danger",  emoji: "🚨" },
-        ...(blockedOrders > 0 ? [{ label: "Bloqueados", value: String(blockedOrders), delta: "pedidos retenidos", tone: "danger" as const, emoji: "🔒" }] : []),
+        { label: "Pendientes",           value: String(pendingOrders),     delta: "sin etiqueta aún",                tone: "accent",  emoji: "⏳", href: params.shop_id ? `/orders?quick=not_prepared&shop_id=${params.shop_id}` : "/orders?quick=not_prepared" },
+        { label: "Listos para enviar",   value: String(readyToShipOrders), delta: "etiquetados, esperando recogida", tone: "warning", emoji: "📦", href: params.shop_id ? `/orders?quick=prepared&shop_id=${params.shop_id}` : "/orders?quick=prepared" },
+        { label: "Enviados",             value: String(shippedOrders),     delta: "en el periodo seleccionado",      tone: "blue",    emoji: "🚚", href: params.shop_id ? `/orders?status=shipped&shop_id=${params.shop_id}` : "/orders?status=shipped" },
+        { label: "Entregados",           value: String(deliveredOrders),   delta: "en el periodo seleccionado",      tone: "success", emoji: "✅", href: params.shop_id ? `/orders?status=delivered&shop_id=${params.shop_id}` : "/orders?status=delivered" },
+        { label: "Incidencias abiertas", value: String(openIncidents),     delta: `${urgentIncidents} prioritarias`, tone: "danger",  emoji: "🚨", href: incidentsLinkHref },
+        ...(blockedOrders > 0 ? [{ label: "Bloqueados", value: String(blockedOrders), delta: "pedidos retenidos", tone: "danger" as const, emoji: "🔒", href: "/orders?quick=has_incident" }] : []),
       ]}
       noteActions={
         <>

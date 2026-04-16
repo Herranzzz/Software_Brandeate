@@ -13,6 +13,7 @@ type DashboardKpi = {
   delta: string;
   tone: DashboardTone;
   emoji?: string;
+  href?: string;
 };
 
 type DashboardChartPoint = {
@@ -199,14 +200,27 @@ export function SharedDashboardView({
 
       {/* ── KPI strip ────────────────────────────────────────── */}
       <section className="dash-kpi-strip">
-        {kpis.map((item) => (
-          <article className={`exp-kpi-card ${KPI_COLOR_MAP[item.tone]}`} key={item.label}>
-            <span className="exp-kpi-label">{item.label}</span>
-            {item.emoji && <div className="exp-kpi-icon">{item.emoji}</div>}
-            <strong className="exp-kpi-value">{item.value}</strong>
-            <small className="exp-kpi-hint">{item.delta}</small>
-          </article>
-        ))}
+        {kpis.map((item) =>
+          item.href ? (
+            <Link
+              className={`exp-kpi-card exp-kpi-card-link ${KPI_COLOR_MAP[item.tone]}`}
+              href={item.href}
+              key={item.label}
+            >
+              <span className="exp-kpi-label">{item.label}</span>
+              {item.emoji && <div className="exp-kpi-icon">{item.emoji}</div>}
+              <strong className="exp-kpi-value">{item.value}</strong>
+              <small className="exp-kpi-hint">{item.delta}</small>
+            </Link>
+          ) : (
+            <article className={`exp-kpi-card ${KPI_COLOR_MAP[item.tone]}`} key={item.label}>
+              <span className="exp-kpi-label">{item.label}</span>
+              {item.emoji && <div className="exp-kpi-icon">{item.emoji}</div>}
+              <strong className="exp-kpi-value">{item.value}</strong>
+              <small className="exp-kpi-hint">{item.delta}</small>
+            </article>
+          )
+        )}
       </section>
 
       {/* ── 2-col: donut + chart ─────────────────────────────── */}
