@@ -1,4 +1,5 @@
 from app.models.activity_log import ActivityLog
+from app.models.email_flow import EmailFlow, EmailFlowLog, EmailFlowLogStatus, EmailFlowType
 from app.models.automation_event import AutomationActionType, AutomationEntityType, AutomationEvent
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus
 from app.models.inventory import InventoryItem, InboundShipment, InboundShipmentLine, StockMovement
@@ -20,6 +21,10 @@ from app.models.carrier_config import CarrierConfig
 
 __all__ = [
     "ActivityLog",
+    "EmailFlow",
+    "EmailFlowLog",
+    "EmailFlowLogStatus",
+    "EmailFlowType",
     "InventoryItem",
     "InboundShipment",
     "InboundShipmentLine",

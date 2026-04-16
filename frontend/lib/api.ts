@@ -30,6 +30,7 @@ import type {
   ShopifyCatalogSyncResult,
   CarrierInfo,
   CarrierConfig,
+  EmailFlow,
 } from "@/lib/types";
 
 
@@ -1074,4 +1075,12 @@ export async function fetchNotifications(limit = 20): Promise<Array<{
   const headers = await buildAuthHeaders();
   const res = await fetch(apiUrl(`/activity/notifications?limit=${limit}`), { headers, cache: "no-store" });
   return parseResponse(res);
+}
+
+
+// Email flows
+export async function fetchEmailFlows(shopId: number): Promise<EmailFlow[]> {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(apiUrl(`/email-flows?shop_id=${shopId}`), { headers, cache: "no-store" });
+  return parseResponse<EmailFlow[]>(res);
 }

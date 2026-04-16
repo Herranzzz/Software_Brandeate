@@ -9,11 +9,13 @@ import { PortalSustainabilityPanel } from "@/components/portal-sustainability-pa
 import { ShopifyTrackingLinkPanel } from "@/components/shopify-tracking-link-panel";
 import { TrackingBrandingPanel } from "@/components/tracking-branding-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
+import { MarketingConfigPanel } from "@/components/marketing-config-panel";
+import { EmailFlowsPanel } from "@/components/email-flows-panel";
 
 import { SettingsTabs } from "@/components/settings-tabs";
-import { fetchOrders, fetchShops, fetchShopifyIntegrations } from "@/lib/api";
+import { fetchEmailFlows, fetchOrders, fetchShops, fetchShopifyIntegrations } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
-import type { Order } from "@/lib/types";
+import type { EmailFlow, Order } from "@/lib/types";
 import { formatDateTime } from "@/lib/format";
 import { getTenantBranding } from "@/lib/tenant-branding";
 import Link from "next/link";
@@ -23,6 +25,8 @@ const ADMIN_TABS = [
   { id: "shipping",      label: "Expediciones",   icon: "🚚" },
   { id: "branding",      label: "Branding",       icon: "🎨" },
   { id: "tracking",      label: "Tracking",       icon: "📦" },
+  { id: "marketing",     label: "Marketing",      icon: "📊" },
+  { id: "email-flows",   label: "Email flows",    icon: "✉️" },
   { id: "team",          label: "Equipo",         icon: "👥" },
   { id: "webhooks",      label: "Webhooks",       icon: "🔔" },
   { id: "sustainability",label: "Sostenibilidad", icon: "🌱" },
@@ -61,6 +65,20 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     ordersResult.status === "fulfilled" && ordersResult.value
       ? ((ordersResult.value as { orders?: Order[] }).orders ?? [])
       : [];
+
+  // Fetch email flows for all shops (only when on that tab, graceful empty on error)
+  const emailFlowsByShop: Record<number, EmailFlow[]> = {};
+  if (activeTab === "email-flows" && shops.length > 0) {
+    await Promise.allSettled(
+      shops.map(async (shop) => {
+        try {
+          emailFlowsByShop[shop.id] = await fetchEmailFlows(shop.id);
+        } catch {
+          emailFlowsByShop[shop.id] = [];
+        }
+      })
+    );
+  }
 
   return (
     <div className="stack">
@@ -291,6 +309,76 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                   </article>
                 );
               })}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ── Marketing ───────────────────────────────────────────── */}
+      {activeTab === "marketing" && (
+        <Card className="stack settings-section-card">
+          <div className="settings-section-head">
+            <div>
+              <span className="eyebrow">📊 Marketing</span>
+              <h3 className="section-title section-title-small">Píxeles de analítica</h3>
+              <p className="subtitle">
+                Conecta GA4, Meta Pixel y TikTok Pixel. Se inyectan en la página de tracking de cada pedido.
+              </p>
+            </div>
+          </div>
+          {shops.length === 0 ? (
+            <EmptyState title="Sin tiendas" description="Crea una tienda para configurar sus píxeles." />
+          ) : (
+            <div className="settings-shipping-grid">
+              {shops.map((shop) => (
+                <article className="shop-settings-card" key={shop.id}>
+                  <div className="shop-settings-card-head">
+                    <div>
+                      <div className="table-primary">{shop.name}</div>
+                      <div className="table-secondary">/{shop.slug}</div>
+                    </div>
+                    <span className="portal-soft-pill">Shop #{shop.id}</span>
+                  </div>
+                  <MarketingConfigPanel
+                    shopId={shop.id}
+                    shopName={shop.name}
+                    initialConfig={shop.marketing_config ?? null}
+                  />
+                </article>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ── Email flows ───────────────────────────────────────────── */}
+      {activeTab === "email-flows" && (
+        <Card className="stack settings-section-card">
+          <div className="settings-section-head">
+            <div>
+              <span className="eyebrow">✉️ Email flows</span>
+              <h3 className="section-title section-title-small">Automatización de emails</h3>
+              <p className="subtitle">
+                Configura los emails automáticos que recibe el cliente: confirmación, envío y entrega.
+              </p>
+            </div>
+          </div>
+          {shops.length === 0 ? (
+            <EmptyState title="Sin tiendas" description="Crea una tienda para configurar sus flows." />
+          ) : (
+            <div className="settings-shipping-grid">
+              {shops.map((shop) => (
+                <article className="shop-settings-card" key={shop.id}>
+                  <div className="shop-settings-card-head">
+                    <div>
+                      <div className="table-primary">{shop.name}</div>
+                      <div className="table-secondary">/{shop.slug}</div>
+                    </div>
+                    <span className="portal-soft-pill">Shop #{shop.id}</span>
+                  </div>
+                  <EmailFlowsPanel flows={emailFlowsByShop[shop.id] ?? []} />
+                </article>
+              ))}
             </div>
           )}
         </Card>

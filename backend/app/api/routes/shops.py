@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_accessible_shop_ids, get_db, require_admin_user, require_shop_manager_user
 from app.models import Shop, User, UserRole
-from app.schemas.shop import ShopCreate, ShopRead, ShopUpdate
+from app.schemas.shop import ShopCreate, ShopMarketingConfig, ShopRead, ShopUpdate
 
 
 router = APIRouter(prefix="/shops", tags=["shops"])
@@ -79,7 +79,31 @@ def update_shop(
         shop.slug = payload.slug
     if payload.shipping_settings is not None:
         shop.shipping_settings_json = payload.shipping_settings.model_dump(mode="json")
+    if payload.marketing_config is not None:
+        shop.marketing_config_json = payload.marketing_config.model_dump(mode="json")
 
+    db.commit()
+    db.refresh(shop)
+    return shop
+
+
+@router.patch("/{shop_id}/marketing-config", response_model=ShopRead)
+def update_marketing_config(
+    shop_id: int,
+    payload: ShopMarketingConfig,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_shop_manager_user),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> Shop:
+    shop = db.get(Shop, shop_id)
+    if shop is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop not found")
+
+    if current_user.role not in {UserRole.super_admin, UserRole.ops_admin}:
+        if accessible_shop_ids is not None and shop.id not in accessible_shop_ids:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+
+    shop.marketing_config_json = payload.model_dump(mode="json")
     db.commit()
     db.refresh(shop)
     return shop

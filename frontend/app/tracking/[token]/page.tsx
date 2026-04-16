@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
+import type { Metadata } from "next";
+import Script from "next/script";
 
 import { TrackingTimeline } from "@/components/tracking-timeline";
 import { TrackingCTASection } from "@/components/tracking-cta-section";
@@ -10,6 +12,38 @@ import { getTenantBranding } from "@/lib/tenant-branding";
 type TrackingPageProps = {
   params: Promise<{ token: string }>;
 };
+
+export async function generateMetadata({ params }: TrackingPageProps): Promise<Metadata> {
+  const { token } = await params;
+  const tracking = await fetchPublicTracking(token);
+  if (!tracking) return { title: "Seguimiento de pedido" };
+
+  const shopData = tracking.shop ?? null;
+  const branding = getTenantBranding(
+    shopData ? { id: shopData.id, name: shopData.name, slug: shopData.slug } : null,
+    shopData?.tracking_config ?? null,
+  );
+  const rawId = String(tracking.order.external_id ?? "");
+  const cleanId = rawId.startsWith("#") ? rawId : `#${rawId}`;
+  const shopName = branding.displayName;
+
+  return {
+    title: `Seguimiento ${cleanId} – ${shopName}`,
+    description: `Sigue el estado de tu pedido ${cleanId} de ${shopName} en tiempo real. Logística gestionada por Brandeate.`,
+    openGraph: {
+      title: `Pedido ${cleanId} – ${shopName}`,
+      description: `Consulta el estado de tu pedido en tiempo real.`,
+      type: "website",
+      siteName: shopName,
+    },
+    twitter: {
+      card: "summary",
+      title: `Pedido ${cleanId} – ${shopName}`,
+      description: `Estado de tu pedido en tiempo real.`,
+    },
+    robots: { index: false, follow: false },
+  };
+}
 
 type FlowStatus = "received" | "prepared" | "in_transit" | "out_for_delivery" | "delivered" | "exception";
 
@@ -168,6 +202,28 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
     : null;
 
   const accent = statusConfig.accentOverride ?? branding.accentColor;
+  const marketingConfig = (shopData?.tracking_config as Record<string, unknown> | null)?.analytics as {
+    ga4_measurement_id?: string;
+    meta_pixel_id?: string;
+    tiktok_pixel_id?: string;
+  } | undefined;
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "TrackAction",
+    "name": `Seguimiento de pedido ${cleanId}`,
+    "agent": { "@type": "Organization", "name": branding.displayName },
+    "object": {
+      "@type": "ParcelDelivery",
+      "trackingNumber": tracking.shipment.tracking_number ?? undefined,
+      "carrier": tracking.shipment.carrier
+        ? { "@type": "Organization", "name": tracking.shipment.carrier }
+        : undefined,
+      "deliveryStatus": flowStatus === "delivered"
+        ? "https://schema.org/DeliveryEvent"
+        : "https://schema.org/ParcelDelivery",
+    },
+  };
 
   const style: CSSProperties & Record<string, string> = {
     "--trk-accent": accent,
@@ -176,6 +232,41 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
 
   return (
     <div className="trk2-page" style={style}>
+      {/* ── Structured data ── */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
+      {/* ── Analytics pixels (shop-configured) ── */}
+      {marketingConfig?.ga4_measurement_id && (
+        <>
+          <Script
+            src={`https://www.googletagmanager.com/gtag/js?id=${marketingConfig.ga4_measurement_id}`}
+            strategy="afterInteractive"
+          />
+          <Script id="ga4-init" strategy="afterInteractive">{`
+            window.dataLayer=window.dataLayer||[];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js',new Date());
+            gtag('config','${marketingConfig.ga4_measurement_id}');
+            gtag('event','tracking_page_view',{order_status:'${flowStatus}'});
+          `}</Script>
+        </>
+      )}
+      {marketingConfig?.meta_pixel_id && (
+        <Script id="meta-pixel" strategy="afterInteractive">{`
+          !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+          fbq('init','${marketingConfig.meta_pixel_id}');
+          fbq('track','PageView');
+          fbq('trackCustom','TrackingPageView',{order_status:'${flowStatus}'});
+        `}</Script>
+      )}
+      {marketingConfig?.tiktok_pixel_id && (
+        <Script id="tiktok-pixel" strategy="afterInteractive">{`
+          !function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script");n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)};ttq.load('${marketingConfig.tiktok_pixel_id}');ttq.page();}(window,document,'ttq');
+        `}</Script>
+      )}
 
       {/* ── Top bar ── */}
       <header className="trk2-topbar">

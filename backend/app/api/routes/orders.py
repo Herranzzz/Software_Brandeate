@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import os
 import re
 import ssl
@@ -13,6 +14,8 @@ import time
 import urllib.request
 import uuid
 import zipfile
+
+logger = logging.getLogger(__name__)
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Literal
@@ -67,6 +70,7 @@ from app.schemas.pick_batch import (
 )
 from app.services.activity import log_activity
 from app.services.automation_rules import evaluate_order_automation_rules, reconcile_incident_lifecycle
+from app.services.email_flows import trigger_post_purchase
 from app.services.webhooks import dispatch_webhook
 from app.services.orders import infer_order_is_personalized, sync_order_item_design_statuses
 
@@ -350,6 +354,12 @@ def create_order(
     evaluate_order_automation_rules(db=db, order=order, source="order_create")
     db.commit()
     db.refresh(order)
+
+    try:
+        trigger_post_purchase(db, order)
+        db.commit()
+    except Exception:
+        logger.warning("Email flow trigger failed for order %s", order.id, exc_info=True)
 
     return db.scalar(
         _order_detail_query().where(Order.id == order.id)

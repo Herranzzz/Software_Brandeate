@@ -303,13 +303,35 @@ export type PublicTracking = {
   } | null;
 };
 
+export type ShopMarketingConfig = {
+  ga4_measurement_id: string | null;
+  meta_pixel_id: string | null;
+  tiktok_pixel_id: string | null;
+  gtm_container_id: string | null;
+};
+
 export type Shop = {
   shipping_settings: ShopShippingSettings | null;
   tracking_config: TrackingConfig | null;
+  marketing_config: ShopMarketingConfig | null;
   id: number;
   name: string;
   slug: string;
   created_at: string;
+};
+
+export type EmailFlow = {
+  id: number;
+  shop_id: number;
+  flow_type: string;
+  is_enabled: boolean;
+  delay_minutes: number;
+  from_name: string | null;
+  from_email: string | null;
+  reply_to: string | null;
+  subject_template: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type TrackingConfig = {

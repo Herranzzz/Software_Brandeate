@@ -22,6 +22,7 @@ from app.api.routes.invoices import router as invoices_router
 from app.api.routes.webhook_endpoints import router as webhook_endpoints_router
 from app.api.routes.webhooks import router as webhooks_router
 from app.api.routes.carrier_configs import router as carrier_configs_router
+from app.api.routes.email_flows import router as email_flows_router
 
 
 api_router = APIRouter()
@@ -47,3 +48,4 @@ api_router.include_router(webhooks_router)
 api_router.include_router(inventory_router)
 api_router.include_router(invoices_router)
 api_router.include_router(carrier_configs_router)
+api_router.include_router(email_flows_router)

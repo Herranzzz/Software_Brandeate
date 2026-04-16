@@ -55,6 +55,21 @@ class ShopShippingSettings(BaseModel):
         return normalized or None
 
 
+class ShopMarketingConfig(BaseModel):
+    ga4_measurement_id: str | None = Field(default=None, max_length=64)
+    meta_pixel_id: str | None = Field(default=None, max_length=64)
+    tiktok_pixel_id: str | None = Field(default=None, max_length=64)
+    gtm_container_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("ga4_measurement_id", "meta_pixel_id", "tiktok_pixel_id", "gtm_container_id")
+    @classmethod
+    def strip_nullable(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped or None
+
+
 class ShopCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     slug: str = Field(min_length=3, max_length=120)
@@ -75,6 +90,7 @@ class ShopUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     slug: str | None = Field(default=None, min_length=3, max_length=120)
     shipping_settings: ShopShippingSettings | None = None
+    marketing_config: ShopMarketingConfig | None = None
 
     @field_validator("slug")
     @classmethod
@@ -105,5 +121,10 @@ class ShopRead(BaseModel):
         default=None,
         validation_alias="tracking_config_json",
         serialization_alias="tracking_config",
+    )
+    marketing_config: ShopMarketingConfig | None = Field(
+        default=None,
+        validation_alias="marketing_config_json",
+        serialization_alias="marketing_config",
     )
     created_at: datetime
