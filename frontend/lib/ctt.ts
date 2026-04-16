@@ -32,12 +32,33 @@ export const CTT_SERVICE_OPTIONS: CttServiceOption[] = [
   { code: "C14E", label: "CTT Premium Empresas" },
 ];
 
+export const CTT_BALEARES_SERVICE_OPTIONS: CttServiceOption[] = [
+  { code: "CBA48", label: "Baleares Economy" },
+  { code: "CBA24", label: "Baleares Express" },
+];
+
+/** Detect Balearic Islands orders by province code or postal prefix 07. */
+export function isBalearesOrder(order: Order): boolean {
+  const province = (order.shipping_province_code ?? "").toUpperCase();
+  const postal = (order.shipping_postal_code ?? "").trim();
+  return province === "PM" || province === "IB" || postal.startsWith("07");
+}
+
+/** Returns the service options to show for this order (Baleares or mainland). */
+export function getCttServiceOptions(order: Order): CttServiceOption[] {
+  return isBalearesOrder(order) ? CTT_BALEARES_SERVICE_OPTIONS : CTT_SERVICE_OPTIONS;
+}
+
 export function getInitialCttWeightBand(order: Order, settings?: ShopShippingSettings | null): string {
   return order.shipment?.weight_tier_code || settings?.default_weight_tier_code || "band_2000";
 }
 
 export function getInitialCttServiceCode(order: Order, settings?: ShopShippingSettings | null): string {
-  return order.shipment?.shipping_type_code || settings?.default_shipping_type_code || "C24";
+  // If existing shipment already has a code, honour it.
+  if (order.shipment?.shipping_type_code) return order.shipment.shipping_type_code;
+  // Baleares orders default to Economy (CBA48).
+  if (isBalearesOrder(order)) return "CBA48";
+  return settings?.default_shipping_type_code || "C24";
 }
 
 export function isCttShipment(shipment: Shipment | null | undefined): boolean {

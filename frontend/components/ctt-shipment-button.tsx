@@ -6,7 +6,7 @@ import { useEffect, useState, useTransition } from "react";
 import { AppModal } from "@/components/app-modal";
 import { useToast } from "@/components/toast";
 import {
-  CTT_SERVICE_OPTIONS,
+  getCttServiceOptions,
   CTT_WEIGHT_BANDS,
   getOrderShipmentLabelUrl,
   getInitialCttServiceCode,
@@ -314,7 +314,7 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
                       }}
                       value={shippingTypeCode}
                     >
-                      {CTT_SERVICE_OPTIONS.map((service) => (
+                      {getCttServiceOptions(order).map((service) => (
                         <option key={service.code} value={service.code}>
                           {service.label}
                         </option>

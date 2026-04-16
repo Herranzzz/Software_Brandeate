@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { AppModal } from "@/components/app-modal";
-import { CTT_SERVICE_OPTIONS, CTT_WEIGHT_BANDS } from "@/lib/ctt";
+import { CTT_SERVICE_OPTIONS, CTT_BALEARES_SERVICE_OPTIONS, CTT_WEIGHT_BANDS } from "@/lib/ctt";
 import { printLabelsSequential, type PrintLabelFailure } from "@/lib/print-utils";
 import type { Order, Shop } from "@/lib/types";
 
@@ -191,11 +191,16 @@ export function BulkLabelModal({ orders, shop, onClose, onComplete }: BulkLabelM
                       value={serviceCode}
                       onChange={(e) => setServiceCode(e.target.value)}
                     >
-                      {CTT_SERVICE_OPTIONS.map((opt) => (
-                        <option key={opt.code} value={opt.code}>
-                          {opt.label}
-                        </option>
-                      ))}
+                      <optgroup label="Península y resto">
+                        {CTT_SERVICE_OPTIONS.map((opt) => (
+                          <option key={opt.code} value={opt.code}>{opt.label}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Islas Baleares">
+                        {CTT_BALEARES_SERVICE_OPTIONS.map((opt) => (
+                          <option key={opt.code} value={opt.code}>{opt.label}</option>
+                        ))}
+                      </optgroup>
                     </select>
                   </div>
                 </div>

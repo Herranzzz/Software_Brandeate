@@ -56,7 +56,9 @@ _CTT_DELIVERY_DAYS: dict[str, int] = {
     "C48": 2,
     "C14": 14,
     "C10": 10,
-    "C14E": 2,  # Premium Empresas ≈ 2 days
+    "C14E": 2,   # Premium Empresas ≈ 2 days
+    "CBA24": 2,  # Baleares Express ≈ 2 days
+    "CBA48": 4,  # Baleares Economy ≈ 4 days
 }
 
 
