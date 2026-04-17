@@ -1281,9 +1281,18 @@ def _resolve_tracking_url_for_shopify(
     import os
 
     native_url = (shipment.tracking_url or "").strip() or None
-    carrier_code = (shipment.carrier or "").strip()
-    if not carrier_code:
+    raw_carrier = (shipment.carrier or "").strip()
+    if not raw_carrier:
         return native_url, False
+
+    # ``shipment.carrier`` stores a human label (e.g. "CTT Express") while
+    # CarrierConfig.carrier_code stores the short code (e.g. "ctt"). Map
+    # the label to a code before looking up the config — otherwise the
+    # branded-tracking flag would never match for CTT shipments.
+    normalized = raw_carrier.lower()
+    carrier_code = normalized
+    if normalized.startswith("ctt"):
+        carrier_code = "ctt"
 
     carrier_cfg = db.scalar(
         select(CarrierConfig)
