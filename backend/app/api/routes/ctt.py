@@ -8,6 +8,8 @@ from app.schemas.ctt import (
     CTTBulkShippingRequest,
     CTTBulkShippingResponse,
     CTTBulkShippingResult,
+    CTTCreateAdhocShippingRequest,
+    CTTCreateAdhocShippingResponse,
     CTTCreateShippingRequest,
     CTTCreateShippingResponse,
 )
@@ -16,6 +18,7 @@ from app.services.ctt import CTTError, get_label, get_pod
 from app.services.ctt_shipments import (
     CTTShipmentDuplicateError,
     CTTShipmentOrchestrationError,
+    create_adhoc_ctt_shipment,
     create_ctt_shipment_for_order,
 )
 
@@ -57,6 +60,44 @@ def create_ctt_shipping(
         tracking_url=result.tracking_url,
         shopify_sync_status=result.shopify_sync_status,
         shipment=result.shipment,
+        ctt_response=result.ctt_response,
+    )
+
+
+@router.post(
+    "/shippings/adhoc",
+    response_model=CTTCreateAdhocShippingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_ctt_adhoc_shipping(
+    payload: CTTCreateAdhocShippingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+) -> CTTCreateAdhocShippingResponse:
+    """Create an ADDITIONAL CTT label for an order.
+
+    Does not replace or attach to the order's existing Shipment. Use when
+    another package needs to be sent to the same customer/address without
+    opening CTT's external software.
+    """
+    order = db.scalar(
+        select(Order)
+        .options(selectinload(Order.shipment).selectinload(Shipment.events))
+        .where(Order.id == payload.order_id)
+    )
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    try:
+        result = create_adhoc_ctt_shipment(
+            db=db, order=order, payload=payload, current_user=current_user
+        )
+    except CTTShipmentOrchestrationError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    return CTTCreateAdhocShippingResponse(
+        shipping_code=result.shipping_code,
+        tracking_url=result.tracking_url,
         ctt_response=result.ctt_response,
     )
 

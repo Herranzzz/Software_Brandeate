@@ -9,6 +9,7 @@ import { OrderInternalNote } from "@/components/order-internal-note";
 import { SlaBadge } from "@/components/sla-badge";
 import { Card } from "@/components/card";
 import { CopyButton } from "@/components/copy-button";
+import { CttAdhocShipmentButton } from "@/components/ctt-adhoc-shipment-button";
 import { CttShipmentButton } from "@/components/ctt-shipment-button";
 import { DesignStatusBadge } from "@/components/design-status-badge";
 import { EmptyState } from "@/components/empty-state";
@@ -450,6 +451,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           {/* Primary actions */}
           <div className="order-detail-action-row">
             <CttShipmentButton order={order} />
+            <CttAdhocShipmentButton order={order} />
             <Link className="button button-secondary" href={`/orders/${order.id}/packing-slip`} rel="noreferrer" target="_blank">Albarán</Link>
             <OrderActionModals orderId={order.id} shipment={order.shipment} />
             <OrderBlockButton order={order} />
