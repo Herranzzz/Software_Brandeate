@@ -12,8 +12,22 @@ import {
   getInitialCttWeightBand,
   getOrderShippingContact,
 } from "@/lib/ctt";
-import { printLabel } from "@/lib/print-utils";
 import type { Order, ShippingRuleResolution, Shop } from "@/lib/types";
+
+/**
+ * Trigger a browser download of the CTT label PDF.
+ * Uses a plain anchor + ?download=1 so the backend returns
+ * Content-Disposition: attachment and the browser saves the file.
+ */
+function downloadLabelPdf(trackingCode: string): void {
+  const anchor = document.createElement("a");
+  anchor.href = `/api/ctt/shippings/${trackingCode}/label?label_type=PDF&model_type=SINGLE&download=1`;
+  anchor.download = `etiqueta-${trackingCode}.pdf`;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
 
 
 type CttLabelCellProps = {
@@ -173,16 +187,16 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
     setIsPrintingLabel(false);
   }
 
-  async function handlePrintLabel() {
+  function handlePrintLabel() {
     if (!shippingCode || isPrintingLabel) {
       return;
     }
     setIsPrintingLabel(true);
     try {
-      await printLabel(shippingCode, { format: "PDF" });
+      downloadLabelPdf(shippingCode);
     } catch (err) {
       setStatus("error");
-      setError(err instanceof Error ? err.message : "No se pudo abrir la impresión");
+      setError(err instanceof Error ? err.message : "No se pudo descargar la etiqueta");
     } finally {
       setIsPrintingLabel(false);
     }
@@ -248,12 +262,13 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
       onShipmentCreated?.(shipping_code);
 
       if (mode === "print") {
-        // Auto-print: trigger print dialog immediately after creation.
+        // Download the label PDF right away — the user prints it from their
+        // OS/PDF viewer after the download completes.
         try {
-          await printLabel(shipping_code, { format: "PDF" });
+          downloadLabelPdf(shipping_code);
         } catch {
-          // Print failed silently — user can still click the print button
-          // from the success screen.
+          // Download failed silently — user can still click the download
+          // button from the success screen.
         }
       } else {
         // "Preparar sin imprimir": label is ready in CTT's system and the
@@ -293,11 +308,11 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
           title={
             hasShipmentAlready
               ? "Ver etiqueta CTT ya creada"
-              : "Crear etiqueta y elegir entre preparar (sin imprimir) o imprimir ahora"
+              : "Abrir modal para crear e imprimir etiqueta"
           }
           type="button"
         >
-          {hasShipmentAlready ? "Ver etiqueta" : "Preparar"}
+          {hasShipmentAlready ? "Ver etiqueta" : "Imprimir"}
         </button>
       </div>
 
@@ -329,7 +344,7 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
                     onClick={handlePrintLabel}
                     type="button"
                   >
-                    {isPrintingLabel ? "Imprimiendo..." : "Imprimir etiqueta"}
+                    {isPrintingLabel ? "Descargando..." : "Imprimir etiqueta"}
                   </button>
 
                   <a
@@ -513,11 +528,11 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
                       className="button ctt-create-sticky-button"
                       disabled={isLoading || !canSubmit}
                       onClick={() => handleSubmit("print")}
-                      title="Crea la etiqueta y envíala directamente a la impresora."
+                      title="Crea la etiqueta y descarga el PDF para imprimir."
                       type="button"
                     >
                       {isLoading && submitMode === "print"
-                        ? "Creando e imprimiendo..."
+                        ? "Creando y descargando..."
                         : "Imprimir etiqueta"}
                     </button>
                   </div>
