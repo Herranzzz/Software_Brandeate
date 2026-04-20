@@ -15,6 +15,15 @@ import type { Order, Shop } from "@/lib/types";
 
 
 type PrintQueueScope = "mine" | "all";
+type PrintQueueTimeFilter = "all" | "session" | "30m" | "1h" | "today";
+
+const TIME_FILTER_OPTIONS: Array<{ value: PrintQueueTimeFilter; label: string }> = [
+  { value: "all", label: "Toda la cola" },
+  { value: "session", label: "Esta sesión" },
+  { value: "30m", label: "Últimos 30 min" },
+  { value: "1h", label: "Última hora" },
+  { value: "today", label: "Hoy" },
+];
 
 // ─── Kiosk-printing setup card ───────────────────────────────────────────────
 
@@ -134,6 +143,10 @@ export function PrintQueuePanel({
     () => new Set(initialOrders.map((o) => o.id)),
   );
 
+  // Client-side filters — applied on top of the server-provided `orders`.
+  const [employeeFilter, setEmployeeFilter] = useState<string>("");
+  const [timeFilter, setTimeFilter] = useState<PrintQueueTimeFilter>("all");
+
   function dismissSetupCard() {
     localStorage.setItem("kiosk_setup_dismissed", "1");
     setShowSetupCard(false);
@@ -182,8 +195,55 @@ export function PrintQueuePanel({
     return () => window.clearInterval(intervalId);
   }, [refreshFromServer]);
 
-  const visibleOrders = orders;
+  // Build the list of preparers present in the queue, for the dropdown.
+  const employeeOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const o of orders) {
+      const id = o.prepared_by_employee_id != null ? String(o.prepared_by_employee_id) : "";
+      const name = o.prepared_by_employee_name || "Sin asignar";
+      const key = id || `name:${name}`;
+      if (!seen.has(key)) seen.set(key, name);
+    }
+    return Array.from(seen.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  }, [orders]);
+
+  // Apply employee + time filters client-side.
+  const visibleOrders = useMemo(() => {
+    const now = Date.now();
+    const THIRTY_MIN = 30 * 60 * 1000;
+    const ONE_HOUR = 60 * 60 * 1000;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTodayMs = startOfToday.getTime();
+
+    return orders.filter((o) => {
+      // Employee filter
+      if (employeeFilter) {
+        const orderKey =
+          o.prepared_by_employee_id != null
+            ? String(o.prepared_by_employee_id)
+            : `name:${o.prepared_by_employee_name || "Sin asignar"}`;
+        if (orderKey !== employeeFilter) return false;
+      }
+
+      // Time filter
+      if (timeFilter === "all") return true;
+      if (timeFilter === "session") return !sessionBaseIds.has(o.id);
+
+      const preparedMs = o.prepared_at ? new Date(o.prepared_at).getTime() : NaN;
+      if (Number.isNaN(preparedMs)) return false;
+      if (timeFilter === "30m") return now - preparedMs <= THIRTY_MIN;
+      if (timeFilter === "1h") return now - preparedMs <= ONE_HOUR;
+      if (timeFilter === "today") return preparedMs >= startOfTodayMs;
+      return true;
+    });
+  }, [orders, employeeFilter, timeFilter, sessionBaseIds]);
+
   const totalCount = orders.length;
+  const filteredCount = visibleOrders.length;
+  const isFiltered = employeeFilter !== "" || timeFilter !== "all";
   const selectedCount = selectedIds.size;
   const hasSelection = selectedCount > 0;
 
@@ -482,13 +542,15 @@ export function PrintQueuePanel({
             </button>
             <button
               className="button button-primary print-queue-print-all"
-              disabled={totalCount === 0 || isPrinting}
+              disabled={filteredCount === 0 || isPrinting}
               onClick={printAll}
               type="button"
             >
               {isPrinting && printProgress
                 ? printProgressLabel(printProgress)
-                : `Imprimir todas (${totalCount})`}
+                : isFiltered
+                  ? `Imprimir filtradas (${filteredCount})`
+                  : `Imprimir todas (${filteredCount})`}
             </button>
           </div>
         }
@@ -500,9 +562,15 @@ export function PrintQueuePanel({
       <div className="print-queue-stats">
         <div className="print-queue-stat print-queue-stat-primary">
           <span className="eyebrow">En cola</span>
-          <strong className="print-queue-stat-value">{totalCount}</strong>
+          <strong className="print-queue-stat-value">
+            {isFiltered ? `${filteredCount}/${totalCount}` : totalCount}
+          </strong>
           <span className="muted">
-            {scope === "mine" ? `preparadas por ${currentUserName}` : "de todo el equipo"}
+            {isFiltered
+              ? "filtradas · total de la cola"
+              : scope === "mine"
+                ? `preparadas por ${currentUserName}`
+                : "de todo el equipo"}
           </span>
         </div>
         <div className="print-queue-stat">
@@ -567,6 +635,47 @@ export function PrintQueuePanel({
               ))}
             </select>
           </div>
+          <div className="field orders-inline-shop">
+            <label htmlFor="print-queue-employee-filter">Empleado</label>
+            <select
+              id="print-queue-employee-filter"
+              onChange={(e) => setEmployeeFilter(e.target.value)}
+              value={employeeFilter}
+            >
+              <option value="">Todos</option>
+              {employeeOptions.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field orders-inline-shop">
+            <label htmlFor="print-queue-time-filter">Tiempo</label>
+            <select
+              id="print-queue-time-filter"
+              onChange={(e) => setTimeFilter(e.target.value as PrintQueueTimeFilter)}
+              value={timeFilter}
+            >
+              {TIME_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {isFiltered ? (
+            <button
+              className="button-link muted"
+              onClick={() => {
+                setEmployeeFilter("");
+                setTimeFilter("all");
+              }}
+              type="button"
+            >
+              Limpiar filtros
+            </button>
+          ) : null}
           <div className="print-queue-selection-tools">
             {sessionCount > 0 && (
               <button
@@ -635,11 +744,13 @@ export function PrintQueuePanel({
 
         {visibleOrders.length === 0 ? (
           <div className="print-queue-empty">
-            <strong>¡Todo impreso!</strong>
+            <strong>{isFiltered ? "Sin resultados con estos filtros" : "¡Todo impreso!"}</strong>
             <p className="muted">
-              {scope === "mine"
-                ? `No tienes pedidos en cola, ${currentUserName}. Cuando prepares un pedido, aparecerá aquí listo para imprimir.`
-                : "No hay pedidos preparados esperando impresión. Cuando el equipo prepare pedidos, aparecerán aquí."}
+              {isFiltered
+                ? "Prueba a ampliar el rango de tiempo o cambiar el empleado seleccionado."
+                : scope === "mine"
+                  ? `No tienes pedidos en cola, ${currentUserName}. Cuando prepares un pedido, aparecerá aquí listo para imprimir.`
+                  : "No hay pedidos preparados esperando impresión. Cuando el equipo prepare pedidos, aparecerán aquí."}
             </p>
           </div>
         ) : (
