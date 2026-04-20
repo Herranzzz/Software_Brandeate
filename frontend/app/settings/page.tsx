@@ -11,6 +11,7 @@ import { TrackingBrandingPanel } from "@/components/tracking-branding-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 import { MarketingConfigPanel } from "@/components/marketing-config-panel";
 import { EmailFlowsPanel } from "@/components/email-flows-panel";
+import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
 import { SettingsTabs } from "@/components/settings-tabs";
 import { fetchEmailFlows, fetchOrders, fetchShops, fetchShopifyIntegrations } from "@/lib/api";
@@ -23,6 +24,7 @@ import Link from "next/link";
 const ADMIN_TABS = [
   { id: "shopify",       label: "Shopify",       icon: "🔗" },
   { id: "shipping",      label: "Expediciones",   icon: "🚚" },
+  { id: "printing",      label: "Impresión",      icon: "🖨️" },
   { id: "branding",      label: "Branding",       icon: "🎨" },
   { id: "tracking",      label: "Tracking",       icon: "📦" },
   { id: "marketing",     label: "Marketing",      icon: "📊" },
@@ -193,6 +195,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </div>
         </Card>
       )}
+
+      {/* ── Impresión ────────────────────────────────────────────── */}
+      {activeTab === "printing" && <PrintSettingsPanel />}
 
       {/* ── Branding ─────────────────────────────────────────────── */}
       {activeTab === "branding" && (

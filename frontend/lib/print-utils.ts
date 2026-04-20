@@ -1,22 +1,57 @@
 /**
  * Label handling utilities.
  *
- * Silent/kiosk printing via hidden iframes has been removed — it was not
- * reliable across browsers/OSes. All flows now simply download the label
- * PDF (or ZPL/EPL) and let the user print from their PDF viewer / OS.
+ * Two paths depending on the per-device preference stored in localStorage
+ * under the key read by `isSilentPrintEnabled()`:
  *
- * The API surface (`printLabel`, `printLabelsMerged`, `printLabelsSequential`,
- * `PrintLabelError`, `PrintLabelFailure`) is preserved so call sites don't
- * need to change — they still say "print" semantically but the effect is a
- * download.
+ *   1. Silent print (kiosk mode) — wraps the PDF in a minimal HTML page with
+ *      <embed> and drives a hidden iframe to call contentWindow.print(). With
+ *      Chrome launched via `--kiosk-printing` this skips the dialog and
+ *      prints directly to the default printer. WITHOUT that flag the browser
+ *      still shows its normal print dialog — it doesn't break, it just isn't
+ *      silent.
+ *
+ *   2. Download — plain <a download> (or blob URL for merged bulk PDFs). The
+ *      user prints from their PDF viewer / OS. Reliable everywhere.
+ *
+ * The toggle lives in /settings → tab "Impresión". It's stored per-device
+ * (localStorage) so each operator station can opt-in independently.
  */
 
 const FETCH_TIMEOUT_MS = 35000; // just above backend CTT label timeout (30s)
+const IFRAME_CLEANUP_DELAY_MS = 3000;
+const PDF_EMBED_RENDER_DELAY_MS = 1400;
+
+/** localStorage key controlling silent-print mode on this device. */
+export const SILENT_PRINT_STORAGE_KEY = "brandeate_silent_print_enabled";
+
+export function isSilentPrintEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SILENT_PRINT_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setSilentPrintEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (enabled) window.localStorage.setItem(SILENT_PRINT_STORAGE_KEY, "1");
+    else window.localStorage.removeItem(SILENT_PRINT_STORAGE_KEY);
+  } catch {
+    // ignore — private mode, storage quota, etc.
+  }
+}
 
 export type LabelPrintFormat = "PDF" | "ZPL" | "EPL";
 
 export interface PrintLabelOptions {
   format?: LabelPrintFormat;
+  /** Force silent print regardless of the stored preference. */
+  forceSilent?: boolean;
+  /** Force download regardless of the stored preference. */
+  forceDownload?: boolean;
   /** Legacy option kept for API compatibility — no longer used. */
   fallbackToNewTab?: boolean;
 }
@@ -50,15 +85,15 @@ function extensionFor(format: LabelPrintFormat): string {
   return format.toLowerCase();
 }
 
-/**
- * Trigger a direct browser download of a label by tracking code.
- * No hidden iframe, no automatic print dialog — just a download.
- */
-export function printLabel(
-  trackingCode: string,
-  options: PrintLabelOptions = {},
-): Promise<void> {
-  const format = options.format ?? "PDF";
+function resolveMode(options: PrintLabelOptions): "silent" | "download" {
+  if (options.forceSilent) return "silent";
+  if (options.forceDownload) return "download";
+  return isSilentPrintEnabled() ? "silent" : "download";
+}
+
+// ─── Download path ────────────────────────────────────────────────────────
+
+function downloadByAnchor(trackingCode: string, format: LabelPrintFormat): void {
   const anchor = document.createElement("a");
   anchor.href = buildLabelUrl(trackingCode, format, true);
   anchor.download = `etiqueta-${trackingCode}.${extensionFor(format)}`;
@@ -66,7 +101,93 @@ export function printLabel(
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  return Promise.resolve();
+}
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+}
+
+// ─── Silent-print path ────────────────────────────────────────────────────
+
+/**
+ * Render a PDF blob in a hidden iframe and trigger contentWindow.print().
+ *
+ * The PDF is embedded inside a minimal HTML wrapper so the iframe loads HTML
+ * (not PDF). Chrome's built-in PDF viewer prints through a path that bypasses
+ * the --kiosk-printing flag; wrapping it in HTML keeps us on the normal HTML
+ * print path which DOES honour the flag.
+ */
+function printBlobOnce(blob: Blob): Promise<void> {
+  const pdfUrl = URL.createObjectURL(blob);
+  const html = [
+    "<!DOCTYPE html>",
+    "<html>",
+    "<head>",
+    "<style>",
+    "  * { margin:0; padding:0; box-sizing:border-box; }",
+    "  html, body { width:100%; height:100%; overflow:hidden; }",
+    "  embed { display:block; width:100%; height:100%; }",
+    "  @media print { html, body, embed { width:100%; height:100%; } }",
+    "</style>",
+    "</head>",
+    "<body>",
+    `  <embed src="${pdfUrl}" type="application/pdf">`,
+    "</body>",
+    "</html>",
+  ].join("\n");
+
+  const htmlBlob = new Blob([html], { type: "text/html" });
+  const htmlUrl = URL.createObjectURL(htmlBlob);
+
+  return new Promise<void>((resolve) => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.style.cssText =
+      "position:fixed;top:-9999px;left:-9999px;width:595px;height:842px;opacity:0;border:none;pointer-events:none;";
+
+    let settled = false;
+    let printDelayId = 0;
+
+    function cleanup() {
+      if (settled) return;
+      settled = true;
+      if (printDelayId) window.clearTimeout(printDelayId);
+      setTimeout(() => {
+        if (document.body.contains(iframe)) document.body.removeChild(iframe);
+        URL.revokeObjectURL(htmlUrl);
+        URL.revokeObjectURL(pdfUrl);
+        resolve();
+      }, IFRAME_CLEANUP_DELAY_MS);
+    }
+
+    iframe.onload = () => {
+      if (settled || printDelayId) return;
+      printDelayId = window.setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch {
+          // swallow — cleanup resolves so the flow advances
+        }
+        cleanup();
+      }, PDF_EMBED_RENDER_DELAY_MS);
+    };
+
+    iframe.onerror = () => cleanup();
+    iframe.src = htmlUrl;
+    document.body.appendChild(iframe);
+  });
 }
 
 async function fetchLabelBlob(
@@ -86,7 +207,7 @@ async function fetchLabelBlob(
         const body = (await res.json()) as { detail?: string };
         if (body?.detail) detail = body.detail;
       } catch {
-        // ignore – non-JSON error body
+        // ignore non-JSON error body
       }
       throw new PrintLabelError(trackingCode, `No se pudo descargar la etiqueta: ${detail}`);
     }
@@ -110,22 +231,6 @@ async function fetchLabelBlob(
   }
 }
 
-function triggerBlobDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  try {
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.rel = "noopener";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  } finally {
-    // Small delay so the browser can start the download before we revoke.
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  }
-}
-
 async function mergePdfBlobs(blobs: Blob[]): Promise<Blob> {
   const { PDFDocument } = await import("pdf-lib");
   const merged = await PDFDocument.create();
@@ -141,10 +246,34 @@ async function mergePdfBlobs(blobs: Blob[]): Promise<Blob> {
   return new Blob([bytes], { type: "application/pdf" });
 }
 
+// ─── Public API ───────────────────────────────────────────────────────────
+
 /**
- * Fetch all labels, merge them into a single PDF, and trigger a single
- * download with the whole batch. Failures per tracking code are returned
- * so the caller can surface them.
+ * Print (or download) a single label by tracking code.
+ *
+ * Mode is decided by `isSilentPrintEnabled()` unless overridden via
+ * `forceSilent` / `forceDownload` in the options.
+ */
+export async function printLabel(
+  trackingCode: string,
+  options: PrintLabelOptions = {},
+): Promise<void> {
+  const format = options.format ?? "PDF";
+  const mode = resolveMode(options);
+
+  if (mode === "download" || format !== "PDF") {
+    // ZPL/EPL cannot go through the HTML print path.
+    downloadByAnchor(trackingCode, format);
+    return;
+  }
+
+  const blob = await fetchLabelBlob(trackingCode, format);
+  await printBlobOnce(blob);
+}
+
+/**
+ * Fetch + merge all labels into a single PDF, then either silently print it
+ * or trigger a single download of the merged file.
  */
 export async function printLabelsMerged(
   trackingCodes: string[],
@@ -156,10 +285,10 @@ export async function printLabelsMerged(
   const format = options.format ?? "PDF";
 
   if (format !== "PDF") {
-    // Can't merge ZPL/EPL meaningfully — fall back to sequential downloads.
     return printLabelsSequential(trackingCodes, options, onProgress);
   }
 
+  const mode = resolveMode(options);
   const failures: PrintLabelFailure[] = [];
   const blobs: Blob[] = [];
   let fetched = 0;
@@ -204,16 +333,20 @@ export async function printLabelsMerged(
 
   if (blobs.length > 0) {
     const merged = blobs.length === 1 ? blobs[0] : await mergePdfBlobs(blobs);
-    const filename = `etiquetas-${new Date().toISOString().slice(0, 10)}-${blobs.length}.pdf`;
-    triggerBlobDownload(merged, filename);
+    if (mode === "silent") {
+      await printBlobOnce(merged);
+    } else {
+      const filename = `etiquetas-${new Date().toISOString().slice(0, 10)}-${blobs.length}.pdf`;
+      triggerBlobDownload(merged, filename);
+    }
   }
 
   return failures;
 }
 
 /**
- * Download multiple labels sequentially (one download per label).
- * Failures are collected so a single bad label doesn't block the rest.
+ * Sequential per-label flow. Honours the silent/download preference for each
+ * label individually.
  */
 export async function printLabelsSequential(
   trackingCodes: string[],
@@ -221,15 +354,11 @@ export async function printLabelsSequential(
   onProgress?: (done: number, total: number) => void,
 ): Promise<PrintLabelFailure[]> {
   const failures: PrintLabelFailure[] = [];
-  const format = options.format ?? "PDF";
 
   for (let i = 0; i < trackingCodes.length; i++) {
     const code = trackingCodes[i];
     try {
-      // Pre-fetch so we surface backend errors cleanly instead of letting
-      // the anchor silently download an HTML error page.
-      const blob = await fetchLabelBlob(code, format);
-      triggerBlobDownload(blob, `etiqueta-${code}.${extensionFor(format)}`);
+      await printLabel(code, options);
     } catch (err) {
       if (err instanceof PrintLabelError) {
         failures.push({ trackingCode: code, error: err });
@@ -238,7 +367,7 @@ export async function printLabelsSequential(
           trackingCode: code,
           error: new PrintLabelError(
             code,
-            err instanceof Error ? err.message : "Error desconocido al descargar",
+            err instanceof Error ? err.message : "Error desconocido al imprimir",
             err,
           ),
         });
@@ -246,8 +375,7 @@ export async function printLabelsSequential(
     }
     onProgress?.(i + 1, trackingCodes.length);
     if (i < trackingCodes.length - 1) {
-      // Small gap so the browser doesn't collapse multiple downloads.
-      await new Promise<void>((resolve) => setTimeout(resolve, 400));
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
     }
   }
 
