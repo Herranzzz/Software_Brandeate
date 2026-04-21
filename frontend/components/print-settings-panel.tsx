@@ -5,8 +5,10 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/card";
 import { useToast } from "@/components/toast";
 import {
+  getPrinterNameHint,
   isSilentPrintEnabled,
   printLabel,
+  setPrinterNameHint,
   setSilentPrintEnabled,
 } from "@/lib/print-utils";
 
@@ -33,12 +35,24 @@ export function PrintSettingsPanel() {
   const [testTracking, setTestTracking] = useState("");
   const [isTesting, setIsTesting] = useState(false);
   const [os, setOs] = useState<"windows" | "mac" | "other">("other");
+  const [printerName, setPrinterName] = useState("");
 
   useEffect(() => {
     setEnabled(isSilentPrintEnabled());
     setOs(detectOS());
+    setPrinterName(getPrinterNameHint());
     setHydrated(true);
   }, []);
+
+  function savePrinterName() {
+    setPrinterNameHint(printerName);
+    toast(
+      printerName.trim()
+        ? `Impresora «${printerName.trim()}» guardada. Descarga el acceso directo para usarla.`
+        : "Nombre de impresora borrado. Se usará la predeterminada del sistema.",
+      "success",
+    );
+  }
 
   function onToggle(next: boolean) {
     setSilentPrintEnabled(next);
@@ -53,7 +67,10 @@ export function PrintSettingsPanel() {
 
   function downloadKioskScript() {
     const osParam = os === "mac" ? "mac" : "windows";
-    window.location.href = `/api/kiosk-script?os=${osParam}`;
+    const params = new URLSearchParams({ os: osParam });
+    const trimmed = printerName.trim();
+    if (trimmed) params.set("printer", trimmed);
+    window.location.href = `/api/kiosk-script?${params.toString()}`;
   }
 
   async function runTest() {
@@ -142,6 +159,34 @@ export function PrintSettingsPanel() {
           </ol>
           <p style={{ marginTop: "0.75rem" }} className="muted">
             ⚠️ Si abres Brandeate desde un Chrome que ya estaba abierto a mano (no desde el acceso directo), seguirá apareciendo el diálogo de impresión. Es una limitación de Chrome: la flag <code>--kiosk-printing</code> solo se aplica cuando el navegador arranca con ella. Por eso el acceso directo cierra Chrome antes de relanzarlo.
+          </p>
+        </div>
+
+        <div className="field">
+          <label htmlFor="printer-name">Impresora de etiquetas (opcional)</label>
+          <input
+            id="printer-name"
+            onBlur={savePrinterName}
+            onChange={(e) => setPrinterName(e.target.value)}
+            placeholder={
+              os === "mac"
+                ? "Ej: Zebra_ZD220, Brother_QL_820NWB..."
+                : "Ej: ZDesigner ZD220, Brother QL-820NWB..."
+            }
+            value={printerName}
+          />
+          <p className="muted" style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>
+            Escribe el nombre <strong>exacto</strong> de la impresora tal como aparece en tu sistema
+            (en Mac: <em>Ajustes → Impresoras</em>; en Windows: <em>Configuración → Impresoras y
+            escáneres</em>). Si lo rellenas, el acceso directo <strong>fuerza esa impresora como
+            predeterminada</strong> justo antes de abrir Chrome — ideal para usar una Zebra u
+            otra térmica sin tocar la predeterminada global del equipo. Si lo dejas vacío, se usa
+            la predeterminada actual del sistema.
+          </p>
+          <p className="muted" style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>
+            💡 Puedes descargar varios accesos directos (uno por impresora) cambiando este campo y
+            pulsando <em>Descargar</em> otra vez. Da un nombre distinto a cada archivo si quieres
+            conservarlos todos en el escritorio.
           </p>
         </div>
 

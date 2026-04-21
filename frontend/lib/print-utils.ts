@@ -19,11 +19,36 @@
  */
 
 const FETCH_TIMEOUT_MS = 35000; // just above backend CTT label timeout (30s)
-const IFRAME_CLEANUP_DELAY_MS = 3000;
-const PDF_EMBED_RENDER_DELAY_MS = 1400;
+const IFRAME_CLEANUP_DELAY_MS = 2500;
+const PRINT_RENDER_DELAY_MS = 350;
+// High DPI so thermal labels stay crisp. 300 DPI / 72 = ~4.17.
+const PDF_RENDER_SCALE = 3;
 
 /** localStorage key controlling silent-print mode on this device. */
 export const SILENT_PRINT_STORAGE_KEY = "brandeate_silent_print_enabled";
+
+/** Optional printer name hint (informational — browsers can't pick printers). */
+export const PRINTER_NAME_STORAGE_KEY = "brandeate_printer_name";
+
+export function getPrinterNameHint(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(PRINTER_NAME_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function setPrinterNameHint(name: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const trimmed = name.trim();
+    if (trimmed) window.localStorage.setItem(PRINTER_NAME_STORAGE_KEY, trimmed);
+    else window.localStorage.removeItem(PRINTER_NAME_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 export function isSilentPrintEnabled(): boolean {
   if (typeof window === "undefined") return false;
@@ -121,28 +146,86 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
 // ─── Silent-print path ────────────────────────────────────────────────────
 
 /**
- * Render a PDF blob in a hidden iframe and trigger contentWindow.print().
+ * Render a PDF blob to <img> pages inside a hidden iframe and print.
  *
- * The PDF is embedded inside a minimal HTML wrapper so the iframe loads HTML
- * (not PDF). Chrome's built-in PDF viewer prints through a path that bypasses
- * the --kiosk-printing flag; wrapping it in HTML keeps us on the normal HTML
- * print path which DOES honour the flag.
+ * Why this way: Chrome's built-in PDF viewer (what you get from <embed> or
+ * iframe.src=pdfUrl) intercepts window.print() and bypasses --kiosk-printing,
+ * so the dialog or the in-viewer "click to print" step shows up anyway.
+ *
+ * We rasterise every page to a canvas with pdf.js, inline the result as <img>
+ * tags in a plain HTML document, and print THAT. Since the iframe is plain
+ * HTML, --kiosk-printing applies and the job goes straight to the default
+ * printer with zero UI.
  */
-function printBlobOnce(blob: Blob): Promise<void> {
-  const pdfUrl = URL.createObjectURL(blob);
+async function printBlobOnce(blob: Blob): Promise<void> {
+  // Dynamic import keeps pdf.js out of the main bundle.
+  const pdfjs = await import("pdfjs-dist");
+  // Use the matching worker bundled with pdfjs-dist. `new URL(..., import.meta.url)`
+  // lets Next.js produce a static URL for the worker without extra config.
+  try {
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+      "pdfjs-dist/build/pdf.worker.min.mjs",
+      import.meta.url,
+    ).toString();
+  } catch {
+    // Fallback: disable worker (slower but works everywhere).
+    pdfjs.GlobalWorkerOptions.workerSrc = "";
+  }
+
+  const buffer = await blob.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+
+  const pageImages: string[] = [];
+  const pageSizes: Array<{ widthPt: number; heightPt: number }> = [];
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewportAt1 = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context unavailable");
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    pageImages.push(canvas.toDataURL("image/png"));
+    // Store PDF point size (1pt = 1/72in) for the print CSS @page size.
+    pageSizes.push({ widthPt: viewportAt1.width, heightPt: viewportAt1.height });
+    page.cleanup();
+  }
+  pdf.destroy();
+
+  const first = pageSizes[0] ?? { widthPt: 595, heightPt: 842 };
+  // mm conversion for @page size (1pt = 0.3528mm).
+  const widthMm = (first.widthPt * 0.3528).toFixed(2);
+  const heightMm = (first.heightPt * 0.3528).toFixed(2);
+
+  const imgsHtml = pageImages
+    .map(
+      (src, idx) =>
+        `<img src="${src}" alt="page-${idx + 1}" class="page" />`,
+    )
+    .join("\n");
+
   const html = [
     "<!DOCTYPE html>",
     "<html>",
     "<head>",
+    '<meta charset="utf-8" />',
     "<style>",
+    `  @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }`,
     "  * { margin:0; padding:0; box-sizing:border-box; }",
-    "  html, body { width:100%; height:100%; overflow:hidden; }",
-    "  embed { display:block; width:100%; height:100%; }",
-    "  @media print { html, body, embed { width:100%; height:100%; } }",
+    "  html, body { width:100%; }",
+    "  body { background:#fff; }",
+    "  .page { display:block; width:100%; height:auto; page-break-after:always; }",
+    "  .page:last-child { page-break-after:auto; }",
+    "  @media print {",
+    "    html, body { width: auto; }",
+    "    .page { width: 100%; height: 100vh; object-fit: contain; }",
+    "  }",
     "</style>",
     "</head>",
     "<body>",
-    `  <embed src="${pdfUrl}" type="application/pdf">`,
+    imgsHtml,
     "</body>",
     "</html>",
   ].join("\n");
@@ -166,7 +249,6 @@ function printBlobOnce(blob: Blob): Promise<void> {
       setTimeout(() => {
         if (document.body.contains(iframe)) document.body.removeChild(iframe);
         URL.revokeObjectURL(htmlUrl);
-        URL.revokeObjectURL(pdfUrl);
         resolve();
       }, IFRAME_CLEANUP_DELAY_MS);
     }
@@ -181,7 +263,7 @@ function printBlobOnce(blob: Blob): Promise<void> {
           // swallow — cleanup resolves so the flow advances
         }
         cleanup();
-      }, PDF_EMBED_RENDER_DELAY_MS);
+      }, PRINT_RENDER_DELAY_MS);
     };
 
     iframe.onerror = () => cleanup();
