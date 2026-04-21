@@ -10,6 +10,8 @@ import { ShopifyTrackingLinkPanel } from "@/components/shopify-tracking-link-pan
 import { TrackingBrandingPanel } from "@/components/tracking-branding-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 import { PortalBillingPanel } from "@/components/portal-billing-panel";
+import { PortalDevelopersPanel } from "@/components/portal-developers-panel";
+import { PortalNotificationsPanel } from "@/components/portal-notifications-panel";
 import { PortalSustainabilityPanel } from "@/components/portal-sustainability-panel";
 import { SettingsTabs } from "@/components/settings-tabs";
 import { fetchMyClientAccounts, fetchShopCatalogProducts, fetchShopifyIntegrations, fetchOrders } from "@/lib/api";
@@ -22,7 +24,9 @@ const PORTAL_TABS = [
   { id: "shopify",        label: "Shopify",         icon: "🔗" },
   { id: "tracking",       label: "Tracking",        icon: "📦" },
   { id: "billing",        label: "Facturación",     icon: "💰" },
-  { id: "webhooks",       label: "Webhooks",        icon: "🔔" },
+  { id: "notifications",  label: "Notificaciones",  icon: "🔔" },
+  { id: "webhooks",       label: "Webhooks",        icon: "📡" },
+  { id: "developers",     label: "Desarrolladores", icon: "🧑‍💻" },
   { id: "sustainability", label: "Sostenibilidad",  icon: "🌱" },
 ];
 
@@ -244,6 +248,16 @@ export default async function PortalSettingsPage({ searchParams }: PortalSetting
           </div>
           <PortalBillingPanel orders={sustainabilityOrders} />
         </Card>
+      )}
+
+      {/* ── Notificaciones ──────────────────────────────────────── */}
+      {activeTab === "notifications" && (
+        <PortalNotificationsPanel />
+      )}
+
+      {/* ── Desarrolladores ─────────────────────────────────────── */}
+      {activeTab === "developers" && (
+        <PortalDevelopersPanel />
       )}
 
       {/* ── Webhooks ─────────────────────────────────────────────── */}
