@@ -6,25 +6,34 @@ export async function GET(request: NextRequest) {
   const os = searchParams.get("os") ?? "windows";
 
   const appUrl = origin;
+  const targetUrl = `${appUrl}/employees/print-queue`;
 
   if (os === "mac") {
-    // IMPORTANT: `open -a "Google Chrome" --args` reuses an existing Chrome
-    // process and the --kiosk-printing flag is silently ignored.
-    // Calling the binary directly with --user-data-dir forces a NEW process
-    // that always has the flag active, even when regular Chrome is open.
+    // Chrome solo respeta --kiosk-printing cuando arranca desde cero.
+    // Si ya hay un proceso corriendo, la flag se ignora y simplemente se
+    // añade una pestaña. Por eso cerramos Chrome antes de relanzarlo con
+    // tu perfil normal (sin --user-data-dir), así mantienes bookmarks,
+    // sesión iniciada, etc. No es un perfil de "invitado" ni aislado.
     const content = [
       "#!/bin/bash",
-      "# Brandeate - Acceso directo para maquinas de etiquetas (Mac)",
-      "# Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.",
+      "# Brandeate - Acceso directo para imprimir etiquetas sin dialogo (Mac)",
+      "# Reutiliza tu Chrome normal (tu perfil, tus bookmarks, tu sesion).",
       "# Primera vez: click derecho -> Abrir (para dar permiso). Luego doble clic.",
       "",
       'CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"',
-      'KIOSK_DIR="$HOME/.config/chrome-kiosk-print"',
       "",
-      '# Lanzar Chrome en un perfil aislado para que --kiosk-printing siempre este activo',
-      '# aunque ya haya una ventana normal de Chrome abierta.',
-      '"$CHROME" --kiosk-printing --user-data-dir="$KIOSK_DIR" \\'
-      ,`  "${appUrl}/employees/print-queue" &`,
+      "# 1. Cerrar Chrome si estuviese abierto (la flag --kiosk-printing",
+      "#    solo se aplica al lanzar un proceso nuevo).",
+      'osascript -e \'tell application "Google Chrome" to quit\' >/dev/null 2>&1',
+      "sleep 1",
+      "# Por si queda algun proceso residual.",
+      'pkill -x "Google Chrome" >/dev/null 2>&1',
+      "sleep 1",
+      "",
+      "# 2. Relanzar Chrome con tu perfil normal + la flag de impresion silenciosa.",
+      `"$CHROME" --kiosk-printing "${targetUrl}" &`,
+      "",
+      "disown",
       "",
     ].join("\n");
 
@@ -38,19 +47,23 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Default: Windows .bat
-  // IMPORTANT: `start chrome.exe --kiosk-printing` with Chrome already open
-  // adds a tab to the existing process WITHOUT the flag.
-  // --user-data-dir forces a separate Chrome process that always starts fresh.
+  // Windows .bat
+  // Igual que en Mac: cerramos Chrome antes de relanzarlo con --kiosk-printing
+  // para que use tu perfil de siempre y la flag tenga efecto.
   const content = [
     "@echo off",
-    "REM Brandeate - Acceso directo para maquinas de etiquetas (Windows)",
-    "REM Abre Chrome con --kiosk-printing: imprime directamente sin dialogo.",
-    "REM Usa un perfil separado para que la flag siempre este activa.",
+    "REM Brandeate - Acceso directo para imprimir etiquetas sin dialogo (Windows)",
+    "REM Reutiliza tu Chrome normal (tu perfil, tus bookmarks, tu sesion).",
+    "",
     `set CHROME="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"`,
     `if not exist %CHROME% set CHROME="C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"`,
-    `set KIOSK_DIR=%LOCALAPPDATA%\\ChromeKioskPrint`,
-    `start "" %CHROME% --kiosk-printing --user-data-dir="%KIOSK_DIR%" ${appUrl}/employees/print-queue`,
+    "",
+    "REM 1. Cerrar Chrome (la flag --kiosk-printing solo funciona al arrancar).",
+    "taskkill /IM chrome.exe /F >nul 2>&1",
+    "timeout /t 2 /nobreak >nul",
+    "",
+    "REM 2. Relanzar Chrome con tu perfil de siempre + impresion silenciosa.",
+    `start "" %CHROME% --kiosk-printing ${targetUrl}`,
     "",
   ].join("\r\n");
 

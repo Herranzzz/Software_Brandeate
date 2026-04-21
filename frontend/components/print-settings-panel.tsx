@@ -112,15 +112,36 @@ export function PrintSettingsPanel() {
         </label>
 
         <div className="feedback feedback-info">
-          <strong>Importante para que funcione realmente sin diálogo:</strong>
-          <ol style={{ margin: "0.5rem 0 0 1.2rem", padding: 0 }}>
-            <li>Descarga y usa el acceso directo de abajo para abrir Brandeate en Chrome con el flag <code>--kiosk-printing</code>.</li>
-            <li>Configura la impresora de etiquetas como <strong>impresora predeterminada del sistema</strong>.</li>
-            <li>Abre la web desde ese acceso directo (no desde Chrome normal).</li>
+          <strong>Cómo instalarlo (5 minutos, una sola vez):</strong>
+          <ol style={{ margin: "0.5rem 0 0 1.2rem", padding: 0, display: "grid", gap: "0.4rem" }}>
+            <li>
+              <strong>Configura la impresora de etiquetas como predeterminada del sistema.</strong>{" "}
+              {os === "mac" ? (
+                <>Ajustes del sistema → Impresoras y escáneres → clic derecho sobre tu impresora de etiquetas → <em>Establecer impresora predeterminada</em>.</>
+              ) : os === "windows" ? (
+                <>Configuración → Bluetooth y dispositivos → Impresoras y escáneres → selecciona tu impresora → <em>Establecer como predeterminada</em>. Desactiva también <em>«Permitir que Windows administre mi impresora predeterminada»</em>.</>
+              ) : (
+                <>En los ajustes del sistema, marca la impresora térmica como predeterminada.</>
+              )}
+            </li>
+            <li>
+              <strong>Descarga el acceso directo</strong> con el botón de abajo y guárdalo en el escritorio.
+              {os === "mac" && (
+                <> La primera vez tendrás que darle permiso: clic derecho sobre el archivo <code>.command</code> → <em>Abrir</em> → <em>Abrir</em> de nuevo en el aviso de seguridad.</>
+              )}
+            </li>
+            <li>
+              <strong>Activa el toggle</strong> de arriba en este dispositivo.
+            </li>
+            <li>
+              <strong>Usa siempre ese acceso directo</strong> para abrir Brandeate cuando vayas a imprimir etiquetas. Al hacer doble clic, Chrome se cerrará y volverá a abrirse con tu perfil de siempre (tu sesión iniciada, tus bookmarks), pero con el modo de impresión silenciosa activo. No es una ventana de invitado.
+            </li>
+            <li>
+              <strong>Prueba la impresión</strong> en la sección de abajo para confirmar que funciona antes de ponerlo en producción.
+            </li>
           </ol>
-          <p style={{ marginTop: "0.5rem" }} className="muted">
-            Si activas esta opción sin usar el acceso directo, el navegador seguirá mostrando el
-            diálogo de impresión — es una limitación de Chrome, no del sistema.
+          <p style={{ marginTop: "0.75rem" }} className="muted">
+            ⚠️ Si abres Brandeate desde un Chrome que ya estaba abierto a mano (no desde el acceso directo), seguirá apareciendo el diálogo de impresión. Es una limitación de Chrome: la flag <code>--kiosk-printing</code> solo se aplica cuando el navegador arranca con ella. Por eso el acceso directo cierra Chrome antes de relanzarlo.
           </p>
         </div>
 
@@ -133,8 +154,11 @@ export function PrintSettingsPanel() {
                 : "⬇ Descargar acceso directo"}
           </button>
           <p className="muted" style={{ fontSize: "0.875rem", marginTop: "0.4rem" }}>
-            Ejecuta el script y usa el acceso directo creado para abrir Brandeate con
-            impresión silenciosa habilitada a nivel navegador.
+            {os === "mac"
+              ? "Archivo .command. Guárdalo en el escritorio y ábrelo con doble clic (la primera vez con clic derecho → Abrir)."
+              : os === "windows"
+                ? "Archivo .bat. Guárdalo en el escritorio y ábrelo con doble clic. Si Windows SmartScreen avisa: «Más información → Ejecutar de todas formas»."
+                : "Guarda el archivo y ábrelo con doble clic para arrancar Chrome con impresión silenciosa."}
           </p>
         </div>
       </Card>
