@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import { AppModal } from "@/components/app-modal";
 import { useToast } from "@/components/toast";
@@ -40,6 +40,8 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
   const [isRefreshingOrder, setIsRefreshingOrder] = useState(false);
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [isPrintingLabel, setIsPrintingLabel] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Recipient fields — pre-filled from order data
   const [recipientName, setRecipientName] = useState(initialContact.recipientName);
@@ -152,7 +154,25 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
     setShopifySyncStatus("");
     setIsPreviewVisible(false);
     setIsPrintingLabel(false);
+    setElapsedSeconds(0);
+    abortRef.current?.abort();
+    abortRef.current = null;
   }
+
+  // Tick an elapsed-seconds counter while a CTT call is pending so the user
+  // sees the request is still alive during retries (backend retries transient
+  // failures up to ~60s total).
+  useEffect(() => {
+    if (cttStatus !== "loading-shipping" && cttStatus !== "loading-label") {
+      return;
+    }
+    setElapsedSeconds(0);
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - started) / 1000));
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [cttStatus]);
 
   function closeModal() {
     setOpen(false);
@@ -187,13 +207,25 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
   }
 
   async function handleCreateAndPrint() {
+    // Guard against double-click: if we're already creating or fetching a label
+    // for this order, drop the extra click instead of racing two requests.
+    if (cttStatus === "loading-shipping" || cttStatus === "loading-label") {
+      return;
+    }
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    // Backend may retry transient CTT errors for up to ~60s; give the client
+    // some slack on top of that before cutting the request.
+    const clientTimeoutId = window.setTimeout(() => controller.abort(), 90_000);
+
     setCttStatus("loading-shipping");
     setErrorMessage("");
     setShippingCode("");
     setLabelUrl("");
 
     try {
-      // Step 1: Create CTT shipping
       const shippingRes = await fetch("/api/ctt/shippings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -214,11 +246,18 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
           resolution_mode: manualServiceOverride ? "manual" : "automatic",
           item_count: parseInt(itemCount, 10) || 1,
         }),
+        signal: controller.signal,
       });
 
       if (!shippingRes.ok) {
-        const err = (await shippingRes.json()) as { detail?: string };
-        throw new Error(err.detail ?? "Error al crear el envío en CTT Express");
+        let detail = `Error al crear el envío en CTT Express (${shippingRes.status})`;
+        try {
+          const err = (await shippingRes.json()) as { detail?: string };
+          if (err?.detail) detail = err.detail;
+        } catch {
+          // non-JSON body — keep generic message
+        }
+        throw new Error(detail);
       }
 
       const { shipping_code, shopify_sync_status } = (await shippingRes.json()) as {
@@ -227,37 +266,49 @@ export function CttShipmentButton({ order }: CttShipmentButtonProps) {
       };
       setShippingCode(shipping_code);
       setShopifySyncStatus(shopify_sync_status || "");
-
-      setCttStatus("loading-label");
       setLabelUrl(`/api/ctt/shippings/${shipping_code}/label`);
       setIsPreviewVisible(false);
 
+      // Mark the shipment as created BEFORE attempting to print so the user
+      // keeps the success state (and the Print / Download buttons) even if
+      // print fails. Previously a silent print failure left no recovery path.
       setCttStatus("success");
       toast("Etiqueta creada correctamente", "success");
       startTransition(() => { router.refresh(); });
 
-      // Auto-print: trigger print dialog immediately after creation
       try {
         setIsPrintingLabel(true);
         await printLabel(shipping_code, { format: "PDF" });
-      } catch {
-        // Print failed silently — user can still click the print button
+      } catch (printErr) {
+        const msg = printErr instanceof Error ? printErr.message : "Impresión automática fallida";
+        toast(`Etiqueta creada, pero no se pudo imprimir: ${msg}. Usa el botón "Imprimir etiqueta".`, "error");
       } finally {
         setIsPrintingLabel(false);
       }
     } catch (err) {
-      setCttStatus("error");
-      setErrorMessage(err instanceof Error ? err.message : "Error desconocido");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setCttStatus("error");
+        setErrorMessage("La creación de la etiqueta tardó demasiado. CTT puede estar lento — vuelve a intentarlo.");
+      } else {
+        setCttStatus("error");
+        setErrorMessage(err instanceof Error ? err.message : "Error desconocido");
+      }
+    } finally {
+      window.clearTimeout(clientTimeoutId);
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
     }
   }
 
   const isLoading = cttStatus === "loading-shipping" || cttStatus === "loading-label" || isPending;
 
+  const elapsedSuffix = elapsedSeconds >= 3 ? ` (${elapsedSeconds}s)` : "";
   const loadingLabel =
     cttStatus === "loading-shipping"
-      ? "Creando envío en CTT..."
+      ? `Creando envío en CTT...${elapsedSuffix}`
       : cttStatus === "loading-label"
-        ? "Obteniendo etiqueta..."
+        ? `Obteniendo etiqueta...${elapsedSuffix}`
         : "Procesando...";
 
   const canSubmit =

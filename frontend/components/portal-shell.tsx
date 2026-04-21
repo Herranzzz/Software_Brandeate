@@ -6,6 +6,8 @@ import { useEffect, useState, type CSSProperties, type ReactNode, type SVGProps 
 
 import { LogoutButton } from "@/components/logout-button";
 
+import { PortalCommandPalette } from "@/components/portal-command-palette";
+import { RealtimeActivityPanel } from "@/components/realtime-activity-panel";
 import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import { useLayoutState } from "@/components/layout-state-provider";
 import { getTenantBranding } from "@/lib/tenant-branding";
@@ -120,6 +122,42 @@ function ReportsIcon(props: IconProps) {
   );
 }
 
+function CalculatorIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <rect x="5" y="3" width="14" height="18" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="7.5" y="6" width="9" height="3" rx="1" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="9" cy="13" r="0.9" fill="currentColor" />
+      <circle cx="12" cy="13" r="0.9" fill="currentColor" />
+      <circle cx="15" cy="13" r="0.9" fill="currentColor" />
+      <circle cx="9" cy="16.5" r="0.9" fill="currentColor" />
+      <circle cx="12" cy="16.5" r="0.9" fill="currentColor" />
+      <circle cx="15" cy="16.5" r="0.9" fill="currentColor" />
+    </svg>
+  );
+}
+
+function AddressBookIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M4 7h3M4 12h3M4 17h3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <circle cx="13" cy="10.5" r="2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M9.8 16c.4-1.6 1.7-2.5 3.2-2.5s2.8.9 3.2 2.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function PerformanceIcon(props: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M4 20a8 8 0 1 1 16 0" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="m12 12 4-4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+    </svg>
+  );
+}
+
 function InventoryIcon(props: IconProps) {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" {...props}>
@@ -218,6 +256,14 @@ const portalNavGroups = [
     items: [
       { href: "/portal/inventory", label: "Inventario", shortLabel: "Stock", icon: InventoryIcon },
       { href: "/portal/reports", label: "Informes", shortLabel: "Report.", icon: ReportsIcon },
+    ],
+  },
+  {
+    label: "Herramientas",
+    items: [
+      { href: "/portal/calculator", label: "Calculadora", shortLabel: "Calc.", icon: CalculatorIcon },
+      { href: "/portal/addresses", label: "Direcciones", shortLabel: "Direc.", icon: AddressBookIcon },
+      { href: "/portal/performance", label: "Rendimiento", shortLabel: "SLA", icon: PerformanceIcon },
     ],
   },
   {
@@ -340,6 +386,13 @@ export function PortalShell({ children, user, shops }: PortalShellProps) {
       </aside>
 
       <div className="tenant-main">
+        <div className="tenant-topbar">
+          <PortalCommandPalette
+            shopQuery={tenantScope.selectedShopId ? `?shop_id=${tenantScope.selectedShopId}` : ""}
+            onToggleTheme={toggleTheme}
+          />
+          <RealtimeActivityPanel currentUserId={user.id} />
+        </div>
         <div className="tenant-content">{children}</div>
       </div>
 

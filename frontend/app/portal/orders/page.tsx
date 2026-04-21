@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
+import { OrdersLiveRefresh } from "@/components/orders-live-refresh";
 import { fetchOrders } from "@/lib/api";
 import {
   clientOrderStageMeta,
@@ -126,6 +127,7 @@ export default async function PortalOrdersPage({ searchParams }: PortalOrdersPag
 
   return (
     <div className="po-page">
+      <OrdersLiveRefresh />
       {/* ── Toolbar: search + filters ──────────────────────────── */}
       <div className="po-toolbar">
         <form action="/portal/orders" className="po-search-form" method="get">

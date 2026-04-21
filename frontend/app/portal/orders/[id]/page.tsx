@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
+import { OrderCollabPanel } from "@/components/order-collab-panel";
 import { OrderIncidentsPanel } from "@/components/order-incidents-panel";
 import { DesignPreviewWithValidation } from "@/components/design-preview-with-validation";
 import { PersonalizationBadge } from "@/components/personalization-badge";
@@ -212,7 +213,7 @@ function buildAddressLines(parts: Array<string | null | undefined>) {
 
 
 export default async function PortalOrderDetailPage({ params }: PortalOrderDetailPageProps) {
-  await requirePortalUser();
+  const currentUser = await requirePortalUser();
   const { id } = await params;
   const token = await getAuthToken();
   const [order, incidents] = await Promise.all([
@@ -374,6 +375,15 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
           <Card className="stack">
             <SectionTitle eyebrow="⚠️ Incidencias" title="Seguimiento del pedido" />
             <OrderIncidentsPanel incidents={incidents} orderId={order.id} />
+          </Card>
+
+          <Card className="stack">
+            <OrderCollabPanel
+              orderId={order.id}
+              shopId={order.shop_id}
+              currentUserId={currentUser.id}
+              currentUserName={currentUser.name}
+            />
           </Card>
 
           <Card className="stack">

@@ -7,6 +7,7 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.catalog import router as catalog_router
 from app.api.routes.ctt import router as ctt_router
 from app.api.routes.customers import router as customers_router
+from app.api.routes.events import router as events_router
 from app.api.routes.health import router as health_router
 from app.api.routes.incidents import router as incidents_router
 from app.api.routes.integrations import router as integrations_router
@@ -57,3 +58,4 @@ api_router.include_router(email_flows_router)
 api_router.include_router(suppliers_router)
 api_router.include_router(purchase_orders_router)
 api_router.include_router(replenishment_router)
+api_router.include_router(events_router)

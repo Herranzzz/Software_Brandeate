@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import random
 import socket
 import ssl
 import threading
@@ -11,12 +13,24 @@ from urllib.parse import urlencode
 from app.core.config import get_settings
 
 
+logger = logging.getLogger(__name__)
+
+
 # Hard timeout (seconds) applied to every outbound HTTP request to CTT.
 # Without this, urlopen() blocks indefinitely when CTT is slow or unreachable,
 # which in turn makes the bulk label download in the UI hang forever.
 _CTT_TOKEN_TIMEOUT_SECONDS = 15
 _CTT_REQUEST_TIMEOUT_SECONDS = 25
 _CTT_LABEL_TIMEOUT_SECONDS = 30
+
+# Transient-error retry policy. CTT's gateway returns sporadic 502/503/504 and
+# drops connections under load; retrying with backoff turns those into invisible
+# hiccups instead of user-facing failures. 4xx is NOT retried — those are
+# business errors (bad payload, auth) that won't recover on retry.
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BASE_DELAY = 0.6
+_RETRY_MAX_DELAY = 4.0
+_RETRY_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 def _ssl_context() -> ssl.SSLContext | None:
@@ -27,6 +41,72 @@ def _ssl_context() -> ssl.SSLContext | None:
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
     return None
+
+
+def _is_transient_urlerror(exc: error.URLError) -> bool:
+    """URL errors wrap the underlying socket/OS error in `reason`.
+
+    Connection resets, DNS hiccups, and timeouts are transient; refuse to retry
+    anything else (e.g. SSL certificate problems won't improve on retry).
+    """
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, (socket.timeout, TimeoutError, ConnectionError)):
+        return True
+    if isinstance(reason, OSError):
+        # EHOSTUNREACH, ECONNREFUSED, ENETUNREACH, etc.
+        return True
+    return False
+
+
+def _urlopen_with_retry(
+    req: request.Request,
+    *,
+    timeout: int,
+    op_label: str,
+) -> bytes:
+    """Execute `urlopen(req)` with bounded exponential backoff on transient failures.
+
+    Returns the response body bytes. Raises the original exception after the
+    final attempt. Non-transient errors (4xx HTTPError, SSL, invalid URL) are
+    raised immediately without retry.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        try:
+            with request.urlopen(req, context=_ssl_context(), timeout=timeout) as resp:
+                return resp.read()
+        except error.HTTPError as exc:
+            last_exc = exc
+            if exc.code not in _RETRY_STATUS_CODES or attempt == _RETRY_MAX_ATTEMPTS:
+                raise
+            logger.warning(
+                "CTT transient HTTP %s on %s (attempt %s/%s), retrying",
+                exc.code, op_label, attempt, _RETRY_MAX_ATTEMPTS,
+            )
+        except (socket.timeout, TimeoutError) as exc:
+            last_exc = exc
+            if attempt == _RETRY_MAX_ATTEMPTS:
+                raise
+            logger.warning(
+                "CTT timeout on %s (attempt %s/%s), retrying",
+                op_label, attempt, _RETRY_MAX_ATTEMPTS,
+            )
+        except error.URLError as exc:
+            last_exc = exc
+            if not _is_transient_urlerror(exc) or attempt == _RETRY_MAX_ATTEMPTS:
+                raise
+            logger.warning(
+                "CTT network error on %s (%s, attempt %s/%s), retrying",
+                op_label, exc.reason, attempt, _RETRY_MAX_ATTEMPTS,
+            )
+
+        delay = min(_RETRY_BASE_DELAY * (2 ** (attempt - 1)), _RETRY_MAX_DELAY)
+        delay += random.uniform(0, delay * 0.25)
+        time.sleep(delay)
+
+    # unreachable — loop either returns or raises
+    assert last_exc is not None
+    raise last_exc
 
 
 _token_lock = threading.Lock()
@@ -88,12 +168,12 @@ def get_token() -> str:
             method="POST",
         )
         try:
-            with request.urlopen(
+            raw = _urlopen_with_retry(
                 req,
-                context=_ssl_context(),
                 timeout=_CTT_TOKEN_TIMEOUT_SECONDS,
-            ) as resp:
-                payload = json.loads(resp.read())
+                op_label=f"POST {base}/oauth2/token",
+            )
+            payload = json.loads(raw)
         except error.HTTPError as exc:
             raise CTTError(
                 f"Token request failed ({exc.code}) for {base}: {exc.read().decode()}"
@@ -175,12 +255,11 @@ def _request_json(
         method=method,
     )
     try:
-        with request.urlopen(
+        raw = _urlopen_with_retry(
             req,
-            context=_ssl_context(),
             timeout=_CTT_REQUEST_TIMEOUT_SECONDS,
-        ) as resp:
-            raw = resp.read()
+            op_label=f"{method} {path}",
+        )
     except error.HTTPError as exc:
         raise CTTError(f"CTT request failed ({exc.code}) {method} {path}: {exc.read().decode()}") from exc
     except (socket.timeout, TimeoutError) as exc:
@@ -222,12 +301,11 @@ def get_label(
         method="GET",
     )
     try:
-        with request.urlopen(
+        raw = _urlopen_with_retry(
             req,
-            context=_ssl_context(),
             timeout=_CTT_LABEL_TIMEOUT_SECONDS,
-        ) as resp:
-            raw = resp.read()
+            op_label=f"GET label {tracking_code}",
+        )
     except error.HTTPError as exc:
         raise CTTError(f"Get label failed ({exc.code}): {exc.read().decode()}") from exc
     except (socket.timeout, TimeoutError) as exc:
@@ -278,12 +356,11 @@ def get_pod(
         method="GET",
     )
     try:
-        with request.urlopen(
+        return _urlopen_with_retry(
             req,
-            context=_ssl_context(),
             timeout=_CTT_LABEL_TIMEOUT_SECONDS,
-        ) as resp:
-            return resp.read()
+            op_label=f"GET pod {tracking_code}",
+        )
     except error.HTTPError as exc:
         if exc.code == 404:
             return None
@@ -330,12 +407,11 @@ def get_pickup_points(
         method="POST",
     )
     try:
-        with request.urlopen(
+        raw = _urlopen_with_retry(
             req,
-            context=_ssl_context(),
             timeout=_CTT_REQUEST_TIMEOUT_SECONDS,
-        ) as resp:
-            raw = resp.read()
+            op_label=f"POST pickup-points {postal_code}",
+        )
     except error.HTTPError as exc:
         raise CTTError(
             f"Get pickup points failed ({exc.code}): {exc.read().decode()}"

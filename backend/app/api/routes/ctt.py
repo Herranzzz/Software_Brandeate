@@ -1,8 +1,12 @@
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_db, require_admin_user
+from app.db.session import SessionLocal
 from app.models import Order, Shipment, User
 from app.schemas.ctt import (
     CTTBulkShippingRequest,
@@ -20,6 +24,13 @@ from app.services.ctt_shipments import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+# Cap concurrent outbound CTT calls — CTT's gateway throttles aggressive clients
+# and we still want other endpoints responsive while a bulk is running.
+_BULK_CTT_CONCURRENCY = 4
+
+
 router = APIRouter(prefix="/ctt", tags=["ctt"])
 
 
@@ -33,6 +44,17 @@ def create_ctt_shipping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user),
 ) -> CTTCreateShippingResponse:
+    # Row-level lock on the order: if a parallel request is already creating a
+    # label for this order (double-click, two operators clicking at once),
+    # this blocks until the first commits. The first writes the shipment, the
+    # second sees it via the `has tracking_number` short-circuit inside the
+    # orchestrator and returns the existing label instead of creating a dup.
+    locked_order_id = db.scalar(
+        select(Order.id).where(Order.id == payload.order_id).with_for_update()
+    )
+    if locked_order_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
     order = db.scalar(
         select(Order)
         .options(selectinload(Order.shipment).selectinload(Shipment.events))
@@ -68,36 +90,41 @@ def create_ctt_shipping(
 )
 def create_ctt_shippings_bulk(
     payload: CTTBulkShippingRequest,
-    db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user),
 ) -> CTTBulkShippingResponse:
-    results: list[CTTBulkShippingResult] = []
+    """Create CTT shipments for many orders in parallel.
 
-    for order_id in payload.order_ids:
-        order = db.scalar(
-            select(Order)
-            .options(selectinload(Order.shipment).selectinload(Shipment.events))
-            .where(Order.id == order_id)
-        )
-        if order is None:
-            results.append(
-                CTTBulkShippingResult(
+    Each order runs in its own thread with its own DB session so a slow CTT
+    response for one order doesn't block the others. Concurrency is bounded to
+    avoid hammering CTT (they throttle) and to leave headroom for other
+    requests on the server.
+    """
+
+    def _process_one(order_id: int, actor_id: int) -> CTTBulkShippingResult:
+        session: Session = SessionLocal()
+        try:
+            # Reload the user in this thread's session to avoid cross-session
+            # attribute access on the request-scoped user.
+            actor = session.get(User, actor_id)
+            order = session.scalar(
+                select(Order)
+                .options(selectinload(Order.shipment).selectinload(Shipment.events))
+                .where(Order.id == order_id)
+            )
+            if order is None:
+                return CTTBulkShippingResult(
                     order_id=order_id,
                     status="failed",
                     reason="Pedido no encontrado",
                 )
+
+            has_existing_ctt = (
+                order.shipment is not None
+                and bool((order.shipment.tracking_number or "").strip())
+                and (order.shipment.carrier or "").strip().lower().startswith("ctt")
             )
-            continue
-
-        has_existing_ctt = (
-            order.shipment is not None
-            and bool((order.shipment.tracking_number or "").strip())
-            and (order.shipment.carrier or "").strip().lower().startswith("ctt")
-        )
-
-        if has_existing_ctt:
-            results.append(
-                CTTBulkShippingResult(
+            if has_existing_ctt:
+                return CTTBulkShippingResult(
                     order_id=order_id,
                     external_id=order.external_id,
                     status="skipped",
@@ -105,56 +132,75 @@ def create_ctt_shippings_bulk(
                     shipping_code=order.shipment.tracking_number,
                     tracking_url=order.shipment.tracking_url,
                 )
-            )
-            continue
 
-        shipping_request = CTTCreateShippingRequest(
-            order_id=order_id,
-            weight_tier_code=payload.weight_tier_code,
-            shipping_type_code=payload.shipping_type_code,
-            item_count=payload.item_count,
-            resolution_mode="automatic",
-        )
-
-        try:
-            result = create_ctt_shipment_for_order(
-                db=db,
-                order=order,
-                payload=shipping_request,
-                current_user=current_user,
+            shipping_request = CTTCreateShippingRequest(
+                order_id=order_id,
+                weight_tier_code=payload.weight_tier_code,
+                shipping_type_code=payload.shipping_type_code,
+                item_count=payload.item_count,
+                resolution_mode="automatic",
             )
-            db.commit()
-            db.refresh(result.shipment)
-            results.append(
-                CTTBulkShippingResult(
+
+            try:
+                result = create_ctt_shipment_for_order(
+                    db=session,
+                    order=order,
+                    payload=shipping_request,
+                    current_user=actor,
+                )
+                session.commit()
+                session.refresh(result.shipment)
+                return CTTBulkShippingResult(
                     order_id=order_id,
                     external_id=order.external_id,
                     status="created",
                     shipping_code=result.shipping_code,
                     tracking_url=result.tracking_url,
                 )
-            )
-        except CTTShipmentDuplicateError as exc:
-            db.rollback()
-            results.append(
-                CTTBulkShippingResult(
+            except CTTShipmentDuplicateError as exc:
+                session.rollback()
+                return CTTBulkShippingResult(
                     order_id=order_id,
                     external_id=order.external_id,
                     status="skipped",
                     reason=str(exc),
                     shipping_code=order.shipment.tracking_number if order.shipment else None,
                 )
-            )
-        except CTTShipmentOrchestrationError as exc:
-            db.rollback()
-            results.append(
-                CTTBulkShippingResult(
+            except CTTShipmentOrchestrationError as exc:
+                session.rollback()
+                return CTTBulkShippingResult(
                     order_id=order_id,
                     external_id=order.external_id,
                     status="failed",
                     reason=str(exc),
                 )
+        except Exception as exc:  # defensive: never lose a row from the result set
+            logger.exception("Bulk CTT worker crashed for order_id=%s", order_id)
+            try:
+                session.rollback()
+            except Exception:
+                pass
+            return CTTBulkShippingResult(
+                order_id=order_id,
+                status="failed",
+                reason=f"Error interno: {exc}",
             )
+        finally:
+            session.close()
+
+    results: list[CTTBulkShippingResult] = []
+    max_workers = min(_BULK_CTT_CONCURRENCY, max(len(payload.order_ids), 1))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_process_one, order_id, current_user.id): order_id
+            for order_id in payload.order_ids
+        }
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    # Preserve the caller's order_ids ordering for predictable UI rendering.
+    order_index = {oid: i for i, oid in enumerate(payload.order_ids)}
+    results.sort(key=lambda r: order_index.get(r.order_id, 0))
 
     created_count = sum(1 for r in results if r.status == "created")
     skipped_count = sum(1 for r in results if r.status == "skipped")
