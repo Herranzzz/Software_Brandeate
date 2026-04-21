@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
 
 
+import { AdminCommandPalette } from "@/components/admin-command-palette";
 import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import { useLayoutState } from "@/components/layout-state-provider";
 import type { User } from "@/lib/types";
@@ -427,6 +428,9 @@ export function AppShell({ children, currentUser }: AppShellProps) {
       </aside>
 
       <div className="dashboard-main dashboard-main-admin">
+        <div className="tenant-topbar tenant-topbar-admin">
+          <AdminCommandPalette />
+        </div>
         <main className="dashboard-content">{children}</main>
       </div>
 
