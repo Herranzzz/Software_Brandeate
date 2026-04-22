@@ -1,10 +1,10 @@
 :root {
   /* — Surface & background — */
-  --bg: #f0f0f5;
+  --bg: #e8e8f0;
   --surface: #ffffff;
-  --surface-soft: #f7f7fb;
-  --surface-strong: #e8e8ef;
-  --surface-sunken: #d8d8e2;
+  --surface-soft: #f4f4f8;
+  --surface-strong: #ebebf2;
+  --surface-sunken: #dcdce6;
 
   /* — Borders (near-invisible — tonal bg does the work) — */
   --border: rgba(15, 15, 25, 0.07);
@@ -63,21 +63,21 @@
   --control-border: #d0d0dc;
   --control-secondary-text: #3a3a4a;
 
-  /* — Sidebar (dark even in light mode — Linear style) — */
-  --sidebar-surface: #16161d;
+  /* — Sidebar (white, light mode) — */
+  --sidebar-surface: #ffffff;
   --sidebar-border: transparent;
-  --sidebar-text: rgba(245, 243, 255, 0.88);
-  --sidebar-text-muted: rgba(167, 167, 190, 0.65);
-  --sidebar-section: rgba(130, 130, 160, 0.55);
-  --sidebar-hover: rgba(255, 255, 255, 0.07);
+  --sidebar-text: #1a1a28;
+  --sidebar-text-muted: #9090a8;
+  --sidebar-section: #b0b0c0;
+  --sidebar-hover: rgba(0, 0, 0, 0.05);
   --sidebar-hover-border: transparent;
   --sidebar-active-bg: #ef4444;
   --sidebar-active-color: #ffffff;
-  --sidebar-active-text: #f87171;
-  --sidebar-divider: rgba(255, 255, 255, 0.07);
-  --sidebar-control-bg: rgba(255, 255, 255, 0.07);
-  --sidebar-control-border: rgba(255, 255, 255, 0.10);
-  --sidebar-control-text: rgba(245, 243, 255, 0.90);
+  --sidebar-active-text: var(--accent);
+  --sidebar-divider: #ebebf2;
+  --sidebar-control-bg: #f3f3f8;
+  --sidebar-control-border: rgba(0, 0, 0, 0.08);
+  --sidebar-control-text: #18181b;
 }
 
 :root[data-theme="dark"] {
@@ -5049,16 +5049,19 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 
 .tenant-shell {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 0;
-  align-items: start;
-  transition: grid-template-columns 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  display: block;
+  min-height: 100vh;
 }
 
-.tenant-shell-collapsed,
-:root[data-sidebar-collapsed="true"] .tenant-shell {
-  grid-template-columns: 64px minmax(0, 1fr);
+/* Admin shell: fixed sidebar + padded content */
+.tenant-shell-admin {
+  padding-left: 220px;
+  transition: padding-left 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tenant-shell-collapsed.tenant-shell-admin,
+:root[data-sidebar-collapsed="true"] .tenant-shell-admin {
+  padding-left: 64px;
 }
 
 .tenant-shell-branded {
@@ -5070,19 +5073,31 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 
 .tenant-sidebar {
-  position: sticky;
+  position: fixed;
+  left: 0;
   top: 0;
+  width: 220px;
+  height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  gap: 10px;
-  height: 100vh;
-  padding: 14px 12px;
+  gap: 0;
+  padding: 14px 10px;
   border: none;
+  border-right: 1px solid var(--sidebar-divider);
   border-radius: 0;
   background: var(--sidebar-surface);
   box-shadow: none;
   overflow-y: auto;
-  transition: background 180ms ease;
+  overflow-x: hidden;
+  z-index: 200;
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+              background 180ms ease;
+}
+
+.tenant-shell-collapsed .tenant-sidebar,
+:root[data-sidebar-collapsed="true"] .tenant-sidebar {
+  width: 64px;
+  padding: 14px 10px;
 }
 
 .tenant-sidebar-admin {
@@ -5412,12 +5427,15 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 .tenant-shell-collapsed .tenant-nav-link,
 :root[data-sidebar-collapsed="true"] .tenant-nav-link {
-  grid-template-columns: 1fr;
-  justify-items: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   width: 44px;
-  min-height: 44px;
+  height: 34px;
+  min-height: 34px;
   padding: 0;
   margin-inline: auto;
+  border-radius: var(--radius-sm);
 }
 
 .tenant-shell-collapsed .tenant-sidebar-footer,
@@ -24995,14 +25013,11 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 /* Body sits on the sunken bg so floating surfaces read as elevated tonally */
 body { background: var(--bg); }
 
-/* Sidebar & topbar: no border, sit on bg, slight tonal offset */
+/* Sidebar: no shadow, no radius, right hairline only */
 .sidebar,
-.portal-sidebar,
-.tenant-sidebar,
-.tenant-sidebar-admin {
+.portal-sidebar {
   border: none !important;
   border-radius: 0 !important;
-  background: var(--sidebar-surface);
   box-shadow: none;
 }
 
