@@ -1757,7 +1757,7 @@ def fill_shopify_order_gaps(
     integration: ShopIntegration,
     access_token: str,
     lookback_days: int = 14,
-    max_gap_fill: int = 50,
+    max_gap_fill: int = 200,
 ) -> int:
     """
     Detects numeric gaps in locally stored Shopify order numbers and fetches the
@@ -1798,13 +1798,20 @@ def fill_shopify_order_gaps(
     if not gaps:
         return 0
 
-    gaps = gaps[:max_gap_fill]
+    # Prioritise the most recent gaps: those are what operators see on page 1
+    # and they're the ones that matter for SLAs. Older gaps drain over
+    # subsequent cycles. Without this, a pile of old/cancelled-order gaps
+    # would consume the budget and leave recent gaps unfilled.
+    total_gap_count = len(gaps)
+    gaps = gaps[-max_gap_fill:]
+    gaps.sort(reverse=True)
     logger.info(
-        "Gap fill: shop_id=%s found %d missing order(s) in range #%d–#%d: %s",
+        "Gap fill: shop_id=%s found %d missing order(s) in range #%d–#%d, processing %d newest: %s",
         integration.shop_id,
-        len(gaps),
+        total_gap_count,
         min_num,
         max_num,
+        len(gaps),
         gaps[:20],
     )
 
