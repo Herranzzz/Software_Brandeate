@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, t
 
 import { AdminCommandPalette } from "@/components/admin-command-palette";
 import { useLayoutState } from "@/components/layout-state-provider";
+import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import type { User } from "@/lib/types";
 
 type AppShellUser = Pick<User, "name" | "role">;
@@ -305,6 +306,20 @@ export function AppShell({ children, currentUser }: AppShellProps) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isSidebarCollapsed, theme, toggleTheme } = useLayoutState();
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    navGroups.forEach((g) =>
+      g.items.forEach((it) => {
+        if (it.children?.length) {
+          initial[it.href] = it.children.some((c) => pathname === c.href || pathname.startsWith(`${c.href}/`));
+        }
+      }),
+    );
+    return initial;
+  });
+  const toggleGroup = useCallback((href: string) => {
+    setOpenGroups((prev) => ({ ...prev, [href]: !prev[href] }));
+  }, []);
 
   // Close drawer on route change
   useEffect(() => { setIsMobileMenuOpen(false); }, [pathname]);
@@ -344,12 +359,15 @@ export function AppShell({ children, currentUser }: AppShellProps) {
       <aside className="tenant-sidebar tenant-sidebar-admin">
         {/* Brand */}
         <div className="tenant-sidebar-header">
-          <div className="tenant-brand-lockup">
-            <div className="tenant-logo tenant-logo-fallback">{sidebarLogo}</div>
-            <div className="tenant-brand-copy">
-              <span className="eyebrow">{sidebarEyebrow}</span>
-              <h1 className="tenant-title">{sidebarTitle}</h1>
+          <div className="tenant-sidebar-header-actions">
+            <div className="tenant-brand-lockup">
+              <div className="tenant-logo tenant-logo-fallback">{sidebarLogo}</div>
+              <div className="tenant-brand-copy">
+                <span className="eyebrow">{sidebarEyebrow}</span>
+                <h1 className="tenant-title">{sidebarTitle}</h1>
+              </div>
             </div>
+            <SidebarCollapseButton />
           </div>
         </div>
 
@@ -358,31 +376,51 @@ export function AppShell({ children, currentUser }: AppShellProps) {
           {navGroups.map((group) => (
             <div className="tenant-nav-group" key={group.label}>
               <div className="tenant-nav-section">{group.label}</div>
-              {group.items.map((item) => (
-                <div key={item.href} className="tenant-nav-item">
-                  <Link
-                    className={`tenant-nav-link${isActive(pathname, item.href) ? " tenant-nav-link-active" : ""}`}
-                    href={item.href}
-                    prefetch={false}
-                    title={isSidebarCollapsed ? item.label : undefined}
-                  >
-                    <item.icon className="tenant-nav-icon" />
-                    <span className="tenant-nav-link-label">{item.label}</span>
-                  </Link>
-                  {item.children?.map((child) => (
-                    <Link
-                      className={`tenant-nav-link tenant-nav-link-child${isActive(pathname, child.href) ? " tenant-nav-link-active" : ""}`}
-                      href={child.href}
-                      key={child.href}
-                      prefetch={false}
-                      title={isSidebarCollapsed ? child.label : undefined}
-                    >
-                      <child.icon className="tenant-nav-icon" />
-                      <span className="tenant-nav-link-label">{child.label}</span>
-                    </Link>
-                  ))}
-                </div>
-              ))}
+              {group.items.map((item) => {
+                const hasChildren = (item.children?.length ?? 0) > 0;
+                const isOpen = !!openGroups[item.href];
+                return (
+                  <div key={item.href} className="tenant-nav-item">
+                    <div className="tenant-nav-link-row">
+                      <Link
+                        className={`tenant-nav-link${isActive(pathname, item.href) ? " tenant-nav-link-active" : ""}${hasChildren ? " tenant-nav-link-with-children" : ""}`}
+                        href={item.href}
+                        prefetch={false}
+                        title={isSidebarCollapsed ? item.label : undefined}
+                      >
+                        <item.icon className="tenant-nav-icon" />
+                        <span className="tenant-nav-link-label">{item.label}</span>
+                      </Link>
+                      {hasChildren && !isSidebarCollapsed ? (
+                        <button
+                          aria-expanded={isOpen}
+                          aria-label={isOpen ? `Contraer ${item.label}` : `Expandir ${item.label}`}
+                          className={`tenant-nav-caret${isOpen ? " tenant-nav-caret-open" : ""}`}
+                          onClick={() => toggleGroup(item.href)}
+                          type="button"
+                        >
+                          <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+                            <path d="m9 6 6 6-6 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                          </svg>
+                        </button>
+                      ) : null}
+                    </div>
+                    {hasChildren && isOpen && !isSidebarCollapsed
+                      ? item.children!.map((child) => (
+                          <Link
+                            className={`tenant-nav-link tenant-nav-link-child${isActive(pathname, child.href) ? " tenant-nav-link-active" : ""}`}
+                            href={child.href}
+                            key={child.href}
+                            prefetch={false}
+                          >
+                            <child.icon className="tenant-nav-icon" />
+                            <span className="tenant-nav-link-label">{child.label}</span>
+                          </Link>
+                        ))
+                      : null}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </nav>

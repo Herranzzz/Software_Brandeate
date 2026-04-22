@@ -47,7 +47,8 @@ export default async function RootLayout({
                     ? storedTheme
                     : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
                 document.documentElement.dataset.theme = theme;
-                document.documentElement.dataset.sidebarCollapsed = "false";
+                const storedSidebar = localStorage.getItem("brandeate.sidebar.collapsed");
+                document.documentElement.dataset.sidebarCollapsed = storedSidebar === "true" ? "true" : "false";
               } catch {}
             })();`,
           }}

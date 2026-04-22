@@ -23,6 +23,7 @@ type LayoutStateValue = {
 };
 
 const THEME_KEY = "brandeate.theme";
+const SIDEBAR_KEY = "brandeate.sidebar.collapsed";
 
 const LayoutStateContext = createContext<LayoutStateValue | null>(null);
 
@@ -33,12 +34,19 @@ function resolveInitialTheme(): ThemeMode {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+function resolveInitialSidebar(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(SIDEBAR_KEY) === "true";
+}
+
 export function LayoutStateProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ThemeMode>("light");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     setTheme(resolveInitialTheme());
+    setIsSidebarCollapsed(resolveInitialSidebar());
     setIsReady(true);
   }, []);
 
@@ -48,21 +56,14 @@ export function LayoutStateProvider({ children }: { children: ReactNode }) {
     window.localStorage.setItem(THEME_KEY, theme);
   }, [isReady, theme]);
 
-  // Sidebar siempre desplegado — quitamos colapsado por completo.
-  // Ensure the data attribute is reset on mount in case a stale value
-  // from before this change was persisted to localStorage.
   useEffect(() => {
     if (!isReady) return;
-    document.documentElement.dataset.sidebarCollapsed = "false";
-    try {
-      window.localStorage.removeItem("brandeate.sidebar.collapsed");
-    } catch {
-      // localStorage may be unavailable (private mode); ignore.
-    }
-  }, [isReady]);
+    document.documentElement.dataset.sidebarCollapsed = isSidebarCollapsed ? "true" : "false";
+    window.localStorage.setItem(SIDEBAR_KEY, isSidebarCollapsed ? "true" : "false");
+  }, [isReady, isSidebarCollapsed]);
 
   const toggleSidebar = useCallback(() => {
-    // No-op: sidebar permanente.
+    setIsSidebarCollapsed((current) => !current);
   }, []);
 
   const toggleTheme = useCallback(() => {
@@ -71,13 +72,13 @@ export function LayoutStateProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<LayoutStateValue>(
     () => ({
-      isSidebarCollapsed: false,
+      isSidebarCollapsed,
       isReady,
       theme,
       toggleSidebar,
       toggleTheme,
     }),
-    [isReady, theme, toggleSidebar, toggleTheme],
+    [isSidebarCollapsed, isReady, theme, toggleSidebar, toggleTheme],
   );
 
   return (
