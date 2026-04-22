@@ -564,6 +564,7 @@ def bulk_update_order_production_status(
 ) -> list[Order]:
     orders = _load_target_orders(db, payload.order_ids, accessible_shop_ids)
     for order in orders:
+        old_production_status = order.production_status
         order.production_status = payload.production_status
         _touch_order_activity(
             order,
@@ -571,6 +572,15 @@ def bulk_update_order_production_status(
             mark_prepared=payload.production_status in {ProductionStatus.packed, ProductionStatus.completed},
         )
         evaluate_order_automation_rules(db=db, order=order, source="bulk_production_status")
+        log_activity(
+            db, entity_type="order", entity_id=order.id, shop_id=order.shop_id,
+            action="production_status_changed", actor=current_user,
+            summary=f"{current_user.name} cambió producción a {payload.production_status.value}",
+            detail={
+                "old_production_status": old_production_status.value if old_production_status else None,
+                "new_production_status": payload.production_status.value,
+            },
+        )
     db.commit()
     return list(
         db.scalars(
@@ -590,6 +600,12 @@ def bulk_update_order_priority(
     for order in orders:
         order.priority = payload.priority
         _touch_order_activity(order, current_user)
+        log_activity(
+            db, entity_type="order", entity_id=order.id, shop_id=order.shop_id,
+            action="priority_changed", actor=current_user,
+            summary=f"{current_user.name} cambió prioridad a {payload.priority.value}",
+            detail={"new_priority": payload.priority.value},
+        )
     db.commit()
     return list(
         db.scalars(

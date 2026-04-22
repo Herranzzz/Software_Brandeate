@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 
 import { AutomationFlagBadge } from "@/components/automation-flag-badge";
 import { saveOrderNavList } from "@/components/order-nav";
+import { useOrderRealtimeRefresh } from "@/lib/use-order-realtime";
 import { BulkDesignDownloadModal } from "@/components/bulk-design-download-modal";
 import { BulkLabelModal } from "@/components/bulk-label-modal";
 import { Card } from "@/components/card";
@@ -439,6 +440,8 @@ export function OrdersWorkbench({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+
+  useOrderRealtimeRefresh(() => router.refresh());
   const lastOpenedPreviewTrackId = useLastOpenedPreview();
   const lastOpenedOrderId = parseLastOpenedOrderId(lastOpenedPreviewTrackId);
   const [orders, setOrders] = useState(initialOrders);

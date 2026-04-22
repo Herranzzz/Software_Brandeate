@@ -10,6 +10,7 @@ import { EmployeesTabNav } from "@/components/employees-tab-nav";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/components/toast";
 import { fetchOrders } from "@/lib/api";
+import { useOrderRealtimeRefresh } from "@/lib/use-order-realtime";
 import { printLabelsMerged, type PrintLabelFailure } from "@/lib/print-utils";
 import type { Order, Shop } from "@/lib/types";
 
@@ -185,13 +186,18 @@ export function PrintQueuePanel({
     }
   }, [activeShopId, toast, scope, currentUserId]);
 
-  // Background poll so the queue updates when teammates prepare new orders
-  // without the current user having to mash refresh. 30 s keeps load low and
-  // still feels "live" for a warehouse floor.
+  // Realtime: re-fetch immediately when a teammate mutates an order.
+  // Debounced inside the hook so bulk "preparar" of N orders → 1 refetch.
+  useOrderRealtimeRefresh(() => {
+    void refreshFromServer();
+  });
+
+  // Safety-net poll in case the SSE stream is disconnected (tab backgrounded,
+  // server restart mid-flight). 60 s is loose — realtime does the heavy lifting.
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       void refreshFromServer();
-    }, 30000);
+    }, 60000);
     return () => window.clearInterval(intervalId);
   }, [refreshFromServer]);
 

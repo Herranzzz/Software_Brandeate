@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { Card } from "@/components/card";
+import { useOrderRealtimeRefresh } from "@/lib/use-order-realtime";
 import { DesignStatusBadge } from "@/components/design-status-badge";
 import { EmptyState } from "@/components/empty-state";
 import { PriorityBadge } from "@/components/priority-badge";
@@ -208,6 +209,8 @@ export function ProductionQueue({ initialOrders, shops }: ProductionQueueProps) 
   const [selectedShopId, setSelectedShopId] = useState("");
   const [activeFilters, setActiveFilters] = useState<QuickFilterKey[]>(["not_prepared"]);
   const [isPending, startTransition] = useTransition();
+
+  useOrderRealtimeRefresh(() => router.refresh());
 
   useEffect(() => {
     setOrders(initialOrders);
