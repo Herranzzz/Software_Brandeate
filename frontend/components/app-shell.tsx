@@ -333,7 +333,8 @@ export function AppShell({ children, currentUser }: AppShellProps) {
     return <div className="public-shell public-shell-portal">{children}</div>;
   }
   if (pathname.startsWith("/login")) {
-    return <div className="public-shell">{children}</div>;
+    // Login owns its own full-bleed layout — skip the padded public-shell.
+    return <>{children}</>;
   }
 
   return (
