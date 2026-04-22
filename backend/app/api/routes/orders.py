@@ -1272,6 +1272,17 @@ def _unique_name(base: str, ext: str, used: set[str]) -> str:
 
 _30X40_PATTERN  = re.compile(r'30\s*[xX×*]\s*40', re.IGNORECASE)
 _18X24_PATTERN  = re.compile(r'18\s*[xX×*]\s*24', re.IGNORECASE)
+_21X30_PATTERN  = re.compile(r'21\s*[xX×*]\s*30', re.IGNORECASE)
+
+# Product-type heuristics. Matched against name + variant_title because the
+# shop catalogue model doesn't carry a normalised `product_type` today.
+# Order matters: mug before cuadro because some mug variants include a size
+# string ("Taza 11oz") that could also match the cuadro fallback.
+_MUG_PATTERN       = re.compile(r'\b(taza|tazas|mug|mugs|cup|cups)\b', re.IGNORECASE)
+_TSHIRT_PATTERN    = re.compile(r'\b(camiseta|camisetas|t[-\s]?shirt|tee|playera|polo|polos)\b', re.IGNORECASE)
+_TOTE_PATTERN      = re.compile(r'\b(tote|totes|bolsa|bolsas|bag)\b', re.IGNORECASE)
+_HOODIE_PATTERN    = re.compile(r'\b(sudadera|sudaderas|hoodie|sweatshirt)\b', re.IGNORECASE)
+_CUADRO_PATTERN    = re.compile(r'\b(cuadro|cuadros|poster|posters|lamina|lámina|láminas|laminas|print|prints|wall\s*art)\b', re.IGNORECASE)
 
 # --- Fixed print-sheet geometry ------------------------------------------
 # The bulk-download "bleed" mode MUST produce files that always have the
@@ -1357,13 +1368,41 @@ def _detect_image_background_is_white(img, threshold: int = 235) -> bool:
 
 
 def _detect_print_variant(item: "OrderItem") -> str | None:
-    """Return '30x40', '18x24', or None based on variant/name."""
+    """Return '30x40', '21x30', '18x24', or None based on variant/name."""
     variant = (item.variant_title or "").strip()
     name    = (item.name or item.title or "").strip()
     if _30X40_PATTERN.search(variant) or _30X40_PATTERN.search(name):
         return "30x40"
+    if _21X30_PATTERN.search(variant) or _21X30_PATTERN.search(name):
+        return "21x30"
     if _18X24_PATTERN.search(variant) or _18X24_PATTERN.search(name):
         return "18x24"
+    return None
+
+
+def _detect_product_type(item: "OrderItem") -> str | None:
+    """Classify an item into a coarse product family.
+
+    Returns one of: 'mug' | 'tshirt' | 'tote' | 'hoodie' | 'cuadro' | None.
+    Uses regex over name + variant_title because the catalogue table does
+    not carry a normalised product_type yet. If the item has a recognised
+    print size (30x40 / 21x30 / 18x24) and nothing else matched, it's
+    almost certainly a cuadro — that fallback keeps posters classified
+    even when the shop named them just by dimensions.
+    """
+    hay = f"{item.name or item.title or ''} {item.variant_title or ''}"
+    if _MUG_PATTERN.search(hay):
+        return "mug"
+    if _HOODIE_PATTERN.search(hay):
+        return "hoodie"
+    if _TSHIRT_PATTERN.search(hay):
+        return "tshirt"
+    if _TOTE_PATTERN.search(hay):
+        return "tote"
+    if _CUADRO_PATTERN.search(hay):
+        return "cuadro"
+    if _detect_print_variant(item):
+        return "cuadro"
     return None
 
 
@@ -1656,6 +1695,115 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
         gc.collect()
 
 
+# Mug sheet layout — 3 mugs stacked on A4 portrait with horizontal cut
+# lines. Each zone is 99 mm tall × 210 mm wide; the design is fit-preserved
+# inside a safe area (leaves ~5 mm margin per zone so nothing rides the
+# cut line). Cut lines are dashed, spanning the full sheet width.
+_MUG_ZONE_H_MM = _A4_H_MM / 3.0  # 99 mm
+_MUG_MARGIN_MM = 5.0             # safety margin inside each zone
+_MUG_SHEET_COLS = 1              # vertical stack only (no 2x3 grid)
+
+
+def _build_mug_sheet_a4(design_paths: list[str], output_path: str) -> None:
+    """Render up to 3 mug designs onto a single A4 sheet with cut lines.
+
+    The sheet is divided into 3 equal horizontal zones (99 mm each). Each
+    design is fit-preserved inside its zone with a 5 mm safe margin so
+    nothing touches the cut line. Two dashed horizontal cut lines are
+    drawn at y = 99 mm and y = 198 mm across the full sheet width.
+
+    Input is 1-3 design paths — if fewer than 3, the missing zones are
+    left blank (cut lines are still drawn so the operator can trim).
+
+    Output is a single A4 PNG matching _PRINT_DPI so it prints at the
+    same physical size as the 30x40 / 18x24 variants.
+    """
+    import gc
+    from PIL import Image as PilImage, ImageDraw
+
+    if not design_paths:
+        raise ValueError("No hay diseños para empaquetar en la plancha de tazas.")
+
+    canvas_w = _mm_to_px(_A4_W_MM)
+    canvas_h = _mm_to_px(_A4_H_MM)
+    zone_h = _mm_to_px(_MUG_ZONE_H_MM)
+    margin = _mm_to_px(_MUG_MARGIN_MM)
+    safe_w = canvas_w - 2 * margin
+    safe_h = zone_h - 2 * margin
+
+    canvas: "PilImage.Image | None" = None
+    try:
+        canvas = PilImage.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+
+        for idx, path in enumerate(design_paths[:3]):
+            img: "PilImage.Image | None" = None
+            resized: "PilImage.Image | None" = None
+            try:
+                img = PilImage.open(path)
+                img.thumbnail((_CUT_MAX_DIM, _CUT_MAX_DIM), PilImage.LANCZOS)
+
+                has_transparency = (
+                    img.mode in ("RGBA", "LA")
+                    or (img.mode == "P" and "transparency" in img.info)
+                )
+                if has_transparency:
+                    rgba = img.convert("RGBA")
+                    flat = PilImage.new("RGB", rgba.size, (255, 255, 255))
+                    flat.paste(rgba, mask=rgba.split()[3])
+                    if rgba is not img:
+                        rgba.close()
+                    img.close()
+                    img = flat
+                elif img.mode != "RGB":
+                    conv = img.convert("RGB")
+                    img.close()
+                    img = conv
+
+                # Fit-preserve inside the safe area. Mugs are wrap prints
+                # so we never cover-scale — we want the full artwork
+                # visible with white space around it.
+                scale = min(safe_w / img.width, safe_h / img.height)
+                fit_w = max(1, int(round(img.width * scale)))
+                fit_h = max(1, int(round(img.height * scale)))
+                resized = img.resize((fit_w, fit_h), PilImage.LANCZOS)
+                img.close()
+                img = None
+
+                zone_top = idx * zone_h
+                paste_x = margin + (safe_w - fit_w) // 2
+                paste_y = zone_top + margin + (safe_h - fit_h) // 2
+                canvas.paste(resized, (paste_x, paste_y))
+            finally:
+                if resized is not None:
+                    try:
+                        resized.close()
+                    except Exception:
+                        pass
+                if img is not None:
+                    try:
+                        img.close()
+                    except Exception:
+                        pass
+
+        draw = ImageDraw.Draw(canvas)
+        for cut_mm in (_MUG_ZONE_H_MM, _MUG_ZONE_H_MM * 2):
+            y = _mm_to_px(cut_mm)
+            _draw_dashed_line_h(
+                draw, 0, canvas_w, y,
+                _CUT_LINE_COLOR, _CUT_LINE_WIDTH, _CUT_DASH, _CUT_GAP,
+            )
+
+        canvas.save(output_path, "PNG", optimize=False)
+    finally:
+        if canvas is not None:
+            try:
+                canvas.close()
+            except Exception:
+                pass
+        del canvas
+        gc.collect()
+
+
 def _download_asset_to_temp(url: str) -> tuple[str, str]:
     """Fetch asset to a temporary file; returns (temp_path, detected_ext)."""
     ctx = ssl.create_default_context()
@@ -1759,38 +1907,154 @@ def _flatten_alpha_if_needed(image_path: str) -> str:
         gc.collect()
 
 
-def _build_design_download_jobs(orders: list[Order]) -> tuple[list[dict], list[dict]]:
+_MUG_SHEET_SIZE = 3  # designs per A4 mug sheet
+
+
+def _build_design_download_jobs(
+    orders: list[Order],
+    product_types: set[str] | None = None,
+    sizes: set[str] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Prepare per-item download descriptors plus a skipped-item report.
+
+    Filters:
+      - product_types: restrict to items classified as one of these
+        ('mug', 'tshirt', 'tote', 'hoodie', 'cuadro'). None → no filter.
+      - sizes: restrict cuadro-like items to these print variants
+        ('30x40', '21x30', '18x24'). None → no filter. Products without
+        a detected print variant (mugs, shirts, totes) are unaffected
+        unless product_types filter excludes them.
+
+    Produces two job shapes:
+      - {"type": "single", ...}     — one design → one output file
+      - {"type": "mug_sheet", ...}  — up to 3 designs packed on A4
+
+    "A juego" heuristic: if a mug item in an order has no design URL but
+    another item in the same order does, the mug inherits that design.
+    This lets operators sell matching mug+cuadro sets without duplicating
+    the asset on both products in the shop's catalogue.
+    """
     results: list[dict] = []
     download_jobs: list[dict] = []
+    mug_queue: list[dict] = []  # pooled across all orders, 3-per-sheet
+
+    def _accept(item: OrderItem, ptype: str | None) -> bool:
+        if product_types is not None and (ptype is None or ptype not in product_types):
+            return False
+        if sizes is not None:
+            variant = _detect_print_variant(item)
+            # Only filter items that HAVE a detectable size — mugs and
+            # shirts don't, so size filter shouldn't silently drop them
+            # when the operator is asking for "all mugs + only 30x40
+            # cuadros". The type filter already handles that case.
+            if variant is not None and variant not in sizes:
+                return False
+        return True
+
     for order in orders:
-        items_with_design: list[tuple[OrderItem, str]] = []
+        # First pass — gather all items that have their own design. We
+        # need this before deciding mug inheritance.
+        order_items: list[tuple[OrderItem, str | None, str | None]] = []
         for item in order.items:
+            ptype = _detect_product_type(item)
             design_url = _get_primary_design_url(item)
-            if design_url:
-                items_with_design.append((item, design_url))
+            order_items.append((item, ptype, design_url))
 
-        if not items_with_design:
-            results.append({
-                "order_id": order.id,
-                "external_id": order.external_id,
-                "status": "no_design",
-            })
-            continue
+        # Pick a fallback URL for "a juego" mugs: prefer a cuadro,
+        # then any other product type with a design, then None. This
+        # biases towards the design most likely to look good on a mug
+        # wrap (posters are already landscape/portrait artwork).
+        fallback_url: str | None = None
+        for _item, ptype, url in order_items:
+            if url and ptype == "cuadro":
+                fallback_url = url
+                break
+        if fallback_url is None:
+            for _item, _ptype, url in order_items:
+                if url:
+                    fallback_url = url
+                    break
 
-        for item, design_url in items_with_design:
+        any_kept = False
+        for item, ptype, design_url in order_items:
+            if not _accept(item, ptype):
+                continue
+
+            url = design_url
+            a_juego = False
+            if url is None and ptype == "mug" and fallback_url is not None:
+                url = fallback_url
+                a_juego = True
+            if url is None:
+                continue
+
+            any_kept = True
             item_name = (item.name or item.title or "Producto").strip()
-            url_ext = _guess_ext_from_url(design_url)
-            base = _sanitize_filename(f"{order.external_id} - {item_name}")
-            download_jobs.append(
-                {
+            url_ext = _guess_ext_from_url(url)
+            label_suffix = " (a juego)" if a_juego else ""
+            base = _sanitize_filename(f"{order.external_id} - {item_name}{label_suffix}")
+
+            if ptype == "mug":
+                mug_queue.append(
+                    {
+                        "order_id": order.id,
+                        "external_id": order.external_id,
+                        "design_url": url,
+                        "base": base,
+                        "item_name": item_name,
+                        "a_juego": a_juego,
+                    }
+                )
+            else:
+                download_jobs.append(
+                    {
+                        "type": "single",
+                        "order_id": order.id,
+                        "external_id": order.external_id,
+                        "design_url": url,
+                        "base": base,
+                        "url_ext": url_ext,
+                        "print_variant": _detect_print_variant(item),
+                        "product_type": ptype,
+                    }
+                )
+
+        if not any_kept:
+            # Only report "no_design" if nothing was filtered away — if
+            # the user explicitly asked for mugs and the order has none,
+            # that's not a "missing design" situation, it's an empty
+            # selection. We still skip but don't pollute the summary.
+            had_any_design = any(url for _item, _pt, url in order_items)
+            had_any_match = any(_detect_product_type(it) is not None
+                                and (_accept(it, _detect_product_type(it))) for it in order.items)
+            if not had_any_design and product_types is None:
+                results.append({
                     "order_id": order.id,
                     "external_id": order.external_id,
-                    "design_url": design_url,
-                    "base": base,
-                    "url_ext": url_ext,
-                    "print_variant": _detect_print_variant(item),
+                    "status": "no_design",
+                })
+            elif not had_any_match:
+                # Filtered out by type/size — silent skip.
+                pass
+
+    # Pack mug queue into sheets of 3.
+    if mug_queue:
+        sheet_index = 0
+        for start in range(0, len(mug_queue), _MUG_SHEET_SIZE):
+            chunk = mug_queue[start:start + _MUG_SHEET_SIZE]
+            sheet_index += 1
+            externals = sorted({m["external_id"] for m in chunk})
+            label = f"tazas-{sheet_index:03d} ({', '.join(externals)})"
+            download_jobs.append(
+                {
+                    "type": "mug_sheet",
+                    "base": _sanitize_filename(label),
+                    "designs": chunk,
+                    "order_ids": sorted({m["order_id"] for m in chunk}),
+                    "external_ids": externals,
                 }
             )
+
     return download_jobs, results
 
 
@@ -1815,6 +2079,151 @@ def _job_public_payload(job: dict) -> dict:
     }
 
 
+def _process_single_design_job(
+    zf: "zipfile.ZipFile",
+    current_job: dict,
+    used_names: set[str],
+    results: list[dict],
+    mode: str,
+) -> None:
+    """Handle a single-design job: fetch, optionally add cut lines, write to ZIP."""
+    temp_path: str | None = None
+    try:
+        temp_path, fetched_ext = _download_asset_to_temp(current_job["design_url"])
+        print_variant = current_job.get("print_variant")
+        ext = current_job["url_ext"] or fetched_ext or ".bin"
+
+        if mode == "raw":
+            suffix = ""
+        else:
+            if print_variant in ("30x40", "18x24"):
+                cut_fd, cut_path = tempfile.mkstemp(prefix="cut-", suffix=".png")
+                os.close(cut_fd)
+                try:
+                    _add_cut_lines_to_image(temp_path, cut_path, print_variant)
+                    _safe_remove(temp_path)
+                    temp_path = cut_path
+                    ext = ".png"
+                except Exception:
+                    _safe_remove(cut_path)
+            else:
+                # 21x30 and products without a recognised print variant:
+                # flatten transparency onto white so PNGs with alpha don't
+                # render as black pixels when the operator opens them.
+                flattened_path = _flatten_alpha_if_needed(temp_path)
+                if flattened_path != temp_path:
+                    temp_path = flattened_path
+                    ext = ".png"
+            suffix = f" [{print_variant}]" if print_variant else ""
+
+        filename = _unique_name(current_job["base"] + suffix, ext, used_names)
+        used_names.add(filename)
+        zf.write(temp_path, arcname=filename)
+        results.append({
+            "order_id": current_job["order_id"],
+            "external_id": current_job["external_id"],
+            "status": "ok",
+            "filename": filename,
+        })
+    except Exception as exc:
+        results.append({
+            "order_id": current_job["order_id"],
+            "external_id": current_job["external_id"],
+            "status": "failed",
+            "reason": str(exc)[:200],
+        })
+    finally:
+        _safe_remove(temp_path)
+
+
+def _process_mug_sheet_job(
+    zf: "zipfile.ZipFile",
+    current_job: dict,
+    used_names: set[str],
+    results: list[dict],
+    mode: str,
+) -> None:
+    """Handle a mug-sheet job: fetch up to 3 designs and pack onto A4.
+
+    Partial failure policy: if one of the three downloads fails, the sheet
+    is still produced with the remaining designs — the operator would
+    rather get two mugs on the sheet than lose the whole batch. Each
+    underlying order is reported as ok/failed individually so progress
+    counters stay accurate.
+
+    Raw mode: writes the individual source files instead of building a
+    sheet, because raw is meant to be "give me the originals untouched".
+    """
+    designs = list(current_job.get("designs") or [])
+    if not designs:
+        return
+
+    if mode == "raw":
+        for entry in designs:
+            _process_single_design_job(
+                zf,
+                {
+                    "order_id": entry["order_id"],
+                    "external_id": entry["external_id"],
+                    "design_url": entry["design_url"],
+                    "base": entry["base"],
+                    "url_ext": _guess_ext_from_url(entry["design_url"]),
+                    "print_variant": None,
+                },
+                used_names,
+                results,
+                mode,
+            )
+        return
+
+    temp_paths: list[tuple[dict, str]] = []
+    sheet_path: str | None = None
+    try:
+        for entry in designs:
+            try:
+                path, _ext = _download_asset_to_temp(entry["design_url"])
+                temp_paths.append((entry, path))
+            except Exception as exc:
+                results.append({
+                    "order_id": entry["order_id"],
+                    "external_id": entry["external_id"],
+                    "status": "failed",
+                    "reason": str(exc)[:200],
+                })
+
+        if not temp_paths:
+            return
+
+        sheet_fd, sheet_path = tempfile.mkstemp(prefix="mug-sheet-", suffix=".png")
+        os.close(sheet_fd)
+        _build_mug_sheet_a4([p for _e, p in temp_paths], sheet_path)
+
+        filename = _unique_name(current_job["base"] + " [tazas x3]", ".png", used_names)
+        used_names.add(filename)
+        zf.write(sheet_path, arcname=filename)
+
+        for entry, _p in temp_paths:
+            results.append({
+                "order_id": entry["order_id"],
+                "external_id": entry["external_id"],
+                "status": "ok",
+                "filename": filename,
+            })
+    except Exception as exc:
+        for entry, _p in temp_paths:
+            results.append({
+                "order_id": entry["order_id"],
+                "external_id": entry["external_id"],
+                "status": "failed",
+                "reason": str(exc)[:200],
+            })
+    finally:
+        for _entry, path in temp_paths:
+            _safe_remove(path)
+        if sheet_path is not None:
+            _safe_remove(sheet_path)
+
+
 def _run_bulk_design_job(job_id: str) -> None:
     """Background worker for bulk design download.
 
@@ -1837,6 +2246,10 @@ def _run_bulk_design_job(job_id: str) -> None:
             scope = job.get("accessible_shop_ids")
             accessible_shop_ids = set(scope) if isinstance(scope, list) else None
             mode = str(job.get("mode") or "bleed")
+            raw_types = job.get("product_types")
+            raw_sizes = job.get("sizes")
+            product_types = set(raw_types) if isinstance(raw_types, list) and raw_types else None
+            sizes = set(raw_sizes) if isinstance(raw_sizes, list) and raw_sizes else None
             job["status"] = "running"
             job["updated_at"] = _now_ts()
 
@@ -1850,7 +2263,7 @@ def _run_bulk_design_job(job_id: str) -> None:
         if accessible_shop_ids is not None:
             orders = [order for order in orders if order.shop_id in accessible_shop_ids]
 
-        download_jobs, results = _build_design_download_jobs(orders)
+        download_jobs, results = _build_design_download_jobs(orders, product_types, sizes)
         # Release ORM objects immediately
         del orders
         gc.collect()
@@ -1862,6 +2275,9 @@ def _run_bulk_design_job(job_id: str) -> None:
             job = _design_jobs.get(job_id)
             if job is None:
                 return
+            # Progress counts each physical step: one per single job, one
+            # per mug sheet. This keeps the bar monotonic — if we counted
+            # underlying designs, the bar would jump by 3 per sheet.
             job["progress_total"] = len(download_jobs)
             job["no_design_count"] = sum(1 for r in results if r["status"] == "no_design")
             job["updated_at"] = _now_ts()
@@ -1882,71 +2298,21 @@ def _run_bulk_design_job(job_id: str) -> None:
         used_names: set[str] = set()
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
             for current_job in download_jobs:
-                temp_path: str | None = None
-                try:
-                    temp_path, fetched_ext = _download_asset_to_temp(current_job["design_url"])
-                    print_variant = current_job.get("print_variant")
-                    ext = current_job["url_ext"] or fetched_ext or ".bin"
-
-                    if mode == "raw":
-                        # Raw mode: ship the file exactly as downloaded — no
-                        # cut lines, no alpha flattening, no resizing. This
-                        # is the escape hatch for when the automatic bleed
-                        # transformations aren't what the operator wants.
-                        suffix = ""
-                    else:
-                        # Bleed mode (default): if this is a print variant
-                        # (30x40 / 18x24), add cut lines using PIL with
-                        # thumbnail (peak ~40 MB, safe for 512 MB hosts).
-                        # Output is always PNG.
-                        if print_variant:
-                            cut_fd, cut_path = tempfile.mkstemp(prefix="cut-", suffix=".png")
-                            os.close(cut_fd)
-                            try:
-                                _add_cut_lines_to_image(temp_path, cut_path, print_variant)
-                                _safe_remove(temp_path)
-                                temp_path = cut_path
-                                ext = ".png"
-                            except Exception:
-                                # If cut-line generation fails, fall back to raw image
-                                _safe_remove(cut_path)
-                        else:
-                            # Flatten transparency onto white if needed (so PNGs
-                            # with transparent backgrounds don't appear black).
-                            flattened_path = _flatten_alpha_if_needed(temp_path)
-                            if flattened_path != temp_path:
-                                temp_path = flattened_path
-                                ext = ".png"
-                        suffix = f" [{print_variant}]" if print_variant else ""
-
-                    filename = _unique_name(current_job["base"] + suffix, ext, used_names)
-                    used_names.add(filename)
-                    zf.write(temp_path, arcname=filename)
-                    results.append({
-                        "order_id": current_job["order_id"],
-                        "external_id": current_job["external_id"],
-                        "status": "ok",
-                        "filename": filename,
-                    })
-                except Exception as exc:
-                    results.append({
-                        "order_id": current_job["order_id"],
-                        "external_id": current_job["external_id"],
-                        "status": "failed",
-                        "reason": str(exc)[:200],
-                    })
-                finally:
-                    _safe_remove(temp_path)
-                    _release_memory_to_os()
-                    ok_count, failed_count, no_design_count = _summarize_design_results(results)
-                    with _design_jobs_lock:
-                        job = _design_jobs.get(job_id)
-                        if job is not None:
-                            job["progress_done"] = int(job.get("progress_done", 0)) + 1
-                            job["ok_count"] = ok_count
-                            job["failed_count"] = failed_count
-                            job["no_design_count"] = no_design_count
-                            job["updated_at"] = _now_ts()
+                job_type = str(current_job.get("type") or "single")
+                if job_type == "mug_sheet":
+                    _process_mug_sheet_job(zf, current_job, used_names, results, mode)
+                else:
+                    _process_single_design_job(zf, current_job, used_names, results, mode)
+                _release_memory_to_os()
+                ok_count, failed_count, no_design_count = _summarize_design_results(results)
+                with _design_jobs_lock:
+                    job = _design_jobs.get(job_id)
+                    if job is not None:
+                        job["progress_done"] = int(job.get("progress_done", 0)) + 1
+                        job["ok_count"] = ok_count
+                        job["failed_count"] = failed_count
+                        job["no_design_count"] = no_design_count
+                        job["updated_at"] = _now_ts()
 
         ok_count, failed_count, no_design_count = _summarize_design_results(results)
         if ok_count == 0:
@@ -2028,6 +2394,89 @@ def _run_bulk_design_job(job_id: str) -> None:
         gc.collect()
 
 
+from pydantic import BaseModel as _BaseModel  # noqa: E402
+
+
+class BulkDesignSummaryRequest(_BaseModel):
+    order_ids: list[int]
+
+
+class BulkDesignDownloadRequest(_BaseModel):
+    order_ids: list[int]
+    mode: Literal["raw", "bleed"] = "bleed"
+    product_types: list[str] | None = None
+    sizes: list[str] | None = None
+
+
+@router.post("/bulk/download-designs/summary", status_code=status.HTTP_200_OK)
+def summarize_bulk_design_selection(
+    payload: BulkDesignSummaryRequest,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Return the product-type and size breakdown for a selection.
+
+    Used by the frontend to render the filter checkboxes with accurate
+    counts before the operator decides what to download. Counts items
+    that have a design URL available (either their own or inherited
+    via the "a juego" fallback for mugs).
+    """
+    if not payload.order_ids:
+        return {"types": {}, "sizes": {}, "a_juego_mugs": 0, "total_items": 0}
+
+    orders = list(
+        db.scalars(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.id.in_(payload.order_ids))
+        )
+    )
+    if accessible_shop_ids is not None:
+        orders = [o for o in orders if o.shop_id in accessible_shop_ids]
+
+    type_counts: dict[str, int] = {}
+    size_counts: dict[str, int] = {}
+    a_juego_count = 0
+    total_items = 0
+
+    for order in orders:
+        # Mirror the a-juego fallback logic so the summary matches what
+        # the download will actually produce.
+        fallback_url: str | None = None
+        for it in order.items:
+            if _detect_product_type(it) == "cuadro" and _get_primary_design_url(it):
+                fallback_url = _get_primary_design_url(it)
+                break
+        if fallback_url is None:
+            for it in order.items:
+                if _get_primary_design_url(it):
+                    fallback_url = _get_primary_design_url(it)
+                    break
+
+        for item in order.items:
+            ptype = _detect_product_type(item)
+            url = _get_primary_design_url(item)
+            if url is None and ptype == "mug" and fallback_url is not None:
+                url = fallback_url
+                a_juego_count += 1
+            if url is None:
+                continue
+            total_items += 1
+            if ptype:
+                type_counts[ptype] = type_counts.get(ptype, 0) + 1
+            variant = _detect_print_variant(item)
+            if variant:
+                size_counts[variant] = size_counts.get(variant, 0) + 1
+
+    return {
+        "types": type_counts,
+        "sizes": size_counts,
+        "a_juego_mugs": a_juego_count,
+        "total_items": total_items,
+    }
+
+
 @router.post("/bulk/download-designs/jobs", status_code=status.HTTP_202_ACCEPTED)
 def create_bulk_design_download_job(
     payload: "BulkDesignDownloadRequest",
@@ -2046,6 +2495,8 @@ def create_bulk_design_download_job(
         "order_ids": list(payload.order_ids),
         "accessible_shop_ids": sorted(accessible_shop_ids) if accessible_shop_ids is not None else None,
         "mode": payload.mode,
+        "product_types": list(payload.product_types) if payload.product_types else None,
+        "sizes": list(payload.sizes) if payload.sizes else None,
         "status": "queued",
         "progress_total": 0,
         "progress_done": 0,
@@ -2256,14 +2707,6 @@ def bulk_download_designs(
     except Exception:
         _safe_remove(zip_path)
         raise
-
-
-from pydantic import BaseModel as _BaseModel  # noqa: E402
-
-
-class BulkDesignDownloadRequest(_BaseModel):
-    order_ids: list[int]
-    mode: Literal["raw", "bleed"] = "bleed"
 
 
 @router.get("/{order_id}/delivery-prediction")

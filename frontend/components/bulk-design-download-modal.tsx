@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AppModal } from "@/components/app-modal";
 import { getItemPrimaryAsset } from "@/lib/personalization";
@@ -10,6 +10,8 @@ import type { Order } from "@/lib/types";
 type Phase = "confirm" | "loading" | "done" | "error";
 type JobStatus = "queued" | "running" | "done" | "failed";
 type DownloadMode = "bleed" | "raw";
+type ProductType = "mug" | "tshirt" | "tote" | "hoodie" | "cuadro";
+type PrintSize = "30x40" | "21x30" | "18x24";
 
 type BulkDesignDownloadModalProps = {
   orders: Order[];
@@ -35,10 +37,31 @@ type BulkDownloadUrlResponse = {
   job_id: string;
 };
 
+type SelectionSummary = {
+  types: Partial<Record<ProductType, number>>;
+  sizes: Partial<Record<PrintSize, number>>;
+  a_juego_mugs: number;
+  total_items: number;
+};
+
 const POLL_INTERVAL_MS = 1200;
 const POLL_TIMEOUT_MS = 12 * 60 * 1000;
 const RETRYABLE_POLL_STATUS = new Set([500, 502, 503, 504]);
 const MAX_TRANSIENT_POLL_ERRORS = 30;
+
+const PRODUCT_TYPE_META: Record<ProductType, { label: string; icon: string; hint?: string }> = {
+  cuadro:  { label: "Cuadros / pósters", icon: "🖼️" },
+  mug:     { label: "Tazas",             icon: "☕", hint: "Se empaquetan 3 por A4 con líneas de corte" },
+  tshirt:  { label: "Camisetas",         icon: "👕" },
+  tote:    { label: "Tote bags",         icon: "🛍️" },
+  hoodie:  { label: "Sudaderas",         icon: "🧥" },
+};
+
+const PRINT_SIZE_META: Record<PrintSize, { label: string; hint?: string }> = {
+  "30x40": { label: "30 × 40", hint: "A3 con línea de corte superior" },
+  "21x30": { label: "21 × 30", hint: "A4 a sangre" },
+  "18x24": { label: "18 × 24", hint: "A4 con líneas de corte" },
+};
 
 
 function extractRequestId(text: string) {
@@ -47,9 +70,7 @@ function extractRequestId(text: string) {
 
 
 function parseContentDispositionFilename(contentDisposition: string | null): string | null {
-  if (!contentDisposition) {
-    return null;
-  }
+  if (!contentDisposition) return null;
 
   const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
   if (encodedMatch?.[1]) {
@@ -76,9 +97,7 @@ async function readErrorDetail(response: Response, fallback: string) {
 
   if (contentType.includes("text/html") || /^<!doctype html/i.test(text) || /<html/i.test(text)) {
     const requestId = extractRequestId(text);
-    if (requestId) {
-      return `${fallback} (Request ID: ${requestId})`;
-    }
+    if (requestId) return `${fallback} (Request ID: ${requestId})`;
     return fallback;
   }
 
@@ -115,10 +134,62 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
   const [progressTotal, setProgressTotal] = useState(0);
   const [activeMode, setActiveMode] = useState<DownloadMode>("bleed");
 
+  const [summary, setSummary] = useState<SelectionSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [selectedTypes, setSelectedTypes] = useState<Set<ProductType>>(new Set());
+  const [selectedSizes, setSelectedSizes] = useState<Set<PrintSize>>(new Set());
+
   const ordersWithDesign = orders.filter((o) =>
     o.items.some((item) => getItemPrimaryAsset(item) !== null || item.design_link),
   );
   const ordersWithoutDesign = orders.length - ordersWithDesign.length;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/orders/bulk/download-designs/summary", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_ids: orders.map((o) => o.id) }),
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          throw new Error(await readErrorDetail(res, "No se pudo analizar la selección."));
+        }
+        const data = (await res.json()) as SelectionSummary;
+        if (cancelled) return;
+        setSummary(data);
+        setSelectedTypes(new Set(Object.keys(data.types || {}) as ProductType[]));
+        setSelectedSizes(new Set(Object.keys(data.sizes || {}) as PrintSize[]));
+      } catch (err) {
+        if (cancelled) return;
+        setSummaryError(err instanceof Error ? err.message : "Error desconocido");
+      } finally {
+        if (!cancelled) setSummaryLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [orders]);
+
+  function toggleType(type: ProductType) {
+    setSelectedTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }
+
+  function toggleSize(size: PrintSize) {
+    setSelectedSizes((prev) => {
+      const next = new Set(prev);
+      if (next.has(size)) next.delete(size);
+      else next.add(size);
+      return next;
+    });
+  }
 
   function syncStateFromJob(job: BulkDownloadJobState) {
     setJobStatus(job.status);
@@ -132,6 +203,21 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
       setTotalWithDesign(Number(job.progress_total || 0));
     }
   }
+
+  const availableTypes = Object.keys(summary?.types ?? {}) as ProductType[];
+  const availableSizes = Object.keys(summary?.sizes ?? {}) as PrintSize[];
+  const expectedItems = (() => {
+    if (!summary) return 0;
+    let n = 0;
+    for (const t of selectedTypes) n += summary.types[t] ?? 0;
+    return n;
+  })();
+
+  const canDownload =
+    !summaryLoading &&
+    !summaryError &&
+    selectedTypes.size > 0 &&
+    (availableSizes.length === 0 || selectedSizes.size > 0 || !selectedTypes.has("cuadro"));
 
   async function handleDownload(mode: DownloadMode) {
     setActiveMode(mode);
@@ -149,7 +235,12 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
       const createResponse = await fetch("/api/orders/bulk/download-designs/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_ids: orders.map((o) => o.id), mode }),
+        body: JSON.stringify({
+          order_ids: orders.map((o) => o.id),
+          mode,
+          product_types: Array.from(selectedTypes),
+          sizes: selectedSizes.size > 0 ? Array.from(selectedSizes) : null,
+        }),
       });
       if (!createResponse.ok) {
         throw new Error(await readErrorDetail(createResponse, "No se pudo iniciar la descarga de diseños."));
@@ -176,9 +267,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
           });
         } catch {
           transientPollErrors += 1;
-          if (transientPollErrors <= MAX_TRANSIENT_POLL_ERRORS) {
-            continue;
-          }
+          if (transientPollErrors <= MAX_TRANSIENT_POLL_ERRORS) continue;
           throw new Error(
             "No se pudo consultar el progreso de la descarga tras varios reintentos. Inténtalo de nuevo en unos minutos.",
           );
@@ -186,9 +275,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
         if (!statusResponse.ok) {
           if (RETRYABLE_POLL_STATUS.has(statusResponse.status)) {
             transientPollErrors += 1;
-            if (transientPollErrors <= MAX_TRANSIENT_POLL_ERRORS) {
-              continue;
-            }
+            if (transientPollErrors <= MAX_TRANSIENT_POLL_ERRORS) continue;
           }
           if (statusResponse.status === 404) {
             throw new Error(
@@ -202,7 +289,6 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
         syncStateFromJob(currentJob);
       }
 
-      // Fetch download URL with retries (backend may be briefly unreachable after a long job)
       let downloadMeta: BulkDownloadUrlResponse | null = null;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -231,7 +317,6 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
         throw new Error("No se pudo generar la URL de descarga tras varios intentos.");
       }
 
-      // Download the ZIP with retries
       const token = encodeURIComponent(downloadMeta.token);
       const downloadHref = `/api/orders/bulk/download-designs/jobs/${currentJob.job_id}/download?token=${token}`;
       let downloadResponse: Response | null = null;
@@ -317,21 +402,21 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
               <>
                 <button
                   className="button-secondary"
-                  disabled={ordersWithDesign.length === 0}
+                  disabled={!canDownload}
                   onClick={() => void handleDownload("raw")}
                   title="Descarga los ficheros originales, sin recortes ni sangrado"
                   type="button"
                 >
-                  Descargar en bruto
+                  En bruto
                 </button>
                 <button
                   className="button"
-                  disabled={ordersWithDesign.length === 0}
+                  disabled={!canDownload}
                   onClick={() => void handleDownload("bleed")}
-                  title="Añade líneas de corte y sangrado para los formatos 30x40 y 18x24"
+                  title="Añade líneas de corte, sangrado y empaqueta las tazas 3-por-A4"
                   type="button"
                 >
-                  Descargar con sangrado
+                  Con sangrado
                 </button>
               </>
             ) : null}
@@ -342,45 +427,102 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
       <div className="stack">
         {phase === "confirm" ? (
           <>
-            <div className="bulk-design-info">
-              <div className="bulk-design-info-row">
-                <span className="bulk-design-info-icon">🎨</span>
-                <div>
-                  <div className="table-primary">
-                    {ordersWithDesign.length} pedido{ordersWithDesign.length !== 1 ? "s" : ""} con diseño detectable
-                  </div>
-                  <div className="table-secondary">
-                    Los diseños se empaquetarán en un ZIP nombrado como:<br />
-                    <code className="bulk-design-name-example">NUMERO_PEDIDO - Nombre del producto.png</code>
+            {summaryLoading ? (
+              <div className="bulk-design-info">
+                <div className="table-secondary">Analizando {orders.length} pedido{orders.length !== 1 ? "s" : ""}…</div>
+              </div>
+            ) : summaryError ? (
+              <div className="feedback feedback-error">{summaryError}</div>
+            ) : summary && summary.total_items === 0 ? (
+              <div className="feedback feedback-error">
+                Ninguno de los pedidos seleccionados tiene un diseño asociado visible. Selecciona pedidos personalizados con diseño disponible.
+              </div>
+            ) : summary ? (
+              <>
+                <div className="bulk-design-info">
+                  <div className="bulk-design-info-row">
+                    <span className="bulk-design-info-icon">🎨</span>
+                    <div>
+                      <div className="table-primary">
+                        {summary.total_items} diseño{summary.total_items !== 1 ? "s" : ""} detectado{summary.total_items !== 1 ? "s" : ""} en {ordersWithDesign.length} pedido{ordersWithDesign.length !== 1 ? "s" : ""}
+                      </div>
+                      {summary.a_juego_mugs > 0 ? (
+                        <div className="table-secondary">
+                          {summary.a_juego_mugs} taza{summary.a_juego_mugs !== 1 ? "s" : ""} a juego — usarán el diseño del cuadro/producto principal del pedido.
+                        </div>
+                      ) : null}
+                      {ordersWithoutDesign > 0 ? (
+                        <div className="table-secondary">
+                          {ordersWithoutDesign} pedido{ordersWithoutDesign !== 1 ? "s" : ""} sin diseño visible se omitirán.
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-              {ordersWithoutDesign > 0 ? (
-                <div className="bulk-design-info-row">
-                  <span className="bulk-design-info-icon">⚠️</span>
-                  <div>
-                    <div className="table-primary">{ordersWithoutDesign} pedido{ordersWithoutDesign !== 1 ? "s" : ""} sin diseño visible</div>
-                    <div className="table-secondary">Se omitirán automáticamente del ZIP.</div>
+
+                <div className="bulk-design-section">
+                  <div className="bulk-design-section-title">Tipo de producto</div>
+                  <div className="bulk-design-chips">
+                    {availableTypes.length === 0 ? (
+                      <div className="table-secondary">No se detectó ningún tipo conocido en la selección.</div>
+                    ) : (
+                      availableTypes.map((t) => {
+                        const meta = PRODUCT_TYPE_META[t];
+                        const count = summary.types[t] ?? 0;
+                        const on = selectedTypes.has(t);
+                        return (
+                          <button
+                            type="button"
+                            key={t}
+                            className={`bulk-design-chip${on ? " bulk-design-chip-on" : ""}`}
+                            onClick={() => toggleType(t)}
+                            title={meta.hint}
+                          >
+                            <span className="bulk-design-chip-icon">{meta.icon}</span>
+                            <span className="bulk-design-chip-label">{meta.label}</span>
+                            <span className="bulk-design-chip-count">{count}</span>
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
-              ) : null}
-              {ordersWithDesign.length === 0 ? (
-                <div className="feedback feedback-error">
-                  Ninguno de los pedidos seleccionados tiene un diseño asociado visible. Selecciona pedidos personalizados con diseño disponible.
+
+                {availableSizes.length > 0 ? (
+                  <div className="bulk-design-section">
+                    <div className="bulk-design-section-title">Tamaño (solo cuadros)</div>
+                    <div className="bulk-design-chips">
+                      {availableSizes.map((s) => {
+                        const meta = PRINT_SIZE_META[s];
+                        const count = summary.sizes[s] ?? 0;
+                        const on = selectedSizes.has(s);
+                        return (
+                          <button
+                            type="button"
+                            key={s}
+                            className={`bulk-design-chip${on ? " bulk-design-chip-on" : ""}`}
+                            onClick={() => toggleSize(s)}
+                            title={meta.hint}
+                          >
+                            <span className="bulk-design-chip-label">{meta.label}</span>
+                            <span className="bulk-design-chip-count">{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="bulk-design-modes">
+                  <div className="bulk-design-mode-row">
+                    <strong>En bruto:</strong> archivos originales, sin líneas de corte ni agrupar (las tazas salen como ficheros sueltos).
+                  </div>
+                  <div className="bulk-design-mode-row">
+                    <strong>Con sangrado:</strong> añade líneas de corte a cuadros (30×40 / 18×24) y empaqueta <strong>3 tazas por A4</strong> con guía de corte. Se preparará aproximadamente <strong>{expectedItems}</strong> diseño{expectedItems !== 1 ? "s" : ""}.
+                  </div>
                 </div>
-              ) : null}
-            </div>
-            <div className="bulk-design-modes">
-              <div className="bulk-design-mode-row">
-                <strong>Descargar en bruto:</strong> el archivo original tal cual, sin líneas de corte ni cambios de tamaño.
-              </div>
-              <div className="bulk-design-mode-row">
-                <strong>Descargar con sangrado:</strong> genera líneas de corte y margen de sangrado para los formatos 30x40 y 18x24.
-              </div>
-            </div>
-            <div className="table-secondary">
-              El servidor preparará la descarga en segundo plano y te avisará en cuanto el ZIP esté listo.
-            </div>
+              </>
+            ) : null}
           </>
         ) : null}
 
