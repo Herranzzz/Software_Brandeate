@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -108,7 +108,7 @@ async def stream_events(
     )
 
 
-@router.post("/presence", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/presence", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 def emit_presence(
     entity_type: str = Query(..., regex="^[a-z_]{1,32}$"),
     entity_id: int = Query(..., ge=1),
@@ -116,7 +116,7 @@ def emit_presence(
     shop_id: int | None = Query(default=None),
     token: str = Query(..., description="Bearer token"),
     db: Session = Depends(get_db),
-) -> None:
+) -> Response:
     """Emit a presence event. Called by the frontend on route enter / blur /
     unload to let peers see who's looking at what.
 
@@ -137,3 +137,4 @@ def emit_presence(
         entity_id=entity_id,
         phase=phase,
     )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
