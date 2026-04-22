@@ -42,13 +42,12 @@ export default async function RootLayout({
             __html: `(() => {
               try {
                 const storedTheme = localStorage.getItem("brandeate.theme");
-                const storedSidebar = localStorage.getItem("brandeate.sidebar.collapsed");
                 const theme =
                   storedTheme === "dark" || storedTheme === "light"
                     ? storedTheme
                     : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
                 document.documentElement.dataset.theme = theme;
-                document.documentElement.dataset.sidebarCollapsed = storedSidebar === "true" ? "true" : "false";
+                document.documentElement.dataset.sidebarCollapsed = "false";
               } catch {}
             })();`,
           }}

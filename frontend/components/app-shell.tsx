@@ -6,7 +6,6 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, t
 
 
 import { AdminCommandPalette } from "@/components/admin-command-palette";
-import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import { useLayoutState } from "@/components/layout-state-provider";
 import type { User } from "@/lib/types";
 
@@ -345,9 +344,6 @@ export function AppShell({ children, currentUser }: AppShellProps) {
       <aside className="tenant-sidebar tenant-sidebar-admin">
         {/* Brand */}
         <div className="tenant-sidebar-header">
-          <div className="tenant-sidebar-header-actions">
-            <SidebarCollapseButton />
-          </div>
           <div className="tenant-brand-lockup">
             <div className="tenant-logo tenant-logo-fallback">{sidebarLogo}</div>
             <div className="tenant-brand-copy">

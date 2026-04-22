@@ -8,7 +8,6 @@ import { LogoutButton } from "@/components/logout-button";
 
 import { PortalCommandPalette } from "@/components/portal-command-palette";
 import { RealtimeActivityPanel } from "@/components/realtime-activity-panel";
-import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import { useLayoutState } from "@/components/layout-state-provider";
 import { getTenantBranding } from "@/lib/tenant-branding";
 import { resolveTenantScope } from "@/lib/tenant-scope";
@@ -306,9 +305,6 @@ export function PortalShell({ children, user, shops }: PortalShellProps) {
     >
       <aside className="tenant-sidebar">
         <div className="tenant-sidebar-header">
-          <div className="tenant-sidebar-header-actions">
-            <SidebarCollapseButton />
-          </div>
           <div className="tenant-brand-lockup">
             {branding.logoUrl ? (
               <img alt={branding.displayName} className="tenant-logo" src={branding.logoUrl} />
