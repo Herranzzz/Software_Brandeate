@@ -1,13 +1,15 @@
 :root {
-  /* — Surface & background — */
-  --bg: #f4f4f7;
+  /* — Surface & background (Linear extremo: tonal separation > borders) — */
+  --bg: #ececf0;
   --surface: #ffffff;
-  --surface-soft: #fafafa;
-  --surface-strong: #f0f0f3;
+  --surface-soft: #f5f5f8;
+  --surface-strong: #ebebf0;
+  --surface-sunken: #e4e4ea;
 
-  /* — Borders — */
-  --border: #e2e2e8;
-  --border-strong: #cbcbd6;
+  /* — Borders (almost invisible — separation comes from background tone) — */
+  --border: rgba(15, 15, 25, 0.06);
+  --border-strong: rgba(15, 15, 25, 0.10);
+  --hairline: rgba(15, 15, 25, 0.05);
 
   /* — Typography — */
   --text: #0a0a0f;
@@ -81,15 +83,17 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  /* — Surface & background — */
-  --bg: #0a0a0b;
-  --surface: #111113;
-  --surface-soft: #161618;
-  --surface-strong: #1c1c1f;
+  /* — Surface & background (Linear extremo) — */
+  --bg: #08080a;
+  --surface: #131316;
+  --surface-soft: #1a1a1d;
+  --surface-strong: #202024;
+  --surface-sunken: #050507;
 
-  /* — Borders — */
-  --border: #2e2e33;
-  --border-strong: #3f3f46;
+  /* — Borders (near-transparent; tonal separation does the work) — */
+  --border: rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.10);
+  --hairline: rgba(255, 255, 255, 0.04);
 
   /* — Typography — */
   --text: #fafafa;
@@ -25001,3 +25005,169 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   border-top: 1px dashed var(--border);
 }
 .calc-service-total strong { font-size: 22px; color: var(--accent-strong); }
+
+/* ============================================================
+   Linear extremo — borderless surfaces, tonal separation only
+   ============================================================ */
+
+/* Body sits on the sunken bg so floating surfaces read as elevated tonally */
+body { background: var(--bg); }
+
+/* Sidebar & topbar: no border, sit on bg, slight tonal offset */
+.sidebar,
+.portal-sidebar {
+  border: none !important;
+  background: var(--surface-soft);
+  box-shadow: none;
+}
+.topbar,
+.portal-topbar,
+.app-shell-topbar {
+  border: none !important;
+  background: var(--bg);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+/* Cards & panels: floating surfaces, no border */
+.card,
+.panel,
+.admin-dashboard-panel,
+.surface-card {
+  border: none !important;
+  background: var(--surface);
+  box-shadow: none;
+}
+.card:hover,
+.panel:hover,
+.admin-dashboard-panel:hover {
+  border-color: transparent !important;
+  background: var(--surface);
+}
+
+/* Tables: no wrap border, no cell borders — alternation does the work */
+.table-wrap {
+  border: none !important;
+  background: var(--surface);
+  box-shadow: none;
+}
+.table th,
+.table td {
+  border-bottom: none !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+}
+.table th {
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding-top: 14px;
+  padding-bottom: 10px;
+}
+.table tbody tr {
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.table tbody tr + tr td {
+  box-shadow: inset 0 1px 0 var(--hairline);
+}
+.table-row:hover td,
+.table tbody tr:hover td {
+  background: var(--surface-soft);
+}
+
+/* Inputs / fields: borderless, sunken background */
+.field input,
+.field select,
+.field textarea,
+input.input,
+select.select,
+textarea.textarea {
+  border: 1px solid transparent !important;
+  background: var(--surface-strong);
+  box-shadow: none;
+  transition: background var(--motion-fast) var(--ease-out),
+              border-color var(--motion-fast) var(--ease-out),
+              box-shadow var(--motion-fast) var(--ease-out);
+}
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  background: var(--surface-soft);
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  border-color: transparent !important;
+  background: var(--surface);
+  box-shadow: var(--shadow-focus);
+  outline: none;
+}
+
+/* Buttons: secondary becomes a tonal chip rather than a bordered control */
+.button-secondary {
+  border: 1px solid transparent !important;
+  background: var(--surface-strong);
+  color: var(--text);
+}
+.button-secondary:hover {
+  background: var(--surface-soft);
+  border-color: transparent !important;
+}
+
+/* Badges: borderless tonal pills */
+.badge {
+  border: 1px solid transparent !important;
+  background: var(--surface-strong);
+}
+
+/* Modals: no border, just blurred backdrop + soft shadow */
+.modal-sheet,
+.app-modal-sheet {
+  border: none !important;
+  background: var(--surface);
+  box-shadow: var(--shadow-strong);
+}
+
+/* Generic dividers become hairlines */
+hr,
+.divider {
+  border: none;
+  height: 1px;
+  background: var(--hairline);
+}
+
+/* Dashed borders (empty-state, dividers) become the same hairline */
+.empty-state {
+  border: 1px solid transparent;
+  background: var(--surface-soft);
+}
+
+/* Strip "1px solid var(--border)" outlines from common chrome wrappers */
+.section-header,
+.toolbar,
+.filter-bar,
+.tab-list,
+.tabs {
+  border-bottom: none !important;
+  background: transparent;
+}
+
+/* Tabs: active state via background, not border */
+.tab,
+.tab-trigger {
+  border: none !important;
+  background: transparent;
+}
+.tab[data-active="true"],
+.tab.is-active,
+.tab-trigger[data-state="active"] {
+  background: var(--surface-strong);
+  color: var(--text);
+}
