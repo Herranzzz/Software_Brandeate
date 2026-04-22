@@ -12,6 +12,7 @@ from app.api.deps import get_accessible_shop_ids, get_db, resolve_shop_scope
 from app.models import Order
 from app.models.return_ import Return, ReturnStatus
 from app.schemas.return_ import ReturnBulkResult, ReturnBulkStatusUpdate, ReturnCreate, ReturnRead, ReturnUpdate
+from app.services.activity import log_activity
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,15 @@ def create_return(
     try:
         ret = Return(**payload.model_dump())
         db.add(ret)
+        db.flush()
+        log_activity(
+            db,
+            entity_type="return",
+            entity_id=ret.id,
+            shop_id=ret.shop_id,
+            action="created",
+            summary=f"Devolución #{ret.id} creada",
+        )
         db.commit()
         result = db.scalar(_return_query().where(Return.id == ret.id))
         return result
@@ -143,6 +153,20 @@ def update_return(
         for field, value in payload.model_dump(exclude_unset=True).items():
             setattr(ret, field, value)
         ret.updated_at = datetime.now(timezone.utc)
+        action = "status_changed" if ret.status != previous_status else "updated"
+        summary = (
+            f"Devolución #{ret.id}: {previous_status} → {ret.status}"
+            if ret.status != previous_status
+            else f"Devolución #{ret.id} actualizada"
+        )
+        log_activity(
+            db,
+            entity_type="return",
+            entity_id=ret.id,
+            shop_id=ret.shop_id,
+            action=action,
+            summary=summary,
+        )
         db.commit()
     except ProgrammingError as exc:
         db.rollback()
@@ -185,6 +209,15 @@ def bulk_update_return_status(
         ret.status = payload.status
         ret.updated_at = now
         updated_ids.append(return_id)
+        if ret.status != previous_status:
+            log_activity(
+                db,
+                entity_type="return",
+                entity_id=ret.id,
+                shop_id=ret.shop_id,
+                action="status_changed",
+                summary=f"Devolución #{ret.id}: {previous_status} → {payload.status}",
+            )
         if ret.status != previous_status and ret.order_id is not None:
             try:
                 _push_return_status_tags(db=db, ret=ret, new_status=payload.status)

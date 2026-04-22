@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { AppModal } from "@/components/app-modal";
 import { getItemPrimaryAsset } from "@/lib/personalization";
 import type { Order } from "@/lib/types";
+import { useJobProgress } from "@/lib/use-job-progress";
 
 
 type Phase = "confirm" | "loading" | "done" | "error";
@@ -139,6 +140,26 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<Set<ProductType>>(new Set());
   const [selectedSizes, setSelectedSizes] = useState<Set<PrintSize>>(new Set());
+
+  // SSE-driven live progress: the worker emits `job_progress` after each step
+  // so the bar moves instantly between 1.2s polls (and we can drop slow
+  // polling cadence in the future without losing fidelity).
+  useJobProgress(jobId, (event) => {
+    setJobStatus(event.status as JobStatus);
+    setProgressDone(Number(event.progress_done || 0));
+    if (event.progress_total > 0) {
+      setProgressTotal(Number(event.progress_total || 0));
+      setTotalWithDesign(Number(event.progress_total || 0));
+    }
+    const detail = (event.detail || {}) as {
+      ok_count?: number;
+      failed_count?: number;
+      no_design_count?: number;
+    };
+    if (typeof detail.ok_count === "number") setDownloadedCount(detail.ok_count);
+    if (typeof detail.failed_count === "number") setFailedCount(detail.failed_count);
+    if (typeof detail.no_design_count === "number") setNoDesignCount(detail.no_design_count);
+  });
 
   const ordersWithDesign = orders.filter((o) =>
     o.items.some((item) => getItemPrimaryAsset(item) !== null || item.design_link),

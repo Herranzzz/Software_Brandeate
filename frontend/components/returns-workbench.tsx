@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
 
 import { useToast } from "@/components/toast";
 import { bulkUpdateReturnStatus } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { Return, ReturnStatus } from "@/lib/types";
+import { useEntityRealtimeRefresh } from "@/lib/use-order-realtime";
 
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
@@ -43,9 +45,21 @@ type Props = {
 
 export function ReturnsWorkbench({ returns, shopMap, statusFilter }: Props) {
   const { toast } = useToast();
+  const router = useRouter();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [localReturns, setLocalReturns] = useState(returns);
   const [isPending, startTransition] = useTransition();
+
+  // Keep local state in sync if the server-rendered prop changes (after a
+  // router.refresh()). Without this we'd keep showing the stale snapshot.
+  useEffect(() => {
+    setLocalReturns(returns);
+  }, [returns]);
+
+  useEntityRealtimeRefresh(
+    { entityTypes: ["return"], actions: ["created", "updated", "status_changed"] },
+    () => router.refresh(),
+  );
 
   function toggleSelect(id: number) {
     setSelected((prev) => {

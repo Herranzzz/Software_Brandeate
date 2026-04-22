@@ -69,6 +69,7 @@ from app.schemas.pick_batch import (
     PickBatchRead,
 )
 from app.services.activity import log_activity
+from app.services.realtime import publish_job_progress
 from app.services.automation_rules import evaluate_order_automation_rules, reconcile_incident_lifecycle
 from app.services.email_flows import trigger_post_purchase
 from app.services.webhooks import dispatch_webhook
@@ -2240,6 +2241,29 @@ def _process_mug_sheet_job(
             _safe_remove(sheet_path)
 
 
+def _emit_design_job_progress(job: dict) -> None:
+    """Best-effort SSE broadcast for a bulk design job snapshot. Lets the
+    UI react instantly instead of waiting for the next poll tick."""
+    try:
+        publish_job_progress(
+            job_id=str(job.get("job_id") or ""),
+            job_kind="bulk_design_download",
+            user_id=int(job.get("user_id") or 0) or None,
+            shop_id=None,
+            status=str(job.get("status") or "queued"),
+            progress_done=int(job.get("progress_done") or 0),
+            progress_total=int(job.get("progress_total") or 0),
+            detail={
+                "ok_count": int(job.get("ok_count") or 0),
+                "failed_count": int(job.get("failed_count") or 0),
+                "no_design_count": int(job.get("no_design_count") or 0),
+                "error": job.get("error"),
+            },
+        )
+    except Exception:  # realtime must never break the worker
+        pass
+
+
 def _run_bulk_design_job(job_id: str) -> None:
     """Background worker for bulk design download.
 
@@ -2268,6 +2292,7 @@ def _run_bulk_design_job(job_id: str) -> None:
             sizes = set(raw_sizes) if isinstance(raw_sizes, list) and raw_sizes else None
             job["status"] = "running"
             job["updated_at"] = _now_ts()
+            _emit_design_job_progress(job)
 
         orders = list(
             db.scalars(
@@ -2297,6 +2322,7 @@ def _run_bulk_design_job(job_id: str) -> None:
             job["progress_total"] = len(download_jobs)
             job["no_design_count"] = sum(1 for r in results if r["status"] == "no_design")
             job["updated_at"] = _now_ts()
+            _emit_design_job_progress(job)
 
         if not download_jobs:
             with _design_jobs_lock:
@@ -2306,6 +2332,7 @@ def _run_bulk_design_job(job_id: str) -> None:
                 job["status"] = "failed"
                 job["error"] = "Los pedidos seleccionados no tienen diseños visibles para descargar."
                 job["updated_at"] = _now_ts()
+                _emit_design_job_progress(job)
             return
 
         fd, zip_path = tempfile.mkstemp(prefix="bulk-design-", suffix=".zip")
@@ -2329,6 +2356,7 @@ def _run_bulk_design_job(job_id: str) -> None:
                         job["failed_count"] = failed_count
                         job["no_design_count"] = no_design_count
                         job["updated_at"] = _now_ts()
+                        _emit_design_job_progress(job)
 
         ok_count, failed_count, no_design_count = _summarize_design_results(results)
         if ok_count == 0:
@@ -2350,6 +2378,7 @@ def _run_bulk_design_job(job_id: str) -> None:
                 job["no_design_count"] = no_design_count
                 job["zip_path"] = None
                 job["updated_at"] = _now_ts()
+                _emit_design_job_progress(job)
             return
 
         # Mark downloaded print orders as "in_production"
@@ -2396,6 +2425,7 @@ def _run_bulk_design_job(job_id: str) -> None:
             job["no_design_count"] = no_design_count
             job["zip_path"] = zip_path
             job["updated_at"] = _now_ts()
+            _emit_design_job_progress(job)
     except Exception as exc:
         _safe_remove(zip_path)
         with _design_jobs_lock:
@@ -2405,6 +2435,7 @@ def _run_bulk_design_job(job_id: str) -> None:
             job["status"] = "failed"
             job["error"] = str(exc)[:300]
             job["updated_at"] = _now_ts()
+            _emit_design_job_progress(job)
     finally:
         db.close()
         gc.collect()

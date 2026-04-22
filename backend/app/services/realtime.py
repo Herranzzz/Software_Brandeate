@@ -132,6 +132,39 @@ def publish_activity(
     )
 
 
+def publish_job_progress(
+    *,
+    job_id: str,
+    job_kind: str,
+    user_id: int | None,
+    shop_id: int | None,
+    status: str,
+    progress_done: int,
+    progress_total: int,
+    detail: dict[str, Any] | None = None,
+) -> None:
+    """Broadcast progress for a long-running background job (bulk design,
+    shopify sync, etc). Subscribers filter by job_id; the user_id field lets
+    the UI scope progress to the operator that started the job.
+    """
+    _broker.publish_nowait(
+        RealtimeEvent(
+            type="job_progress",
+            shop_id=shop_id,
+            payload={
+                "job_id": job_id,
+                "job_kind": job_kind,
+                "user_id": user_id,
+                "status": status,
+                "progress_done": progress_done,
+                "progress_total": progress_total,
+                "detail": detail or {},
+                "at": time.time(),
+            },
+        )
+    )
+
+
 def publish_presence(
     *,
     shop_id: int | None,

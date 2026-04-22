@@ -27,7 +27,23 @@ export type RealtimePresenceEvent = {
   received_at: number;
 };
 
-export type RealtimeEvent = RealtimeActivityEvent | RealtimePresenceEvent;
+export type RealtimeJobProgressEvent = {
+  type: "job_progress";
+  job_id: string;
+  job_kind: string;
+  user_id: number | null;
+  status: "queued" | "running" | "done" | "failed" | string;
+  progress_done: number;
+  progress_total: number;
+  detail: Record<string, unknown>;
+  at: number;
+  received_at: number;
+};
+
+export type RealtimeEvent =
+  | RealtimeActivityEvent
+  | RealtimePresenceEvent
+  | RealtimeJobProgressEvent;
 
 type Listener = (event: RealtimeEvent) => void;
 
@@ -88,6 +104,9 @@ class RealtimeClient {
     src.addEventListener("presence", (ev) => {
       this.dispatch(ev as MessageEvent, "presence");
     });
+    src.addEventListener("job_progress", (ev) => {
+      this.dispatch(ev as MessageEvent, "job_progress");
+    });
 
     src.onerror = () => {
       src.close();
@@ -103,7 +122,10 @@ class RealtimeClient {
     };
   }
 
-  private dispatch(ev: MessageEvent, type: "activity" | "presence") {
+  private dispatch(
+    ev: MessageEvent,
+    type: "activity" | "presence" | "job_progress",
+  ) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(ev.data);
