@@ -133,6 +133,8 @@ export function EmployeesManagementPanel({
   const [activityData, setActivityData] = useState<EmployeeActivityResponse | null>(null);
   const [isActivityLoading, setIsActivityLoading] = useState(false);
   const [deletingEmployeeId, setDeletingEmployeeId] = useState<number | null>(null);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
 
   const totals = useMemo(() => {
     const labelsToday = employees.reduce((sum, employee) => sum + employee.labels_today, 0);
@@ -414,14 +416,34 @@ export function EmployeesManagementPanel({
             <label htmlFor={`${mode}-employee-password`}>
               {mode === "create" ? "Contraseña temporal" : "Nueva contraseña"}
             </label>
-            <input
-              id={`${mode}-employee-password`}
-              minLength={6}
-              onChange={(event) => updateForm(setter, { password: event.target.value })}
-              placeholder={mode === "create" ? "Mínimo 6 caracteres" : "Déjalo vacío si no cambia"}
-              type="password"
-              value={form.password}
-            />
+            <div className="password-wrap">
+              <input
+                id={`${mode}-employee-password`}
+                minLength={6}
+                onChange={(event) => updateForm(setter, { password: event.target.value })}
+                placeholder={mode === "create" ? "Mínimo 6 caracteres" : "Déjalo vacío si no cambia"}
+                type={(mode === "create" ? showCreatePassword : showEditPassword) ? "text" : "password"}
+                value={form.password}
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => mode === "create" ? setShowCreatePassword((v) => !v) : setShowEditPassword((v) => !v)}
+                aria-label={(mode === "create" ? showCreatePassword : showEditPassword) ? "Ocultar contraseña" : "Mostrar contraseña"}
+                tabIndex={-1}
+              >
+                {(mode === "create" ? showCreatePassword : showEditPassword) ? (
+                  <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" width="16" height="16">
+                    <path d="M3 3l18 18M10.5 10.677A3 3 0 0 0 13.323 13.5M6.362 6.356C4.496 7.73 3 9.873 3 12c0 3 3.819 7 9 7 1.79 0 3.436-.524 4.818-1.371M9.347 4.26C9.885 4.095 10.434 4 11 4c.566 0 1.115.095 1.653.26M12 9a3 3 0 0 1 3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                ) : (
+                  <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" width="16" height="16">
+                    <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7Z" stroke="currentColor" strokeWidth="1.8"/>
+                    <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8"/>
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
 
           <div className="field">

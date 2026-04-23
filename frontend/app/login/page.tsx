@@ -6,6 +6,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState<{ kind: "error" | "success"; text: string } | null>(null);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -108,14 +109,34 @@ export default function LoginPage() {
 
             <div className="auth-field">
               <label htmlFor="password">Contraseña</label>
-              <input
-                autoComplete="current-password"
-                id="password"
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="••••••••"
-                type="password"
-                value={password}
-              />
+              <div className="password-wrap">
+                <input
+                  autoComplete="current-password"
+                  id="password"
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="••••••••"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? (
+                    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" width="18" height="18">
+                      <path d="M3 3l18 18M10.5 10.677A3 3 0 0 0 13.323 13.5M6.362 6.356C4.496 7.73 3 9.873 3 12c0 3 3.819 7 9 7 1.79 0 3.436-.524 4.818-1.371M9.347 4.26C9.885 4.095 10.434 4 11 4c.566 0 1.115.095 1.653.26M12 9a3 3 0 0 1 3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                    </svg>
+                  ) : (
+                    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" width="18" height="18">
+                      <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7Z" stroke="currentColor" strokeWidth="1.8"/>
+                      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
 
             {message ? (
