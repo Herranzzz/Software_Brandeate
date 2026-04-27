@@ -380,6 +380,54 @@ def create_order(
     )
 
 
+# Heuristics: a term that clearly looks like one thing only searches that
+# column. Cuts the worst case (8 ILIKE clauses across orders + order_items
+# + shipments) down to a single indexed lookup for the common cases.
+_TRACKING_RE = re.compile(r"^[A-Z0-9]{10,}$")
+_PHONE_RE = re.compile(r"^[+\d][\d\s().-]{6,}$")
+_ORDER_NUM_RE = re.compile(r"^#?\d{3,}$")
+
+
+def _search_term_clause(raw: str):
+    term = raw.strip()
+    if not term:
+        return sa.true()
+    pattern = f"%{term}%"
+
+    # Email-shaped → only customer_email.
+    if "@" in term and " " not in term:
+        return Order.customer_email.ilike(pattern)
+
+    # Phone-shaped → only shipping_phone (strip spaces for matching).
+    if _PHONE_RE.match(term):
+        return Order.shipping_phone.ilike(pattern)
+
+    # All-digits or "#1234" → external_id (Shopify order number).
+    if _ORDER_NUM_RE.match(term):
+        bare = term.lstrip("#")
+        return or_(
+            Order.external_id.ilike(f"%{bare}%"),
+            Order.shopify_order_name.ilike(f"%{bare}%"),
+        )
+
+    # Tracking-code-shaped (long alphanumeric upper) → only tracking_number.
+    if _TRACKING_RE.match(term.upper()) and not term.isdigit():
+        return Order.shipment.has(Shipment.tracking_number.ilike(pattern))
+
+    # Free text → broad search. With the pg_trgm GIN indexes added in
+    # migration 0032 each ILIKE here uses a trigram index instead of a
+    # sequential scan.
+    return or_(
+        Order.external_id.ilike(pattern),
+        Order.customer_name.ilike(pattern),
+        Order.customer_email.ilike(pattern),
+        Order.items.any(OrderItem.sku.ilike(pattern)),
+        Order.items.any(OrderItem.name.ilike(pattern)),
+        Order.items.any(OrderItem.title.ilike(pattern)),
+        Order.shipment.has(Shipment.tracking_number.ilike(pattern)),
+    )
+
+
 def _build_order_filters(
     base_query: sa.Select,
     *,
@@ -446,19 +494,7 @@ def _build_order_filters(
     if carrier is not None and carrier.strip():
         query = query.join(Order.shipment).where(Shipment.carrier == carrier.strip())
     if q is not None and q.strip():
-        term = f"%{q.strip()}%"
-        query = query.where(
-            or_(
-                Order.external_id.ilike(term),
-                Order.customer_name.ilike(term),
-                Order.customer_email.ilike(term),
-                Order.shipping_phone.ilike(term),
-                Order.items.any(OrderItem.sku.ilike(term)),
-                Order.items.any(OrderItem.name.ilike(term)),
-                Order.items.any(OrderItem.title.ilike(term)),
-                Order.shipment.has(Shipment.tracking_number.ilike(term)),
-            )
-        )
+        query = query.where(_search_term_clause(q.strip()))
     if is_blocked is not None:
         query = query.where(Order.is_blocked.is_(is_blocked))
     if overdue_sla is True:
