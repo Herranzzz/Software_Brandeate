@@ -1113,11 +1113,11 @@ _DESIGN_MAX_ASSET_BYTES = 80 * 1024 * 1024  # 80 MB max per design file
 _DESIGN_JOB_TTL_SECONDS = 2 * 60 * 60
 _DESIGN_JOB_CLEANUP_INTERVAL_SECONDS = 60
 _DESIGN_DOWNLOAD_TOKEN_TTL_SECONDS = 10 * 60
-_DESIGN_JOB_MAX_WORKERS = 1
-# When a queued/running job hasn't moved in this long it's considered stuck,
-# and a new submission from the same user will auto-evict it so the executor
-# queue doesn't pile up behind a hung worker.
-_DESIGN_JOB_STALE_SECONDS = 90
+# Two workers so a single hung asset download (httpx blocked, retry storm)
+# can't trap a fresh user submission behind it. Peak per-worker RAM is bounded
+# by thumbnail() at ~50 MB and sequential file processing inside each job, so
+# 2 workers stay well under a 512 MB host budget.
+_DESIGN_JOB_MAX_WORKERS = 2
 
 _design_job_executor = ThreadPoolExecutor(max_workers=_DESIGN_JOB_MAX_WORKERS, thread_name_prefix="bulk-design-job")
 _design_jobs_lock = threading.Lock()
@@ -1202,15 +1202,12 @@ def _cleanup_bulk_design_jobs(*, force: bool = False) -> None:
             _safe_remove(job.get("zip_path"))
 
 
-def _evict_user_design_jobs(user_id: int, *, only_stale: bool) -> int:
-    """Remove queued/running design jobs for a user from the in-memory map.
-
-    The worker checks `_design_jobs.get(job_id)` at every checkpoint and exits
-    when the job is gone, so popping here cancels cooperatively. If only_stale,
-    only jobs that haven't progressed in _DESIGN_JOB_STALE_SECONDS are evicted —
-    that's what the create endpoint uses to auto-recover from a hung worker.
-    """
-    now = _now_ts()
+def _evict_user_design_jobs(user_id: int) -> int:
+    """Remove every queued/running design job for the given user from the
+    in-memory map. The worker checks `_design_jobs.get(job_id)` at each
+    checkpoint and exits when the job is gone, so popping here cancels
+    cooperatively. Called on every new submission so a previous hung job
+    can never trap the user behind it."""
     evicted = 0
     with _design_jobs_lock:
         for job_id in list(_design_jobs.keys()):
@@ -1221,10 +1218,6 @@ def _evict_user_design_jobs(user_id: int, *, only_stale: bool) -> int:
                 continue
             if job.get("status") not in ("queued", "running"):
                 continue
-            if only_stale:
-                updated_at = int(job.get("updated_at", now))
-                if (now - updated_at) < _DESIGN_JOB_STALE_SECONDS:
-                    continue
             popped = _design_jobs.pop(job_id, None)
             if popped is not None:
                 _safe_remove(popped.get("zip_path"))
@@ -2373,8 +2366,17 @@ def _run_bulk_design_job(job_id: str) -> None:
         os.close(fd)
 
         used_names: set[str] = set()
+        cancelled_mid_run = False
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
             for current_job in download_jobs:
+                # Bail out early if the job was cancelled (evicted from the
+                # map). Without this we'd keep fetching every remaining asset
+                # before noticing, holding the executor slot for the user's
+                # next submission.
+                with _design_jobs_lock:
+                    if _design_jobs.get(job_id) is None:
+                        cancelled_mid_run = True
+                        break
                 job_type = str(current_job.get("type") or "single")
                 if job_type == "mug_sheet":
                     _process_mug_sheet_job(zf, current_job, used_names, results, mode)
@@ -2391,6 +2393,10 @@ def _run_bulk_design_job(job_id: str) -> None:
                         job["no_design_count"] = no_design_count
                         job["updated_at"] = _now_ts()
                         _emit_design_job_progress(job)
+
+        if cancelled_mid_run:
+            _safe_remove(zip_path)
+            return
 
         ok_count, failed_count, no_design_count = _summarize_design_results(results)
         if ok_count == 0:
@@ -2568,10 +2574,11 @@ def create_bulk_design_download_job(
     if not payload.order_ids:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Selecciona al menos un pedido.")
 
-    # Auto-recover from a stuck previous job: if the user has a queued/running
-    # job that hasn't progressed in _DESIGN_JOB_STALE_SECONDS, evict it so the
-    # new one isn't trapped behind it in the single-worker executor queue.
-    _evict_user_design_jobs(current_user.id, only_stale=True)
+    # Always evict the user's prior queued/running jobs. With only one or two
+    # workers, a hung previous job would otherwise block this submission until
+    # the executor frees. Eviction is cooperative: the prior worker exits at
+    # its next checkpoint when its job disappears from the map.
+    _evict_user_design_jobs(current_user.id)
 
     job_id = str(uuid.uuid4())
     now = _now_ts()
