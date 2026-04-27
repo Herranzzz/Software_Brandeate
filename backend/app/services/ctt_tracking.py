@@ -11,7 +11,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import Order, Shipment, TrackingEvent
 from app.services.automation_rules import evaluate_order_automation_rules
 from app.services.ctt import CTTError, get_tracking, get_trackings_by_date
+from app.services.email_flows import trigger_delivery, trigger_shipping_update
 from app.services.orders import sync_order_status_from_tracking
+
+_SHIPPING_UPDATE_STATUSES = {"in_transit", "out_for_delivery", "picked_up"}
+_DELIVERY_STATUSES = {"delivered"}
 from app.services.shopify import push_pending_shipment_status_event, sync_shipment_tracking_to_shopify
 
 
@@ -153,6 +157,20 @@ def sync_shipment_tracking(
             shopify_sync_status = shipment.shopify_sync_status
 
     evaluate_order_automation_rules(db=db, order=shipment.order, source="ctt_tracking_sync", skip_url_checks=True)
+
+    if changed and latest_event is not None:
+        norm = (latest_event.normalized_status or "").lower()
+        try:
+            if norm in _SHIPPING_UPDATE_STATUSES:
+                trigger_shipping_update(db, shipment.order)
+            if norm in _DELIVERY_STATUSES:
+                trigger_delivery(db, shipment.order)
+        except Exception:
+            logger.warning(
+                "Email flow trigger failed for shipment %s on CTT status %s",
+                shipment.id, norm, exc_info=True,
+            )
+
     logger.info(
         "CTT tracking sync end shipment_id=%s tracking=%s previous_status=%s latest_status=%s changed=%s events_created=%s shopify_sync_status=%s",
         shipment.id,

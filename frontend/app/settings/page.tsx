@@ -11,6 +11,7 @@ import { TrackingBrandingPanel } from "@/components/tracking-branding-panel";
 import { WebhookSettingsPanel } from "@/components/webhook-settings-panel";
 import { MarketingConfigPanel } from "@/components/marketing-config-panel";
 import { EmailFlowsPanel } from "@/components/email-flows-panel";
+import { EmailFlowDraftsPanel } from "@/components/email-flow-drafts-panel";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
 import { SettingsTabs } from "@/components/settings-tabs";
@@ -382,6 +383,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                     <span className="portal-soft-pill">Shop #{shop.id}</span>
                   </div>
                   <EmailFlowsPanel flows={emailFlowsByShop[shop.id] ?? []} />
+                  <hr style={{ border: "none", borderTop: "1px solid var(--color-border, #e5e7eb)", margin: "16px 0 0" }} />
+                  <EmailFlowDraftsPanel shopId={shop.id} />
                 </article>
               ))}
             </div>

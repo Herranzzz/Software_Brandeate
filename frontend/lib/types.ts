@@ -334,6 +334,27 @@ export type EmailFlow = {
   updated_at: string;
 };
 
+export type EmailFlowDraft = {
+  id: number;
+  shop_id: number;
+  order_id: number;
+  flow_type: string;
+  locale: string;
+  model: string;
+  persona_name: string | null;
+  subject: string;
+  body_text: string;
+  body_html: string;
+  confidence: number | null;
+  requires_human_review: boolean;
+  template_subject: string | null;
+  template_body_text: string | null;
+  was_sent: boolean;
+  shadow_mode: boolean;
+  error_message: string | null;
+  generated_at: string;
+};
+
 export type TrackingConfig = {
   accent_color?: string;
   logo_url?: string;

@@ -48,4 +48,29 @@ class EmailFlowLogRead(BaseModel):
     to_email: str | None
     status: str
     error_message: str | None
+    attempts: int
+    next_attempt_at: datetime | None
     sent_at: datetime
+
+
+class EmailFlowDraftRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    shop_id: int
+    order_id: int
+    flow_type: str
+    locale: str
+    model: str
+    persona_name: str | None
+    subject: str
+    body_text: str
+    body_html: str
+    confidence: float | None
+    requires_human_review: bool
+    template_subject: str | None
+    template_body_text: str | None
+    was_sent: bool
+    shadow_mode: bool
+    error_message: str | None
+    generated_at: datetime

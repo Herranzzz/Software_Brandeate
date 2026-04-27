@@ -2,10 +2,20 @@
 
 import { useMemo, useState } from "react";
 
+/**
+ * NOTA: Brandeate es un 3PL con un único carrier. Las tarifas que aparecen
+ * más abajo son placeholders editables por zona/servicio — el cliente
+ * facilitará la tabla oficial de precios y este archivo será la única
+ * fuente de verdad a ajustar.
+ *
+ * Estructura:
+ *   - ZONES: tramos geográficos con tarifa base (primer kilo) y precio por kg extra.
+ *   - SERVICES: niveles de servicio del carrier (economy/standard/express).
+ */
+
 type Zone = {
   id: string;
   label: string;
-  countries: string[];
   /** Transit days range (business). */
   transit: [number, number];
   /** Base rate in EUR for the first weight tier. */
@@ -15,54 +25,40 @@ type Zone = {
 };
 
 const ZONES: Zone[] = [
-  { id: "es_peninsula", label: "España península", countries: ["ES"], transit: [1, 2], base: 3.95, perKg: 0.6 },
-  { id: "es_baleares",  label: "Baleares",          countries: ["ES-PM"], transit: [2, 3], base: 6.50, perKg: 1.2 },
-  { id: "es_canarias",  label: "Canarias",          countries: ["ES-CN"], transit: [3, 5], base: 9.90, perKg: 2.1 },
-  { id: "pt",           label: "Portugal",           countries: ["PT"], transit: [2, 3], base: 4.80, perKg: 0.9 },
-  { id: "eu_z1",        label: "UE Zona 1 (FR · DE · IT · BE · NL · LU)", countries: ["FR","DE","IT","BE","NL","LU"], transit: [2, 4], base: 7.95, perKg: 1.6 },
-  { id: "eu_z2",        label: "UE Zona 2 (resto UE)", countries: ["AT","DK","FI","IE","SE","PL","CZ","GR"], transit: [3, 6], base: 12.50, perKg: 2.4 },
-  { id: "uk",           label: "Reino Unido",        countries: ["GB"], transit: [4, 7], base: 15.00, perKg: 3.0 },
-  { id: "world",        label: "Resto del mundo",    countries: ["US","MX","CA","AR","CL","AU","JP"], transit: [6, 12], base: 24.90, perKg: 5.5 },
+  { id: "es_peninsula", label: "España península", transit: [1, 2], base: 3.95, perKg: 0.6 },
+  { id: "es_baleares",  label: "Baleares",          transit: [2, 3], base: 6.50, perKg: 1.2 },
+  { id: "es_canarias",  label: "Canarias",          transit: [3, 5], base: 9.90, perKg: 2.1 },
+  { id: "pt",           label: "Portugal",           transit: [2, 3], base: 4.80, perKg: 0.9 },
+  { id: "eu_z1",        label: "UE Zona 1 (FR · DE · IT · BE · NL · LU)", transit: [2, 4], base: 7.95, perKg: 1.6 },
+  { id: "eu_z2",        label: "UE Zona 2 (resto UE)", transit: [3, 6], base: 12.50, perKg: 2.4 },
+  { id: "uk",           label: "Reino Unido",        transit: [4, 7], base: 15.00, perKg: 3.0 },
+  { id: "world",        label: "Resto del mundo",    transit: [6, 12], base: 24.90, perKg: 5.5 },
 ];
 
 type Service = {
   id: "standard" | "express" | "economy";
   label: string;
+  description: string;
   multiplier: number;
   transitShift: number;
   badge: string;
 };
 
 const SERVICES: Service[] = [
-  { id: "economy",  label: "Economy",  multiplier: 0.88, transitShift: 1,  badge: "🌱" },
-  { id: "standard", label: "Standard", multiplier: 1.00, transitShift: 0,  badge: "📦" },
-  { id: "express",  label: "Express",  multiplier: 1.45, transitShift: -1, badge: "⚡" },
-];
-
-type Carrier = {
-  id: string;
-  label: string;
-  adj: number;
-  note: string;
-};
-
-const CARRIERS: Carrier[] = [
-  { id: "ctt",       label: "CTT Express",     adj: 1.00, note: "Integración nativa" },
-  { id: "seur",      label: "SEUR",            adj: 1.08, note: "Cobertura nacional" },
-  { id: "correos",   label: "Correos",         adj: 0.95, note: "Punto de entrega amplio" },
-  { id: "gls",       label: "GLS",             adj: 1.04, note: "Fuerte en Europa" },
-  { id: "ups",       label: "UPS",             adj: 1.18, note: "Premium internacional" },
+  { id: "economy",  label: "Economy",  description: "Plazo extendido, menor coste.", multiplier: 0.88, transitShift: 1,  badge: "🌱" },
+  { id: "standard", label: "Standard", description: "Nuestra opción recomendada.",   multiplier: 1.00, transitShift: 0,  badge: "📦" },
+  { id: "express",  label: "Express",  description: "Entrega prioritaria.",          multiplier: 1.45, transitShift: -1, badge: "⚡" },
 ];
 
 function volumetricKg(l: number, w: number, h: number) {
-  // Industry standard for road/parcel: L×W×H (cm) / 5000
+  // Estándar del carrier para paquetería terrestre: L×A×H (cm) / 5000
   return (l * w * h) / 5000;
 }
 
-function calcPrice(weightKg: number, zone: Zone, service: Service, carrier: Carrier) {
+function calcPrice(weightKg: number, zone: Zone, service: Service) {
   const billable = Math.max(weightKg, 0.1);
   const base = zone.base + Math.max(billable - 1, 0) * zone.perKg;
-  return Math.round(base * service.multiplier * carrier.adj * 100) / 100;
+  return Math.round(base * service.multiplier * 100) / 100;
 }
 
 function formatTransit(zone: Zone, service: Service) {
@@ -86,26 +82,21 @@ export function PortalShippingCalculator() {
   const billableKg = Math.max(realKg, volKg);
 
   const quotes = useMemo(() => {
-    const rows = CARRIERS.flatMap((carrier) =>
-      SERVICES.map((service) => ({
-        carrier,
-        service,
-        price: calcPrice(billableKg, zone, service, carrier),
-        eta: formatTransit(zone, service),
-      })),
-    );
     const insurance = insured ? Math.max((parseFloat(declaredValue) || 0) * 0.012, 1.5) : 0;
-    return rows
-      .map((r) => ({ ...r, total: Math.round((r.price + insurance) * 100) / 100, insurance }))
-      .sort((a, b) => a.total - b.total);
+    return SERVICES.map((service) => {
+      const price = calcPrice(billableKg, zone, service);
+      return {
+        service,
+        price,
+        insurance,
+        total: Math.round((price + insurance) * 100) / 100,
+        eta: formatTransit(zone, service),
+      };
+    });
   }, [billableKg, zone, insured, declaredValue]);
 
-  const cheapest = quotes[0];
-  const fastest = [...quotes].sort((a, b) => {
-    const aSh = a.service.transitShift;
-    const bSh = b.service.transitShift;
-    return aSh - bSh || a.total - b.total;
-  })[0];
+  const recommended = quotes.find((q) => q.service.id === "standard") ?? quotes[0];
+  const cheapest = [...quotes].sort((a, b) => a.total - b.total)[0];
 
   return (
     <div className="stack">
@@ -115,7 +106,7 @@ export function PortalShippingCalculator() {
           <header className="calc-form-head">
             <span className="eyebrow">📐 Paquete</span>
             <h3 className="section-title section-title-small">Dime cómo es tu envío</h3>
-            <p className="subtitle">Calculamos el precio estimado comparando carriers y servicios.</p>
+            <p className="subtitle">Calcula el coste estimado por zona y nivel de servicio.</p>
           </header>
 
           <div className="calc-field">
@@ -178,24 +169,14 @@ export function PortalShippingCalculator() {
 
         {/* ── Highlights ────────────────────────────────────────────── */}
         <section className="stack calc-highlights">
-          {cheapest ? (
+          {recommended ? (
             <article className="card calc-highlight calc-highlight-cheap">
-              <span className="eyebrow">💶 Opción más barata</span>
-              <h3 className="calc-highlight-price">{cheapest.total.toFixed(2)} €</h3>
+              <span className="eyebrow">✨ Opción recomendada</span>
+              <h3 className="calc-highlight-price">{recommended.total.toFixed(2)} €</h3>
               <p className="calc-highlight-line">
-                <strong>{cheapest.carrier.label}</strong> · {cheapest.service.badge} {cheapest.service.label}
+                {recommended.service.badge} <strong>{recommended.service.label}</strong>
               </p>
-              <p className="calc-highlight-sub">{cheapest.eta}</p>
-            </article>
-          ) : null}
-          {fastest && fastest !== cheapest ? (
-            <article className="card calc-highlight calc-highlight-fast">
-              <span className="eyebrow">⚡ Entrega más rápida</span>
-              <h3 className="calc-highlight-price">{fastest.total.toFixed(2)} €</h3>
-              <p className="calc-highlight-line">
-                <strong>{fastest.carrier.label}</strong> · {fastest.service.badge} {fastest.service.label}
-              </p>
-              <p className="calc-highlight-sub">{fastest.eta}</p>
+              <p className="calc-highlight-sub">{recommended.eta}</p>
             </article>
           ) : null}
           <article className="card calc-insights portal-glass-card">
@@ -206,42 +187,49 @@ export function PortalShippingCalculator() {
                 : "Tu paquete está bien optimizado. Si sube el peso, revisa las dimensiones."}
             </p>
             <p className="calc-insights-sub">
-              Precios orientativos sin IVA. El coste definitivo depende de tu contrato y del origen del envío.
+              Tarifas orientativas sin IVA. El coste definitivo depende del contrato activo con tu cuenta.
             </p>
           </article>
+          {cheapest && cheapest.service.id !== recommended?.service.id ? (
+            <article className="card calc-highlight calc-highlight-fast">
+              <span className="eyebrow">💶 Opción más económica</span>
+              <h3 className="calc-highlight-price">{cheapest.total.toFixed(2)} €</h3>
+              <p className="calc-highlight-line">
+                {cheapest.service.badge} <strong>{cheapest.service.label}</strong>
+              </p>
+              <p className="calc-highlight-sub">{cheapest.eta}</p>
+            </article>
+          ) : null}
         </section>
       </div>
 
-      {/* ── Quote table ───────────────────────────────────────────────── */}
+      {/* ── Services table ───────────────────────────────────────────── */}
       <section className="card portal-glass-card stack">
         <header className="calc-form-head">
-          <span className="eyebrow">📋 Comparativa</span>
-          <h3 className="section-title section-title-small">Tarifas estimadas ({quotes.length} opciones)</h3>
-          <p className="subtitle">Ordenado de más barato a más caro. Haz clic para seleccionar.</p>
+          <span className="eyebrow">📋 Niveles de servicio</span>
+          <h3 className="section-title section-title-small">Elige cómo quieres que llegue tu envío</h3>
+          <p className="subtitle">Mismo transportista, tres ritmos de entrega. Precios calculados para el paquete y zona de arriba.</p>
         </header>
-        <div className="calc-quote-table">
-          <div className="calc-quote-head">
-            <span>Carrier</span>
-            <span>Servicio</span>
-            <span>Tránsito</span>
-            <span>Base</span>
-            <span>Seguro</span>
-            <span>Total</span>
-          </div>
+        <div className="calc-service-grid">
           {quotes.map((q) => (
-            <div key={`${q.carrier.id}-${q.service.id}`} className="calc-quote-row">
-              <span>
-                <strong>{q.carrier.label}</strong>
-                <small>{q.carrier.note}</small>
-              </span>
-              <span>
-                <strong>{q.service.badge} {q.service.label}</strong>
-              </span>
-              <span>{q.eta}</span>
-              <span>{q.price.toFixed(2)} €</span>
-              <span>{q.insurance.toFixed(2)} €</span>
-              <span className="calc-quote-total">{q.total.toFixed(2)} €</span>
-            </div>
+            <article key={q.service.id} className="calc-service-card">
+              <header className="calc-service-head">
+                <span className="calc-service-badge">{q.service.badge}</span>
+                <div>
+                  <strong>{q.service.label}</strong>
+                  <small>{q.service.description}</small>
+                </div>
+              </header>
+              <div className="calc-service-rows">
+                <div><span>Tránsito estimado</span><strong>{q.eta}</strong></div>
+                <div><span>Tarifa base</span><strong>{q.price.toFixed(2)} €</strong></div>
+                <div><span>Seguro</span><strong>{q.insurance.toFixed(2)} €</strong></div>
+              </div>
+              <footer className="calc-service-total">
+                <span>Total estimado</span>
+                <strong>{q.total.toFixed(2)} €</strong>
+              </footer>
+            </article>
           ))}
         </div>
       </section>

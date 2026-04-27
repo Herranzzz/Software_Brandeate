@@ -16,9 +16,38 @@ from app.schemas.shipment import (
 )
 from app.services.activity import log_activity
 from app.services.automation_rules import evaluate_order_automation_rules
+from app.services.email_flows import trigger_delivery, trigger_shipping_update
 from app.services.webhooks import dispatch_webhook
 from app.services.ctt_tracking import sync_ctt_tracking_for_active_shipments, sync_shipment_tracking
 from app.services.orders import sync_order_status_from_tracking
+
+import logging
+
+_logger = logging.getLogger(__name__)
+
+_SHIPPING_UPDATE_STATUSES = {"in_transit", "out_for_delivery", "picked_up"}
+_DELIVERY_STATUSES = {"delivered"}
+
+
+def _maybe_trigger_shipment_emails(db: Session, order: Order, status_norm: str | None) -> None:
+    """Fire email flows inline when a tracking event changes the shipment state.
+
+    Idempotency is enforced by the partial unique index in
+    email_flow_logs, so even if both the inline trigger and the
+    scheduler race we never send twice. Errors are swallowed so a
+    failing email never breaks the tracking-event endpoint.
+    """
+    norm = (status_norm or "").lower()
+    try:
+        if norm in _SHIPPING_UPDATE_STATUSES:
+            trigger_shipping_update(db, order)
+        if norm in _DELIVERY_STATUSES:
+            trigger_delivery(db, order)
+    except Exception:
+        _logger.warning(
+            "Email flow trigger failed for order %s on status %s",
+            order.id, norm, exc_info=True,
+        )
 
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
@@ -229,6 +258,7 @@ def create_tracking_event(
     db.add(event)
     db.flush()
     evaluate_order_automation_rules(db=db, order=shipment.order, source="tracking_event_create")
+    _maybe_trigger_shipment_emails(db, shipment.order, payload.status_norm)
     db.commit()
     db.refresh(event)
     return event

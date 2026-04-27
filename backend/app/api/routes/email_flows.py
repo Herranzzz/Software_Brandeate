@@ -4,8 +4,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_accessible_shop_ids, get_db, require_shop_manager_user
 from app.models import User
-from app.models.email_flow import EmailFlow, EmailFlowLog
-from app.schemas.email_flow import EmailFlowLogRead, EmailFlowRead, EmailFlowUpdate
+from app.models.email_flow import EmailFlow, EmailFlowDraft, EmailFlowLog
+from app.schemas.email_flow import (
+    EmailFlowDraftRead,
+    EmailFlowLogRead,
+    EmailFlowRead,
+    EmailFlowUpdate,
+)
 from app.services.email_flows import get_or_create_flows
 
 router = APIRouter(prefix="/email-flows", tags=["email-flows"])
@@ -60,4 +65,30 @@ def list_email_flow_logs(
     if flow_type:
         q = q.where(EmailFlowLog.flow_type == flow_type)
     q = q.order_by(EmailFlowLog.sent_at.desc()).limit(min(limit, 200))
+    return list(db.scalars(q))
+
+
+@router.get("/drafts", response_model=list[EmailFlowDraftRead])
+def list_email_flow_drafts(
+    shop_id: int,
+    flow_type: str | None = None,
+    requires_review: bool | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_shop_manager_user),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> list[EmailFlowDraft]:
+    """LLM-generated drafts. In shadow mode, the customer received the
+    deterministic template version (`template_*` columns); the agent
+    output (`subject` / `body_*`) is here for review.
+    """
+    if accessible_shop_ids is not None and shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+
+    q = select(EmailFlowDraft).where(EmailFlowDraft.shop_id == shop_id)
+    if flow_type:
+        q = q.where(EmailFlowDraft.flow_type == flow_type)
+    if requires_review is not None:
+        q = q.where(EmailFlowDraft.requires_human_review.is_(requires_review))
+    q = q.order_by(EmailFlowDraft.generated_at.desc()).limit(min(limit, 200))
     return list(db.scalars(q))
