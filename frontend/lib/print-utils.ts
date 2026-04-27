@@ -372,16 +372,20 @@ export async function printLabelsMerged(
 
   const mode = resolveMode(options);
   const failures: PrintLabelFailure[] = [];
-  const blobs: Blob[] = [];
+  // Index-aligned with trackingCodes so the merged PDF preserves UI order
+  // regardless of which download finishes first. A null slot means that
+  // tracking code failed and is excluded from the merge.
+  const blobsByIndex: Array<Blob | null> = new Array(trackingCodes.length).fill(null);
   let fetched = 0;
 
   const CONCURRENCY = 6;
-  const queue = [...trackingCodes];
+  let nextIndex = 0;
 
-  async function fetchOne(code: string) {
+  async function fetchOne(index: number) {
+    const code = trackingCodes[index];
     try {
       const blob = await fetchLabelBlob(code, "PDF");
-      blobs.push(blob);
+      blobsByIndex[index] = blob;
     } catch (err) {
       if (err instanceof PrintLabelError) {
         failures.push({ trackingCode: code, error: err });
@@ -403,15 +407,17 @@ export async function printLabelsMerged(
 
   const workers: Promise<void>[] = [];
   async function worker() {
-    while (queue.length > 0) {
-      const code = queue.shift();
-      if (code !== undefined) await fetchOne(code);
+    while (nextIndex < trackingCodes.length) {
+      const i = nextIndex++;
+      await fetchOne(i);
     }
   }
   for (let i = 0; i < Math.min(CONCURRENCY, trackingCodes.length); i++) {
     workers.push(worker());
   }
   await Promise.all(workers);
+
+  const blobs = blobsByIndex.filter((b): b is Blob => b !== null);
 
   if (blobs.length > 0) {
     const merged = blobs.length === 1 ? blobs[0] : await mergePdfBlobs(blobs);

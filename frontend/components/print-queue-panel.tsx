@@ -15,8 +15,10 @@ import { printLabelsMerged, type PrintLabelFailure } from "@/lib/print-utils";
 import type { Order, Shop } from "@/lib/types";
 
 
-type PrintQueueScope = "mine" | "all";
+type PreparerSelection = "me" | "all" | number;
 type PrintQueueTimeFilter = "all" | "session" | "30m" | "1h" | "today";
+
+type PreparerOption = { id: number; name: string };
 
 const TIME_FILTER_OPTIONS: Array<{ value: PrintQueueTimeFilter; label: string }> = [
   { value: "all", label: "Toda la cola" },
@@ -78,7 +80,8 @@ type PrintQueuePanelProps = {
   activeShopId: string;
   currentUserId: number;
   currentUserName: string;
-  scope: PrintQueueScope;
+  preparerSelection: PreparerSelection;
+  preparers: PreparerOption[];
 };
 
 /**
@@ -118,8 +121,23 @@ export function PrintQueuePanel({
   activeShopId,
   currentUserId,
   currentUserName,
-  scope,
+  preparerSelection,
+  preparers,
 }: PrintQueuePanelProps) {
+  // Resolve the active preparer into the id we send to the API. "all" → no
+  // filter; "me" → currentUserId; numeric → that user's id. Centralised here
+  // so the rest of the component doesn't have to branch on the union type.
+  const activePreparerId: number | undefined =
+    preparerSelection === "all"
+      ? undefined
+      : preparerSelection === "me"
+        ? currentUserId
+        : preparerSelection;
+  const isViewingOwn = preparerSelection === "me";
+  const isViewingAll = preparerSelection === "all";
+  const viewingPreparerName = !isViewingAll && !isViewingOwn
+    ? preparers.find((p) => p.id === preparerSelection)?.name ?? "compañero"
+    : null;
   const router = useRouter();
   const { toast } = useToast();
   const [, startTransition] = useTransition();
@@ -144,9 +162,11 @@ export function PrintQueuePanel({
     () => new Set(initialOrders.map((o) => o.id)),
   );
 
-  // Client-side filters — applied on top of the server-provided `orders`.
-  const [employeeFilter, setEmployeeFilter] = useState<string>("");
-  const [timeFilter, setTimeFilter] = useState<PrintQueueTimeFilter>("all");
+  // Default to "today" so residual pedidos preparados hace días que nunca se
+  // completaron (impresora caída, navegador cerrado, etc.) no se mezclen con
+  // la tanda actual al pulsar "Imprimir todas". Quien quiera verlos cambia el
+  // filtro a "Toda la cola".
+  const [timeFilter, setTimeFilter] = useState<PrintQueueTimeFilter>("today");
 
   function dismissSetupCard() {
     localStorage.setItem("kiosk_setup_dismissed", "1");
@@ -167,7 +187,8 @@ export function PrintQueuePanel({
         is_prepared: true,
         production_status: "packed",
         shop_id: activeShopId || undefined,
-        prepared_by_employee_id: scope === "mine" ? currentUserId : undefined,
+        prepared_by_employee_id: activePreparerId,
+        sort_by: "prepared_asc",
         per_page: 250,
       });
       setOrders(fresh);
@@ -184,7 +205,7 @@ export function PrintQueuePanel({
     } finally {
       setIsRefreshing(false);
     }
-  }, [activeShopId, toast, scope, currentUserId]);
+  }, [activeShopId, toast, activePreparerId]);
 
   // Realtime: re-fetch immediately when a teammate mutates an order.
   // Debounced inside the hook so bulk "preparar" of N orders → 1 refetch.
@@ -201,21 +222,10 @@ export function PrintQueuePanel({
     return () => window.clearInterval(intervalId);
   }, [refreshFromServer]);
 
-  // Build the list of preparers present in the queue, for the dropdown.
-  const employeeOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const o of orders) {
-      const id = o.prepared_by_employee_id != null ? String(o.prepared_by_employee_id) : "";
-      const name = o.prepared_by_employee_name || "Sin asignar";
-      const key = id || `name:${name}`;
-      if (!seen.has(key)) seen.set(key, name);
-    }
-    return Array.from(seen.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name, "es"));
-  }, [orders]);
-
-  // Apply employee + time filters client-side.
+  // El filtro por empleado lo aplica el servidor (`prepared_by_employee_id`),
+  // así que aquí solo recortamos por tiempo. Esto evita la trampa anterior
+  // donde el desplegable de empleado solo veía a la gente cuyas órdenes ya
+  // estaban cargadas en cliente.
   const visibleOrders = useMemo(() => {
     const now = Date.now();
     const THIRTY_MIN = 30 * 60 * 1000;
@@ -225,16 +235,6 @@ export function PrintQueuePanel({
     const startOfTodayMs = startOfToday.getTime();
 
     return orders.filter((o) => {
-      // Employee filter
-      if (employeeFilter) {
-        const orderKey =
-          o.prepared_by_employee_id != null
-            ? String(o.prepared_by_employee_id)
-            : `name:${o.prepared_by_employee_name || "Sin asignar"}`;
-        if (orderKey !== employeeFilter) return false;
-      }
-
-      // Time filter
       if (timeFilter === "all") return true;
       if (timeFilter === "session") return !sessionBaseIds.has(o.id);
 
@@ -245,13 +245,30 @@ export function PrintQueuePanel({
       if (timeFilter === "today") return preparedMs >= startOfTodayMs;
       return true;
     });
-  }, [orders, employeeFilter, timeFilter, sessionBaseIds]);
+  }, [orders, timeFilter, sessionBaseIds]);
 
   const totalCount = orders.length;
   const filteredCount = visibleOrders.length;
-  const isFiltered = employeeFilter !== "" || timeFilter !== "all";
+  const isFiltered = timeFilter !== "all";
   const selectedCount = selectedIds.size;
   const hasSelection = selectedCount > 0;
+
+  // Pedidos con prepared_at de hace más de 24 h. Suelen ser residuos: se
+  // prepararon, no se imprimieron (printer caída / pestaña cerrada) y se
+  // quedaron bloqueando la cola. Los exponemos como aviso para que el
+  // operador decida si los recupera o los descarta.
+  const staleOrderIds = useMemo(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return new Set(
+      orders
+        .filter((o) => {
+          const ms = o.prepared_at ? new Date(o.prepared_at).getTime() : NaN;
+          return !Number.isNaN(ms) && ms < cutoff;
+        })
+        .map((o) => o.id),
+    );
+  }, [orders]);
+  const staleCount = staleOrderIds.size;
 
   // Orders that arrived after the page load (new this session).
   const sessionOrderIds = useMemo(
@@ -268,7 +285,7 @@ export function PrintQueuePanel({
   );
   const needsLabelCount = totalCount - readyCount;
 
-  // Preparer breakdown — only relevant in "all" scope.
+  // Preparer breakdown — only relevant when viewing the whole team.
   const preparerStats = useMemo(() => {
     const map = new Map<string, number>();
     for (const order of orders) {
@@ -393,6 +410,19 @@ export function PrintQueuePanel({
       return;
     }
 
+    // Si la tanda incluye etiquetas viejas (preparadas hace >24h), pedimos
+    // confirmación. Es la causa típica de "salen etiquetas que no
+    // recuerdo": residuos de sesiones anteriores que se cuelan en la pila.
+    const staleInBatch = ready.filter((o) => staleOrderIds.has(o.id));
+    if (staleInBatch.length > 0) {
+      const proceed = window.confirm(
+        `${staleInBatch.length} de ${ready.length} etiqueta${ready.length !== 1 ? "s" : ""} ` +
+          `${staleInBatch.length === 1 ? "fue preparada" : "fueron preparadas"} hace más de 24 h. ` +
+          "¿Quieres imprimirlas igual? (Pulsa Cancelar para revisarlas en la cola.)",
+      );
+      if (!proceed) return;
+    }
+
     setLastPrintFailures([]);
 
     if (ready.length > 0) {
@@ -499,13 +529,15 @@ export function PrintQueuePanel({
     }
   }
 
-  function updateQueryParams(next: { shop_id?: string; scope?: PrintQueueScope }) {
+  function updateQueryParams(next: { shop_id?: string; preparer?: PreparerSelection }) {
     const params = new URLSearchParams();
     const shopId = next.shop_id ?? activeShopId;
-    const nextScope = next.scope ?? scope;
+    const nextPreparer = next.preparer ?? preparerSelection;
     if (shopId) params.set("shop_id", shopId);
-    // Default is "mine" — only serialise when the user picked "all".
-    if (nextScope === "all") params.set("scope", "all");
+    // Default is "me" — only serialise cuando se cambia a otra cosa, así
+    // las URLs limpias siguen significando "mis pedidos".
+    if (nextPreparer === "all") params.set("preparer", "all");
+    else if (typeof nextPreparer === "number") params.set("preparer", String(nextPreparer));
     const qs = params.toString();
     startTransition(() => {
       router.push(qs ? `/employees/print-queue?${qs}` : "/employees/print-queue");
@@ -516,14 +548,21 @@ export function PrintQueuePanel({
     updateQueryParams({ shop_id: nextShopId });
   }
 
-  function onScopeChange(nextScope: PrintQueueScope) {
-    updateQueryParams({ scope: nextScope });
+  function onPreparerChange(value: string) {
+    if (value === "all") return updateQueryParams({ preparer: "all" });
+    if (value === "me") return updateQueryParams({ preparer: "me" });
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) updateQueryParams({ preparer: parsed });
   }
 
-  const headerTitle = scope === "mine"
+  const headerTitle = isViewingOwn
     ? `Etiquetas de ${currentUserName}`
-    : "Etiquetas de todo el equipo";
+    : isViewingAll
+      ? "Etiquetas de todo el equipo"
+      : `Etiquetas de ${viewingPreparerName}`;
   const isPrinting = printProgress !== null;
+  const preparerSelectValue: string =
+    typeof preparerSelection === "number" ? String(preparerSelection) : preparerSelection;
 
   function printProgressLabel(progress: { done: number; total: number; phase: "downloading" | "printing" }) {
     if (progress.phase === "printing") return "Abriendo PDF...";
@@ -535,7 +574,13 @@ export function PrintQueuePanel({
       <PageHeader
         eyebrow="Equipo"
         title={headerTitle}
-        description="Pedidos que ya has preparado con etiqueta lista. Imprime todo el lote del tirón para liberar el turno — los pedidos impresos desaparecen de la cola automáticamente."
+        description={
+          isViewingOwn
+            ? "Pedidos que ya has preparado con etiqueta lista. Imprímelos en lote — los impresos desaparecen de la cola automáticamente."
+            : isViewingAll
+              ? "Pedidos preparados por todo el equipo, ordenados por orden de preparación (FIFO). Imprime el lote para liberar el turno."
+              : `Pedidos preparados por ${viewingPreparerName}, ordenados por orden de preparación. Imprímelos cuando ${viewingPreparerName} no esté para hacerlo.`
+        }
         actions={
           <div className="print-queue-header-actions">
             <button
@@ -574,9 +619,11 @@ export function PrintQueuePanel({
           <span className="muted">
             {isFiltered
               ? "filtradas · total de la cola"
-              : scope === "mine"
+              : isViewingOwn
                 ? `preparadas por ${currentUserName}`
-                : "de todo el equipo"}
+                : isViewingAll
+                  ? "de todo el equipo"
+                  : `preparadas por ${viewingPreparerName}`}
           </span>
         </div>
         <div className="print-queue-stat">
@@ -610,21 +657,27 @@ export function PrintQueuePanel({
 
       <Card className="stack">
         <div className="orders-inline-tools print-queue-toolbar">
-          <div className="print-queue-scope-toggle">
-            <button
-              className={`orders-filter-pill ${scope === "mine" ? "orders-filter-pill-active" : ""}`}
-              onClick={() => onScopeChange("mine")}
-              type="button"
+          <div className="field orders-inline-shop">
+            <label htmlFor="print-queue-preparer-filter">Preparados por</label>
+            <select
+              id="print-queue-preparer-filter"
+              onChange={(e) => onPreparerChange(e.target.value)}
+              value={preparerSelectValue}
             >
-              Mis pedidos
-            </button>
-            <button
-              className={`orders-filter-pill ${scope === "all" ? "orders-filter-pill-active" : ""}`}
-              onClick={() => onScopeChange("all")}
-              type="button"
-            >
-              Todo el equipo
-            </button>
+              <option value="me">Yo ({currentUserName})</option>
+              <option value="all">Todo el equipo</option>
+              {preparers.length > 0 ? (
+                <optgroup label="Compañeros">
+                  {preparers
+                    .filter((p) => p.id !== currentUserId)
+                    .map((p) => (
+                      <option key={p.id} value={String(p.id)}>
+                        {p.name}
+                      </option>
+                    ))}
+                </optgroup>
+              ) : null}
+            </select>
           </div>
           <div className="field orders-inline-shop">
             <label htmlFor="print-queue-shop-filter">Tienda</label>
@@ -637,21 +690,6 @@ export function PrintQueuePanel({
               {shops.map((shop) => (
                 <option key={shop.id} value={String(shop.id)}>
                   {shop.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field orders-inline-shop">
-            <label htmlFor="print-queue-employee-filter">Empleado</label>
-            <select
-              id="print-queue-employee-filter"
-              onChange={(e) => setEmployeeFilter(e.target.value)}
-              value={employeeFilter}
-            >
-              <option value="">Todos</option>
-              {employeeOptions.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.name}
                 </option>
               ))}
             </select>
@@ -673,13 +711,20 @@ export function PrintQueuePanel({
           {isFiltered ? (
             <button
               className="button-link muted"
-              onClick={() => {
-                setEmployeeFilter("");
-                setTimeFilter("all");
-              }}
+              onClick={() => setTimeFilter("all")}
               type="button"
             >
               Limpiar filtros
+            </button>
+          ) : null}
+          {staleCount > 0 && timeFilter !== "all" ? (
+            <button
+              className="button-link muted"
+              onClick={() => setTimeFilter("all")}
+              title="Pedidos preparados hace más de 24 h, ocultos por el filtro de tiempo"
+              type="button"
+            >
+              Ver {staleCount} antiguo{staleCount !== 1 ? "s" : ""}
             </button>
           ) : null}
           <div className="print-queue-selection-tools">
@@ -723,7 +768,7 @@ export function PrintQueuePanel({
           </div>
         </div>
 
-        {scope === "all" && preparerStats.length > 0 ? (
+        {isViewingAll && preparerStats.length > 0 ? (
           <div className="print-queue-preparers muted">
             Reparto:{" "}
             {preparerStats.map(([name, count], idx) => (
@@ -753,10 +798,12 @@ export function PrintQueuePanel({
             <strong>{isFiltered ? "Sin resultados con estos filtros" : "¡Todo impreso!"}</strong>
             <p className="muted">
               {isFiltered
-                ? "Prueba a ampliar el rango de tiempo o cambiar el empleado seleccionado."
-                : scope === "mine"
+                ? "Prueba a ampliar el rango de tiempo o cambiar el filtro de Preparados por."
+                : isViewingOwn
                   ? `No tienes pedidos en cola, ${currentUserName}. Cuando prepares un pedido, aparecerá aquí listo para imprimir.`
-                  : "No hay pedidos preparados esperando impresión. Cuando el equipo prepare pedidos, aparecerán aquí."}
+                  : isViewingAll
+                    ? "No hay pedidos preparados esperando impresión. Cuando el equipo prepare pedidos, aparecerán aquí."
+                    : `${viewingPreparerName} no tiene pedidos preparados esperando impresión.`}
             </p>
           </div>
         ) : (

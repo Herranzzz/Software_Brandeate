@@ -504,6 +504,7 @@ def list_orders(
     shipping_status: str | None = None,
     has_shipment: bool | None = None,
     prepared_by_employee_id: int | None = None,
+    sort_by: Literal["created_desc", "prepared_asc", "prepared_desc"] = "created_desc",
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=DEFAULT_ORDERS_PER_PAGE, ge=1, le=MAX_ORDERS_PER_PAGE),
     db: Session = Depends(get_db),
@@ -546,8 +547,17 @@ def list_orders(
 
     safe_per_page = max(1, min(per_page, MAX_ORDERS_PER_PAGE))
     safe_page = max(page, 1)
+    # FIFO/LIFO by prepared_at is what the print queue actually wants —
+    # "first prepared, first printed". NULLS LAST keeps unprepared rows from
+    # polluting the top when sort_by=prepared_*.
+    if sort_by == "prepared_asc":
+        order_clause = (Order.prepared_at.asc().nulls_last(), Order.id.asc())
+    elif sort_by == "prepared_desc":
+        order_clause = (Order.prepared_at.desc().nulls_last(), Order.id.desc())
+    else:
+        order_clause = (Order.created_at.desc(), Order.id.desc())
     data_query = _build_order_filters(
-        _order_list_query().order_by(Order.created_at.desc(), Order.id.desc()),
+        _order_list_query().order_by(*order_clause),
         **filter_kwargs,
     ).limit(safe_per_page).offset((safe_page - 1) * safe_per_page)
 
