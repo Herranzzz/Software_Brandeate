@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AppModal } from "@/components/app-modal";
 import { getItemPrimaryAsset } from "@/lib/personalization";
@@ -141,6 +141,12 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
   const [selectedTypes, setSelectedTypes] = useState<Set<ProductType>>(new Set());
   const [selectedSizes, setSelectedSizes] = useState<Set<PrintSize>>(new Set());
 
+  // The polling loop checks this ref between awaits so a Cancel click can stop
+  // it without waiting for the next 1.2s tick. Setting state alone wouldn't
+  // work — the loop captured the old value at await time.
+  const cancelledRef = useRef(false);
+  const activeJobIdRef = useRef<string | null>(null);
+
   // SSE-driven live progress: the worker emits `job_progress` after each step
   // so the bar moves instantly between 1.2s polls (and we can drop slow
   // polling cadence in the future without losing fidelity).
@@ -240,7 +246,29 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
     selectedTypes.size > 0 &&
     (availableSizes.length === 0 || selectedSizes.size > 0 || !selectedTypes.has("cuadro"));
 
+  async function cancelActiveJob() {
+    cancelledRef.current = true;
+    const jid = activeJobIdRef.current;
+    activeJobIdRef.current = null;
+    if (!jid) return;
+    try {
+      await fetch(`/api/orders/bulk/download-designs/jobs/${jid}`, {
+        method: "DELETE",
+        cache: "no-store",
+      });
+    } catch {
+      // best-effort: stale job is auto-evicted server-side on next submit too
+    }
+  }
+
+  async function handleCancelClose() {
+    await cancelActiveJob();
+    onClose();
+  }
+
   async function handleDownload(mode: DownloadMode) {
+    cancelledRef.current = false;
+    activeJobIdRef.current = null;
     setActiveMode(mode);
     setPhase("loading");
     setErrorMsg(null);
@@ -268,11 +296,14 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
       }
 
       let currentJob = (await createResponse.json()) as BulkDownloadJobState;
+      activeJobIdRef.current = currentJob.job_id;
+      if (cancelledRef.current) return;
       syncStateFromJob(currentJob);
 
       const deadlineAt = Date.now() + POLL_TIMEOUT_MS;
       let transientPollErrors = 0;
       while (currentJob.status !== "done") {
+        if (cancelledRef.current) return;
         if (currentJob.status === "failed") {
           throw new Error(currentJob.error || "La descarga de diseños falló durante el procesamiento.");
         }
@@ -281,6 +312,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
         }
 
         await sleep(POLL_INTERVAL_MS);
+        if (cancelledRef.current) return;
         let statusResponse: Response;
         try {
           statusResponse = await fetch(`/api/orders/bulk/download-designs/jobs/${currentJob.job_id}`, {
@@ -388,6 +420,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
 
       setPhase("done");
     } catch (err) {
+      if (cancelledRef.current) return;
       setErrorMsg(err instanceof Error ? err.message : "Error desconocido");
       setPhase("error");
     }
@@ -399,7 +432,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
   return (
     <AppModal
       eyebrow="Producción"
-      onClose={isLoading ? () => {} : onClose}
+      onClose={isLoading ? handleCancelClose : onClose}
       open
       title="Descargar diseños en bulk"
       subtitle={`${orders.length} pedido${orders.length !== 1 ? "s" : ""} seleccionado${orders.length !== 1 ? "s" : ""}`}
@@ -413,8 +446,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
           <>
             <button
               className="button-secondary"
-              disabled={isLoading}
-              onClick={onClose}
+              onClick={isLoading ? () => void handleCancelClose() : onClose}
               type="button"
             >
               Cancelar

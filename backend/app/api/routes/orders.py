@@ -1114,6 +1114,10 @@ _DESIGN_JOB_TTL_SECONDS = 2 * 60 * 60
 _DESIGN_JOB_CLEANUP_INTERVAL_SECONDS = 60
 _DESIGN_DOWNLOAD_TOKEN_TTL_SECONDS = 10 * 60
 _DESIGN_JOB_MAX_WORKERS = 1
+# When a queued/running job hasn't moved in this long it's considered stuck,
+# and a new submission from the same user will auto-evict it so the executor
+# queue doesn't pile up behind a hung worker.
+_DESIGN_JOB_STALE_SECONDS = 90
 
 _design_job_executor = ThreadPoolExecutor(max_workers=_DESIGN_JOB_MAX_WORKERS, thread_name_prefix="bulk-design-job")
 _design_jobs_lock = threading.Lock()
@@ -1196,6 +1200,36 @@ def _cleanup_bulk_design_jobs(*, force: bool = False) -> None:
             if job is None:
                 continue
             _safe_remove(job.get("zip_path"))
+
+
+def _evict_user_design_jobs(user_id: int, *, only_stale: bool) -> int:
+    """Remove queued/running design jobs for a user from the in-memory map.
+
+    The worker checks `_design_jobs.get(job_id)` at every checkpoint and exits
+    when the job is gone, so popping here cancels cooperatively. If only_stale,
+    only jobs that haven't progressed in _DESIGN_JOB_STALE_SECONDS are evicted —
+    that's what the create endpoint uses to auto-recover from a hung worker.
+    """
+    now = _now_ts()
+    evicted = 0
+    with _design_jobs_lock:
+        for job_id in list(_design_jobs.keys()):
+            job = _design_jobs.get(job_id)
+            if job is None:
+                continue
+            if int(job.get("user_id", 0)) != user_id:
+                continue
+            if job.get("status") not in ("queued", "running"):
+                continue
+            if only_stale:
+                updated_at = int(job.get("updated_at", now))
+                if (now - updated_at) < _DESIGN_JOB_STALE_SECONDS:
+                    continue
+            popped = _design_jobs.pop(job_id, None)
+            if popped is not None:
+                _safe_remove(popped.get("zip_path"))
+                evicted += 1
+    return evicted
 
 
 def _score_asset_type(type_str: str) -> int:
@@ -2534,6 +2568,11 @@ def create_bulk_design_download_job(
     if not payload.order_ids:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Selecciona al menos un pedido.")
 
+    # Auto-recover from a stuck previous job: if the user has a queued/running
+    # job that hasn't progressed in _DESIGN_JOB_STALE_SECONDS, evict it so the
+    # new one isn't trapped behind it in the single-worker executor queue.
+    _evict_user_design_jobs(current_user.id, only_stale=True)
+
     job_id = str(uuid.uuid4())
     now = _now_ts()
     job_state = {
@@ -2574,6 +2613,26 @@ def get_bulk_design_download_job(
         if int(job.get("user_id", 0)) != current_user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes acceso a este job.")
         return _job_public_payload(job)
+
+
+@router.delete("/bulk/download-designs/jobs/{job_id}", status_code=status.HTTP_200_OK)
+def cancel_bulk_design_download_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Cancel a queued/running bulk design job. Idempotent: returns ok even if
+    the job already finished or was cleaned up. The worker exits cooperatively
+    at its next checkpoint when the job disappears from the in-memory map."""
+    with _design_jobs_lock:
+        job = _design_jobs.get(job_id)
+        if job is None:
+            return {"job_id": job_id, "cancelled": False}
+        if int(job.get("user_id", 0)) != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes acceso a este job.")
+        popped = _design_jobs.pop(job_id, None)
+    if popped is not None:
+        _safe_remove(popped.get("zip_path"))
+    return {"job_id": job_id, "cancelled": True}
 
 
 @router.post("/bulk/download-designs/jobs/{job_id}/download-url", status_code=status.HTTP_200_OK)
