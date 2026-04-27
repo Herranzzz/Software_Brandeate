@@ -49,6 +49,26 @@ class Settings(BaseSettings):
     ctt_sender_address: str = ""
     ctt_sender_town: str = ""
     ctt_ssl_verify: bool = True
+    # Filesystem path where label PDFs are cached after first download from CTT.
+    # Reprints become a local file read instead of a 20s round-trip. Override
+    # via env var LABEL_CACHE_DIR; point at a Render Disk mount for persistence
+    # across deploys (otherwise /tmp is wiped on restart, which is fine — labels
+    # just get re-fetched once after a deploy).
+    label_cache_dir: str = "/tmp/brandeate_labels"
+    label_cache_max_age_days: int = 30
+
+    # ── Email agent (LLM) ────────────────────────────────────────────────────
+    # When ANTHROPIC_API_KEY is set and email_agent_enabled=True, outbound
+    # flow emails are drafted by Claude using EmailContext + the shop persona
+    # instead of the static template. If shadow_mode=True the draft is
+    # persisted in email_flow_drafts but the customer still receives the
+    # template version, so quality can be reviewed before going live.
+    anthropic_api_key: str | None = None
+    email_agent_enabled: bool = False
+    email_agent_shadow_mode: bool = True
+    email_agent_model: str = "claude-sonnet-4-6"
+    email_agent_max_output_tokens: int = 1024
+    email_agent_min_confidence: float = 0.7
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

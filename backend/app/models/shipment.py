@@ -32,7 +32,7 @@ class Shipment(Base):
     )
     fulfillment_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     carrier: Mapped[str] = mapped_column(String(120))
-    tracking_number: Mapped[str] = mapped_column(String(255))
+    tracking_number: Mapped[str] = mapped_column(String(255), index=True)
     tracking_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     shipping_status: Mapped[str | None] = mapped_column(String(120), nullable=True)
     shipping_status_detail: Mapped[str | None] = mapped_column(Text, nullable=True)

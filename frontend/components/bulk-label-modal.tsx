@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AppModal } from "@/components/app-modal";
 import { CTT_SERVICE_OPTIONS, CTT_BALEARES_SERVICE_OPTIONS, CTT_WEIGHT_BANDS } from "@/lib/ctt";
@@ -54,6 +54,16 @@ export function BulkLabelModal({ orders, shop, onClose, onComplete }: BulkLabelM
   const [printProgress, setPrintProgress] = useState<{ done: number; total: number } | null>(null);
   const [printFailures, setPrintFailures] = useState<PrintLabelFailure[]>([]);
 
+  // One controller per print run; replaced on each handleCreate. Aborted on
+  // unmount so a closed modal doesn't leak in-flight label fetches.
+  const printAbortRef = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      printAbortRef.current?.abort();
+    },
+    [],
+  );
+
   const eligibleOrders = orders.filter((o) => !o.shipment?.tracking_number);
   const alreadyShippedOrders = orders.filter((o) => Boolean(o.shipment?.tracking_number));
 
@@ -88,12 +98,15 @@ export function BulkLabelModal({ orders, shop, onClose, onComplete }: BulkLabelM
       if (autoPrint && createdCodes.length > 0) {
         setPhase("printing");
         setPrintProgress({ done: 0, total: createdCodes.length });
+        const controller = new AbortController();
+        printAbortRef.current = controller;
         const failures = await printLabelsSequential(
           createdCodes,
-          { format: printFormat === "ZPL" ? "ZPL" : "PDF" },
+          { format: printFormat === "ZPL" ? "ZPL" : "PDF", signal: controller.signal },
           (done, total) => setPrintProgress({ done, total }),
         );
         setPrintFailures(failures);
+        printAbortRef.current = null;
       }
 
       setPhase("done");
@@ -107,12 +120,22 @@ export function BulkLabelModal({ orders, shop, onClose, onComplete }: BulkLabelM
     }
   }
 
-  function handleClose() {
-    if (phase === "loading" || phase === "printing") return;
-    onClose();
+  function handleCancelPrinting() {
+    printAbortRef.current?.abort();
+    printAbortRef.current = null;
   }
 
-  const isProcessing = phase === "loading" || phase === "printing";
+  function handleClose() {
+    // While CTT is creating shipments we must not bail out — those calls
+    // already left and a partial close would lose the result. During the
+    // printing phase the user CAN cancel: it only aborts pending downloads,
+    // labels already created in CTT remain reprintable from the order.
+    if (phase === "loading") return;
+    if (phase === "printing") {
+      handleCancelPrinting();
+    }
+    onClose();
+  }
 
   return (
     <AppModal
@@ -125,11 +148,11 @@ export function BulkLabelModal({ orders, shop, onClose, onComplete }: BulkLabelM
           <>
             <button
               className="button-secondary"
-              disabled={isProcessing}
+              disabled={phase === "loading"}
               onClick={handleClose}
               type="button"
             >
-              Cancelar
+              {phase === "printing" ? "Cancelar impresión" : "Cancelar"}
             </button>
             {phase === "config" ? (
               <button

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 import logging
 import random
-import socket
-import ssl
 import threading
 import time
-from urllib import error, request
-from urllib.parse import urlencode
+from typing import Any
+
+import httpx
 
 from app.core.config import get_settings
 
@@ -17,106 +15,91 @@ logger = logging.getLogger(__name__)
 
 
 # Hard timeout (seconds) applied to every outbound HTTP request to CTT.
-# Without this, urlopen() blocks indefinitely when CTT is slow or unreachable,
+# Without this, calls block indefinitely when CTT is slow or unreachable,
 # which in turn makes the bulk label download in the UI hang forever.
-_CTT_TOKEN_TIMEOUT_SECONDS = 15
-_CTT_REQUEST_TIMEOUT_SECONDS = 25
-_CTT_LABEL_TIMEOUT_SECONDS = 30
+_CTT_TOKEN_TIMEOUT_SECONDS = 12
+_CTT_REQUEST_TIMEOUT_SECONDS = 20
+_CTT_LABEL_TIMEOUT_SECONDS = 20
 
 # Transient-error retry policy. CTT's gateway returns sporadic 502/503/504 and
 # drops connections under load; retrying with backoff turns those into invisible
 # hiccups instead of user-facing failures. 4xx is NOT retried — those are
 # business errors (bad payload, auth) that won't recover on retry.
-_RETRY_MAX_ATTEMPTS = 3
+# 2 attempts (1 retry) keeps total wall time bounded so the frontend timeout
+# never fires while the backend is still trying — worst case ~ timeout * 2 + 1.2s.
+_RETRY_MAX_ATTEMPTS = 2
 _RETRY_BASE_DELAY = 0.6
-_RETRY_MAX_DELAY = 4.0
+_RETRY_MAX_DELAY = 2.0
 _RETRY_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
-def _ssl_context() -> ssl.SSLContext | None:
-    """Return an unverified SSL context for test environments."""
-    if not get_settings().ctt_ssl_verify:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-    return None
+class CTTError(Exception):
+    pass
 
 
-def _is_transient_urlerror(exc: error.URLError) -> bool:
-    """URL errors wrap the underlying socket/OS error in `reason`.
+class CTTHTTPError(CTTError):
+    """A non-2xx response from CTT after retries are exhausted.
 
-    Connection resets, DNS hiccups, and timeouts are transient; refuse to retry
-    anything else (e.g. SSL certificate problems won't improve on retry).
+    Carries enough context (status, body) for callers to format meaningful
+    error messages without a second round-trip.
     """
-    reason = getattr(exc, "reason", None)
-    if isinstance(reason, (socket.timeout, TimeoutError, ConnectionError)):
-        return True
-    if isinstance(reason, OSError):
-        # EHOSTUNREACH, ECONNREFUSED, ENETUNREACH, etc.
-        return True
-    return False
+
+    def __init__(self, status_code: int, body: str, *, url: str = "") -> None:
+        self.status_code = status_code
+        self.body = body
+        self.url = url
+        super().__init__(f"CTT HTTP {status_code} for {url}: {body[:300]}")
 
 
-def _urlopen_with_retry(
-    req: request.Request,
-    *,
-    timeout: int,
-    op_label: str,
-) -> bytes:
-    """Execute `urlopen(req)` with bounded exponential backoff on transient failures.
+# ── Shared HTTP client ────────────────────────────────────────────────────
+#
+# A single module-level httpx.Client gives us connection pooling: TLS
+# handshakes (~200ms each) are paid once per host then reused for the next
+# call. Critical for bulk label flows where we make 8 concurrent requests to
+# the same CTT host.
+#
+# The client is built lazily so that get_settings() is read after env vars
+# load, and recycled if ctt_ssl_verify changes (test ↔ prod swaps).
 
-    Returns the response body bytes. Raises the original exception after the
-    final attempt. Non-transient errors (4xx HTTPError, SSL, invalid URL) are
-    raised immediately without retry.
-    """
-    last_exc: Exception | None = None
-    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
-        try:
-            with request.urlopen(req, context=_ssl_context(), timeout=timeout) as resp:
-                return resp.read()
-        except error.HTTPError as exc:
-            last_exc = exc
-            if exc.code not in _RETRY_STATUS_CODES or attempt == _RETRY_MAX_ATTEMPTS:
-                raise
-            logger.warning(
-                "CTT transient HTTP %s on %s (attempt %s/%s), retrying",
-                exc.code, op_label, attempt, _RETRY_MAX_ATTEMPTS,
+_client_lock = threading.Lock()
+_client: httpx.Client | None = None
+_client_verify: bool | None = None
+
+
+def _get_client() -> httpx.Client:
+    global _client, _client_verify
+    settings = get_settings()
+    verify = settings.ctt_ssl_verify
+    with _client_lock:
+        if _client is None or _client_verify != verify:
+            if _client is not None:
+                try:
+                    _client.close()
+                except Exception:
+                    pass
+            _client = httpx.Client(
+                verify=verify,
+                # Match _BULK_CTT_CONCURRENCY upstream so 8 parallel callers
+                # never block on connection acquisition.
+                limits=httpx.Limits(
+                    max_connections=16,
+                    max_keepalive_connections=10,
+                    keepalive_expiry=60.0,
+                ),
+                # Default; per-request timeouts override below.
+                timeout=httpx.Timeout(_CTT_REQUEST_TIMEOUT_SECONDS),
+                follow_redirects=False,
             )
-        except (socket.timeout, TimeoutError) as exc:
-            last_exc = exc
-            if attempt == _RETRY_MAX_ATTEMPTS:
-                raise
-            logger.warning(
-                "CTT timeout on %s (attempt %s/%s), retrying",
-                op_label, attempt, _RETRY_MAX_ATTEMPTS,
-            )
-        except error.URLError as exc:
-            last_exc = exc
-            if not _is_transient_urlerror(exc) or attempt == _RETRY_MAX_ATTEMPTS:
-                raise
-            logger.warning(
-                "CTT network error on %s (%s, attempt %s/%s), retrying",
-                op_label, exc.reason, attempt, _RETRY_MAX_ATTEMPTS,
-            )
+            _client_verify = verify
+        return _client
 
-        delay = min(_RETRY_BASE_DELAY * (2 ** (attempt - 1)), _RETRY_MAX_DELAY)
-        delay += random.uniform(0, delay * 0.25)
-        time.sleep(delay)
 
-    # unreachable — loop either returns or raises
-    assert last_exc is not None
-    raise last_exc
-
+# ── Token cache ───────────────────────────────────────────────────────────
 
 _token_lock = threading.Lock()
 # Keyed by base_url so switching between test and production environments
 # (CTT_API_BASE_URL env var) always fetches a fresh token for that environment.
 _token_cache: dict[str, tuple[str, float]] = {}  # base_url -> (token, expires_at)
-
-
-class CTTError(Exception):
-    pass
 
 
 def _base_url() -> str:
@@ -140,6 +123,86 @@ def _api_headers(*, token: str | None = None, include_content_type: bool = False
     return headers
 
 
+# ── Core HTTP helper ──────────────────────────────────────────────────────
+
+
+def _send_with_retry(
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str],
+    content: bytes | None = None,
+    timeout: float,
+    op_label: str,
+) -> httpx.Response:
+    """Send an HTTP request with bounded exponential backoff on transient failures.
+
+    Returns the httpx.Response on 2xx. Raises CTTHTTPError on non-retried
+    non-2xx, CTTError on terminal transport failure. Connection reuse is
+    automatic via the shared client.
+    """
+    client = _get_client()
+    last_exc: Exception | None = None
+
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        try:
+            response = client.request(
+                method,
+                url,
+                headers=headers,
+                content=content,
+                timeout=timeout,
+            )
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            if attempt == _RETRY_MAX_ATTEMPTS:
+                raise CTTError(
+                    f"CTT request timed out after {timeout}s on {op_label}"
+                ) from exc
+            logger.warning(
+                "CTT timeout on %s (attempt %s/%s), retrying",
+                op_label, attempt, _RETRY_MAX_ATTEMPTS,
+            )
+        except httpx.RequestError as exc:
+            # Connection refused, DNS, TLS handshake — all transient enough
+            # for one retry, but not so hopeful we should hammer.
+            last_exc = exc
+            if attempt == _RETRY_MAX_ATTEMPTS:
+                raise CTTError(
+                    f"CTT network error on {op_label}: {exc!s}"
+                ) from exc
+            logger.warning(
+                "CTT network error on %s (%s, attempt %s/%s), retrying",
+                op_label, exc, attempt, _RETRY_MAX_ATTEMPTS,
+            )
+        else:
+            if 200 <= response.status_code < 300:
+                return response
+            if response.status_code in _RETRY_STATUS_CODES and attempt < _RETRY_MAX_ATTEMPTS:
+                logger.warning(
+                    "CTT transient HTTP %s on %s (attempt %s/%s), retrying",
+                    response.status_code, op_label, attempt, _RETRY_MAX_ATTEMPTS,
+                )
+            else:
+                # Non-retried error or final attempt — surface to caller.
+                raise CTTHTTPError(
+                    response.status_code,
+                    response.text or "",
+                    url=op_label,
+                )
+
+        delay = min(_RETRY_BASE_DELAY * (2 ** (attempt - 1)), _RETRY_MAX_DELAY)
+        delay += random.uniform(0, delay * 0.25)
+        time.sleep(delay)
+
+    # Unreachable — loop either returns or raises.
+    assert last_exc is not None
+    raise CTTError(f"CTT request failed on {op_label}: {last_exc!s}") from last_exc
+
+
+# ── Public API ────────────────────────────────────────────────────────────
+
+
 def get_token() -> str:
     base = _base_url()
 
@@ -154,38 +217,29 @@ def get_token() -> str:
 
         # CTT always uses client_credentials for the token.
         # user_name + password are sent as HTTP headers on each API request (see _api_headers).
-        data = urlencode({
-            "client_id": settings.ctt_client_id,
-            "client_secret": settings.ctt_client_secret,
-            "scope": "urn:com:ctt-express:integration-clients:scopes:common/ALL",
-            "grant_type": "client_credentials",
-        }).encode()
-
-        req = request.Request(
-            f"{base}/integrations/oauth2/token",
-            data=data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            method="POST",
-        )
         try:
-            raw = _urlopen_with_retry(
-                req,
+            response = _send_with_retry(
+                "POST",
+                f"{base}/integrations/oauth2/token",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                content=httpx.QueryParams({
+                    "client_id": settings.ctt_client_id,
+                    "client_secret": settings.ctt_client_secret,
+                    "scope": "urn:com:ctt-express:integration-clients:scopes:common/ALL",
+                    "grant_type": "client_credentials",
+                }).render().encode(),
                 timeout=_CTT_TOKEN_TIMEOUT_SECONDS,
                 op_label=f"POST {base}/oauth2/token",
             )
-            payload = json.loads(raw)
-        except error.HTTPError as exc:
+        except CTTHTTPError as exc:
             raise CTTError(
-                f"Token request failed ({exc.code}) for {base}: {exc.read().decode()}"
+                f"Token request failed ({exc.status_code}) for {base}: {exc.body}"
             ) from exc
-        except (socket.timeout, TimeoutError) as exc:
-            raise CTTError(
-                f"Token request timed out after {_CTT_TOKEN_TIMEOUT_SECONDS}s for {base}"
-            ) from exc
-        except error.URLError as exc:
-            raise CTTError(
-                f"Token request network error for {base}: {exc.reason}"
-            ) from exc
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise CTTError(f"Token response was not JSON: {response.text[:300]}") from exc
 
         token = payload["access_token"]
         expires_in = int(payload.get("expires_in", 86400))
@@ -207,13 +261,14 @@ def get_tracking(
     view: str = "APITRACK",
     show_items: bool = False,
 ) -> dict:
-    params = urlencode({
+    params = {
         "view": view,
         "showItems": str(show_items).lower(),
-    })
+    }
+    qs = httpx.QueryParams(params).render()
     return _request_json(
         method="GET",
-        path=f"/integrations-info/trf/item-history-api/history/{tracking_code}?{params}",
+        path=f"/integrations-info/trf/item-history-api/history/{tracking_code}?{qs}",
     )
 
 
@@ -226,17 +281,17 @@ def get_trackings_by_date(
     page_offsets: int = 1,
     order_by: str = "-shipping_date",
 ) -> dict:
-    params = urlencode({
+    qs = httpx.QueryParams({
         "page_limit": page_limit,
         "page_offsets": page_offsets,
         "mapping_table_code": mapping_table_code,
         "order_by": order_by,
         "client_center_code": client_center_code,
         "shipping_date": shipping_date,
-    })
+    }).render()
     return _request_json(
         method="GET",
-        path=f"/integrations/trf/web-tracking/v1.0/shippings?{params}",
+        path=f"/integrations/trf/web-tracking/v1.0/shippings?{qs}",
     )
 
 
@@ -246,33 +301,28 @@ def _request_json(
     path: str,
     body: dict | None = None,
 ) -> dict:
+    import json as _json
+
     token = get_token()
-    raw_body = json.dumps(body).encode() if body is not None else None
-    req = request.Request(
-        f"{_base_url()}{path}",
-        data=raw_body,
-        headers=_api_headers(token=token, include_content_type=True),
-        method=method,
-    )
+    raw_body = _json.dumps(body).encode() if body is not None else None
     try:
-        raw = _urlopen_with_retry(
-            req,
+        response = _send_with_retry(
+            method,
+            f"{_base_url()}{path}",
+            headers=_api_headers(token=token, include_content_type=True),
+            content=raw_body,
             timeout=_CTT_REQUEST_TIMEOUT_SECONDS,
             op_label=f"{method} {path}",
         )
-    except error.HTTPError as exc:
-        raise CTTError(f"CTT request failed ({exc.code}) {method} {path}: {exc.read().decode()}") from exc
-    except (socket.timeout, TimeoutError) as exc:
+    except CTTHTTPError as exc:
         raise CTTError(
-            f"CTT request timed out after {_CTT_REQUEST_TIMEOUT_SECONDS}s {method} {path}"
+            f"CTT request failed ({exc.status_code}) {method} {path}: {exc.body}"
         ) from exc
-    except error.URLError as exc:
-        raise CTTError(f"CTT request network error {method} {path}: {exc.reason}") from exc
 
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError as exc:
-        preview = raw.decode("utf-8", errors="ignore")[:400].strip()
+        return response.json()
+    except ValueError as exc:
+        preview = response.text[:400].strip()
         raise CTTError(
             f"CTT returned a non-JSON response for {method} {path}: {preview or '[empty body]'}"
         ) from exc
@@ -284,42 +334,35 @@ def get_label(
     model_type: str = "SINGLE",
 ) -> bytes:
     import base64
+    import json as _json
 
     token = get_token()
-    params = urlencode({
+    qs = httpx.QueryParams({
         "label_type_code": label_type,
         "model_type_code": model_type,
         "label_offset": "1",
-    })
+    }).render()
     url = (
         f"{_base_url()}/integrations/trf/labelling/v1.0/shippings"
-        f"/{tracking_code}/shipping-labels?{params}"
-    )
-    req = request.Request(
-        url,
-        headers=_api_headers(token=token),
-        method="GET",
+        f"/{tracking_code}/shipping-labels?{qs}"
     )
     try:
-        raw = _urlopen_with_retry(
-            req,
+        response = _send_with_retry(
+            "GET",
+            url,
+            headers=_api_headers(token=token),
             timeout=_CTT_LABEL_TIMEOUT_SECONDS,
             op_label=f"GET label {tracking_code}",
         )
-    except error.HTTPError as exc:
-        raise CTTError(f"Get label failed ({exc.code}): {exc.read().decode()}") from exc
-    except (socket.timeout, TimeoutError) as exc:
+    except CTTHTTPError as exc:
         raise CTTError(
-            f"Get label timed out after {_CTT_LABEL_TIMEOUT_SECONDS}s for {tracking_code}"
-        ) from exc
-    except error.URLError as exc:
-        raise CTTError(
-            f"Get label network error for {tracking_code}: {exc.reason}"
+            f"Get label failed ({exc.status_code}): {exc.body}"
         ) from exc
 
+    raw = response.content
     # CTT returns JSON with base64-encoded PDF in data[0].label
     try:
-        payload = json.loads(raw)
+        payload = _json.loads(raw)
         b64 = payload["data"][0]["label"]
         return base64.b64decode(b64)
     except (KeyError, IndexError, ValueError):
@@ -345,34 +388,25 @@ def get_pod(
     pod_hash = _hashlib.md5(hash_input.encode()).hexdigest()
 
     token = get_token()
-    params = urlencode({
+    qs = httpx.QueryParams({
         "client_center_code": client_center_code,
         "hash": pod_hash,
-    })
-    url = f"{_base_url()}/cls/pods/{tracking_code}?{params}"
-    req = request.Request(
-        url,
-        headers=_api_headers(token=token),
-        method="GET",
-    )
+    }).render()
+    url = f"{_base_url()}/cls/pods/{tracking_code}?{qs}"
     try:
-        return _urlopen_with_retry(
-            req,
+        response = _send_with_retry(
+            "GET",
+            url,
+            headers=_api_headers(token=token),
             timeout=_CTT_LABEL_TIMEOUT_SECONDS,
             op_label=f"GET pod {tracking_code}",
         )
-    except error.HTTPError as exc:
-        if exc.code == 404:
+    except CTTHTTPError as exc:
+        if exc.status_code == 404:
             return None
-        raise CTTError(f"Get POD failed ({exc.code}): {exc.read().decode()}") from exc
-    except (socket.timeout, TimeoutError) as exc:
-        raise CTTError(
-            f"Get POD timed out after {_CTT_LABEL_TIMEOUT_SECONDS}s for {tracking_code}"
-        ) from exc
-    except error.URLError as exc:
-        raise CTTError(
-            f"Get POD network error for {tracking_code}: {exc.reason}"
-        ) from exc
+        raise CTTError(f"Get POD failed ({exc.status_code}): {exc.body}") from exc
+
+    return response.content
 
 
 def get_pickup_points(
@@ -385,13 +419,15 @@ def get_pickup_points(
     Uses CTT distribution-points v2.0 API.
     Returns a list of raw point dicts from the API.
     """
+    import json as _json
+
     token = get_token()
-    params = urlencode({"page_limit": page_limit, "page_offsets": 0})
+    qs = httpx.QueryParams({"page_limit": page_limit, "page_offsets": 0}).render()
     url = (
         f"{_base_url()}/integrations/delivery/v1.0"
-        f"/distribution-points/v2.0/search?{params}"
+        f"/distribution-points/v2.0/search?{qs}"
     )
-    body = json.dumps({
+    body = _json.dumps({
         "area": {
             "postal_code": postal_code,
             "country_code": country_code,
@@ -400,32 +436,21 @@ def get_pickup_points(
         "services": [],
     }).encode()
 
-    req = request.Request(
-        url,
-        data=body,
-        headers=_api_headers(token=token, include_content_type=True),
-        method="POST",
-    )
     try:
-        raw = _urlopen_with_retry(
-            req,
+        response = _send_with_retry(
+            "POST",
+            url,
+            headers=_api_headers(token=token, include_content_type=True),
+            content=body,
             timeout=_CTT_REQUEST_TIMEOUT_SECONDS,
             op_label=f"POST pickup-points {postal_code}",
         )
-    except error.HTTPError as exc:
+    except CTTHTTPError as exc:
         raise CTTError(
-            f"Get pickup points failed ({exc.code}): {exc.read().decode()}"
-        ) from exc
-    except (socket.timeout, TimeoutError) as exc:
-        raise CTTError(
-            f"Get pickup points timed out after {_CTT_REQUEST_TIMEOUT_SECONDS}s"
-        ) from exc
-    except error.URLError as exc:
-        raise CTTError(
-            f"Get pickup points network error: {exc.reason}"
+            f"Get pickup points failed ({exc.status_code}): {exc.body}"
         ) from exc
 
-    payload = json.loads(raw)
+    payload: Any = response.json()
     # Response may be list or dict with a key containing the list
     if isinstance(payload, list):
         return payload

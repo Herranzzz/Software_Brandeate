@@ -45,7 +45,6 @@ from app.models import (
     Shipment,
     Shop,
     ShopCatalogVariant,
-    TrackingEvent,
     User,
 )
 from app.schemas.incident import IncidentRead
@@ -110,6 +109,10 @@ def _order_detail_query():
 
 
 def _order_list_query():
+    # Note: Order.incidents is intentionally NOT selectinload'd here. The list
+    # response only needs an aggregated open-incident count, which is fetched
+    # via a single GROUP BY in _attach_open_incident_counts() instead of pulling
+    # every incident row for every order on the page.
     return (
         select(Order)
         .options(
@@ -129,15 +132,7 @@ def _order_list_query():
                 OrderItem.personalization_assets_json,
                 OrderItem.created_at,
             ),
-            selectinload(Order.incidents).load_only(
-                Incident.id,
-                Incident.order_id,
-                Incident.status,
-                Incident.type,
-                Incident.updated_at,
-            ),
-            selectinload(Order.shipment)
-            .load_only(
+            selectinload(Order.shipment).load_only(
                 Shipment.id,
                 Shipment.order_id,
                 Shipment.created_by_employee_id,
@@ -164,15 +159,10 @@ def _order_list_query():
                 Shipment.shopify_synced_at,
                 Shipment.public_token,
                 Shipment.created_at,
-            )
-            .selectinload(Shipment.events)
-            .load_only(
-                TrackingEvent.id,
-                TrackingEvent.shipment_id,
-                TrackingEvent.status_norm,
-                TrackingEvent.occurred_at,
-                TrackingEvent.created_at,
             ),
+            # NOTE: Shipment.events deliberately not loaded — the list response
+            # uses ShipmentSummaryRead which has no `events` field. Events are
+            # only needed on the detail endpoint (ShipmentRead).
             selectinload(Order.prepared_by_employee).load_only(User.id, User.name),
         )
     )
@@ -204,6 +194,29 @@ def _variant_label_from_option_values(option_values: object) -> str | None:
         if isinstance(value, str) and value.strip():
             values.append(value.strip())
     return " · ".join(values) if values else None
+
+
+def _attach_open_incident_counts(db: Session, orders: list[Order]) -> None:
+    """Inject the open-incident count into each order without loading rows.
+
+    The list endpoint only needs a number to render the badge, so a single
+    GROUP BY query is dramatically cheaper than selectinload'ing every
+    incident row for every order on the page.
+    """
+    if not orders:
+        return
+    order_ids = [order.id for order in orders]
+    rows = db.execute(
+        select(Incident.order_id, func.count(Incident.id))
+        .where(
+            Incident.order_id.in_(order_ids),
+            Incident.status != IncidentStatus.resolved,
+        )
+        .group_by(Incident.order_id)
+    ).all()
+    counts = {order_id: count for order_id, count in rows}
+    for order in orders:
+        order.__dict__["_cached_open_incidents_count"] = counts.get(order.id, 0)
 
 
 def _enrich_order_variant_titles(db: Session, orders: list[Order]) -> None:
@@ -562,6 +575,7 @@ def list_orders(
     ).limit(safe_per_page).offset((safe_page - 1) * safe_per_page)
 
     orders = list(db.scalars(data_query))
+    _attach_open_incident_counts(db, orders)
     _enrich_order_variant_titles(db, orders)
     return orders
 
@@ -593,11 +607,13 @@ def bulk_update_order_production_status(
             },
         )
     db.commit()
-    return list(
+    refreshed = list(
         db.scalars(
             _order_list_query().where(Order.id.in_(payload.order_ids)).order_by(Order.created_at.desc(), Order.id.desc())
         )
     )
+    _attach_open_incident_counts(db, refreshed)
+    return refreshed
 
 
 @router.post("/bulk/priority", response_model=list[OrderListRead])
@@ -618,11 +634,13 @@ def bulk_update_order_priority(
             detail={"new_priority": payload.priority.value},
         )
     db.commit()
-    return list(
+    refreshed = list(
         db.scalars(
             _order_list_query().where(Order.id.in_(payload.order_ids)).order_by(Order.created_at.desc(), Order.id.desc())
         )
     )
+    _attach_open_incident_counts(db, refreshed)
+    return refreshed
 
 
 @router.post("/bulk/incidents", response_model=list[IncidentRead], status_code=status.HTTP_201_CREATED)

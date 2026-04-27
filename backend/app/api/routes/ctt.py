@@ -22,13 +22,16 @@ from app.services.ctt_shipments import (
     CTTShipmentOrchestrationError,
     create_ctt_shipment_for_order,
 )
+from app.services.label_cache import get_cached_label, store_label
 
 
 logger = logging.getLogger(__name__)
 
-# Cap concurrent outbound CTT calls — CTT's gateway throttles aggressive clients
-# and we still want other endpoints responsive while a bulk is running.
-_BULK_CTT_CONCURRENCY = 4
+# Cap concurrent outbound CTT calls. CTT's gateway throttles aggressive clients
+# (transient 429/502 already retried with backoff in app.services.ctt), so we
+# stay well below their soft limit. 8 still leaves DB pool headroom (pool_size=20)
+# for other endpoints to remain responsive while a bulk is running.
+_BULK_CTT_CONCURRENCY = 8
 
 
 router = APIRouter(prefix="/ctt", tags=["ctt"])
@@ -221,12 +224,17 @@ def get_ctt_label(
     model_type: str = "SINGLE",
     current_user: User = Depends(require_admin_user),
 ) -> Response:
-    try:
-        file_bytes = get_label(tracking_code, label_type, model_type)
-    except CTTError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-
     normalized_type = (label_type or "PDF").upper()
+    normalized_model = (model_type or "SINGLE").upper()
+
+    file_bytes = get_cached_label(tracking_code, normalized_type, normalized_model)
+    if file_bytes is None:
+        try:
+            file_bytes = get_label(tracking_code, label_type, model_type)
+        except CTTError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        store_label(tracking_code, normalized_type, normalized_model, file_bytes)
+
     media_type = "application/pdf"
     extension = "pdf"
 

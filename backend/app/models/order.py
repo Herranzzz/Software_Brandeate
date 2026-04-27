@@ -218,6 +218,12 @@ class Order(Base):
 
     @property
     def open_incidents_count(self) -> int:
+        # When the order list endpoint loads many orders, it injects this
+        # value via a single aggregate query to avoid pulling every incident
+        # row just to count them. Detail endpoints still iterate self.incidents.
+        cached = self.__dict__.get("_cached_open_incidents_count")
+        if cached is not None:
+            return cached
         return sum(1 for incident in self.incidents if getattr(incident.status, "value", incident.status) != "resolved")
 
     @property
@@ -268,6 +274,7 @@ class OrderItem(Base):
             validate_strings=True,
         ),
         nullable=True,
+        index=True,
     )
     personalization_details_json: Mapped[dict | list | None] = mapped_column(
         json_type,

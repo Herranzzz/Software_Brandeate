@@ -18,7 +18,10 @@
  * (localStorage) so each operator station can opt-in independently.
  */
 
-const FETCH_TIMEOUT_MS = 35000; // just above backend CTT label timeout (30s)
+// Backend CTT label timeout is 20s with 1 retry (~42s worst case). Frontend
+// timeout sits comfortably above so we never fail while the backend would still
+// have succeeded on retry.
+const FETCH_TIMEOUT_MS = 60000;
 const IFRAME_CLEANUP_DELAY_MS = 2500;
 const PRINT_RENDER_DELAY_MS = 350;
 // High DPI so thermal labels stay crisp. 300 DPI / 72 = ~4.17.
@@ -79,6 +82,8 @@ export interface PrintLabelOptions {
   forceDownload?: boolean;
   /** Legacy option kept for API compatibility — no longer used. */
   fallbackToNewTab?: boolean;
+  /** Allows the caller to cancel in-flight label fetches (e.g. modal closed). */
+  signal?: AbortSignal;
 }
 
 export class PrintLabelError extends Error {
@@ -157,26 +162,51 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
  * HTML, --kiosk-printing applies and the job goes straight to the default
  * printer with zero UI.
  */
-async function printBlobOnce(blob: Blob): Promise<void> {
-  // Dynamic import keeps pdf.js out of the main bundle.
+type RenderedPagePayload = {
+  blob: Blob;
+  widthPt: number;
+  heightPt: number;
+};
+
+async function rasterisePdfInWorker(buffer: ArrayBuffer): Promise<RenderedPagePayload[]> {
+  // OffscreenCanvas lets us rasterise pages off the main thread so the UI
+  // stays responsive while a 20-page bulk renders. Older Safari lacks it —
+  // the caller falls back to the synchronous main-thread path.
+  const worker = new Worker(new URL("./pdf-render-worker.ts", import.meta.url), {
+    type: "module",
+  });
+  try {
+    return await new Promise<RenderedPagePayload[]>((resolve, reject) => {
+      worker.onmessage = (event: MessageEvent) => {
+        const data = event.data as
+          | { type: "result"; pages: RenderedPagePayload[] }
+          | { type: "error"; message: string };
+        if (data.type === "result") resolve(data.pages);
+        else reject(new Error(data.message));
+      };
+      worker.onerror = (event) => reject(new Error(event.message || "Worker error"));
+      worker.postMessage(
+        { type: "render", buffer, scale: PDF_RENDER_SCALE },
+        [buffer],
+      );
+    });
+  } finally {
+    worker.terminate();
+  }
+}
+
+async function rasterisePdfOnMainThread(buffer: ArrayBuffer): Promise<RenderedPagePayload[]> {
   const pdfjs = await import("pdfjs-dist");
-  // Use the matching worker bundled with pdfjs-dist. `new URL(..., import.meta.url)`
-  // lets Next.js produce a static URL for the worker without extra config.
   try {
     pdfjs.GlobalWorkerOptions.workerSrc = new URL(
       "pdfjs-dist/build/pdf.worker.min.mjs",
       import.meta.url,
     ).toString();
   } catch {
-    // Fallback: disable worker (slower but works everywhere).
     pdfjs.GlobalWorkerOptions.workerSrc = "";
   }
-
-  const buffer = await blob.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data: buffer }).promise;
-
-  const pageImages: string[] = [];
-  const pageSizes: Array<{ widthPt: number; heightPt: number }> = [];
+  const pages: RenderedPagePayload[] = [];
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const viewportAt1 = page.getViewport({ scale: 1 });
@@ -187,19 +217,51 @@ async function printBlobOnce(blob: Blob): Promise<void> {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D context unavailable");
     await page.render({ canvasContext: ctx, viewport }).promise;
-    pageImages.push(canvas.toDataURL("image/png"));
-    // Store PDF point size (1pt = 1/72in) for the print CSS @page size.
-    pageSizes.push({ widthPt: viewportAt1.width, heightPt: viewportAt1.height });
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))),
+        "image/png",
+      ),
+    );
+    pages.push({
+      blob,
+      widthPt: viewportAt1.width,
+      heightPt: viewportAt1.height,
+    });
     page.cleanup();
   }
   pdf.destroy();
+  return pages;
+}
+
+async function printBlobOnce(blob: Blob): Promise<void> {
+  const buffer = await blob.arrayBuffer();
+  const supportsOffscreen =
+    typeof OffscreenCanvas !== "undefined" && typeof Worker !== "undefined";
+
+  let renderedPages: RenderedPagePayload[];
+  if (supportsOffscreen) {
+    try {
+      renderedPages = await rasterisePdfInWorker(buffer);
+    } catch {
+      // Worker init/render failed (CSP, SharedArrayBuffer headers, etc.) —
+      // fall back to main-thread rendering so prints still go through.
+      renderedPages = await rasterisePdfOnMainThread(buffer.slice(0));
+    }
+  } else {
+    renderedPages = await rasterisePdfOnMainThread(buffer);
+  }
+
+  // Convert blobs to object URLs and remember them for cleanup after print.
+  const pageUrls: string[] = renderedPages.map((p) => URL.createObjectURL(p.blob));
+  const pageSizes = renderedPages.map((p) => ({ widthPt: p.widthPt, heightPt: p.heightPt }));
 
   const first = pageSizes[0] ?? { widthPt: 595, heightPt: 842 };
   // mm conversion for @page size (1pt = 0.3528mm).
   const widthMm = (first.widthPt * 0.3528).toFixed(2);
   const heightMm = (first.heightPt * 0.3528).toFixed(2);
 
-  const imgsHtml = pageImages
+  const imgsHtml = pageUrls
     .map(
       (src, idx) =>
         `<img src="${src}" alt="page-${idx + 1}" class="page" />`,
@@ -249,6 +311,7 @@ async function printBlobOnce(blob: Blob): Promise<void> {
       setTimeout(() => {
         if (document.body.contains(iframe)) document.body.removeChild(iframe);
         URL.revokeObjectURL(htmlUrl);
+        for (const url of pageUrls) URL.revokeObjectURL(url);
         resolve();
       }, IFRAME_CLEANUP_DELAY_MS);
     }
@@ -275,9 +338,16 @@ async function printBlobOnce(blob: Blob): Promise<void> {
 async function fetchLabelBlob(
   trackingCode: string,
   format: LabelPrintFormat,
+  externalSignal?: AbortSignal,
 ): Promise<Blob> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  // Propagate caller cancellation (e.g. user closes the bulk modal mid-fetch).
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+  }
   try {
     const res = await fetch(buildLabelUrl(trackingCode, format, false), {
       signal: controller.signal,
@@ -310,6 +380,7 @@ async function fetchLabelBlob(
     );
   } finally {
     window.clearTimeout(timeoutId);
+    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
   }
 }
 
@@ -349,7 +420,8 @@ export async function printLabel(
     return;
   }
 
-  const blob = await fetchLabelBlob(trackingCode, format);
+  const blob = await fetchLabelBlob(trackingCode, format, options.signal);
+  if (options.signal?.aborted) return;
   await printBlobOnce(blob);
 }
 
@@ -384,7 +456,7 @@ export async function printLabelsMerged(
   async function fetchOne(index: number) {
     const code = trackingCodes[index];
     try {
-      const blob = await fetchLabelBlob(code, "PDF");
+      const blob = await fetchLabelBlob(code, "PDF", options.signal);
       blobsByIndex[index] = blob;
     } catch (err) {
       if (err instanceof PrintLabelError) {
@@ -408,6 +480,7 @@ export async function printLabelsMerged(
   const workers: Promise<void>[] = [];
   async function worker() {
     while (nextIndex < trackingCodes.length) {
+      if (options.signal?.aborted) return;
       const i = nextIndex++;
       await fetchOne(i);
     }
@@ -416,6 +489,8 @@ export async function printLabelsMerged(
     workers.push(worker());
   }
   await Promise.all(workers);
+
+  if (options.signal?.aborted) return failures;
 
   const blobs = blobsByIndex.filter((b): b is Blob => b !== null);
 
@@ -444,6 +519,7 @@ export async function printLabelsSequential(
   const failures: PrintLabelFailure[] = [];
 
   for (let i = 0; i < trackingCodes.length; i++) {
+    if (options.signal?.aborted) break;
     const code = trackingCodes[i];
     try {
       await printLabel(code, options);
