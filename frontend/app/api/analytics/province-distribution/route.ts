@@ -14,6 +14,9 @@ export async function GET(request: NextRequest) {
     cache: "no-store",
   });
 
-  const payload = await response.json();
+  let payload: unknown;
+  try { payload = await response.json(); } catch { payload = []; }
+  if (!response.ok) console.error("[province-distribution] error", response.status, JSON.stringify(payload));
+  else console.log("[province-distribution] ok, rows:", Array.isArray(payload) ? (payload as unknown[]).length : "?");
   return NextResponse.json(payload, { status: response.status });
 }

@@ -151,7 +151,10 @@ export function ShipmentGlobe({ dateFrom, dateTo, shopId }: Props) {
 
   const points = data
     .map((p) => {
-      const coords = PROVINCE_COORDS[p.province_code.toUpperCase()];
+      // Shopify stores codes as "ES-M", "ES-B", etc. — strip the country prefix
+      const raw = p.province_code.toUpperCase();
+      const code = raw.startsWith("ES-") ? raw.slice(3) : raw;
+      const coords = PROVINCE_COORDS[code] ?? PROVINCE_COORDS[raw];
       return coords ? { ...p, ...coords } : null;
     })
     .filter(Boolean) as (ProvincePoint & { lat: number; lng: number; name: string })[];
