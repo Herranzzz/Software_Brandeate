@@ -562,6 +562,39 @@ export function OrdersWorkbench({
     }
   }
 
+  async function handleInlineResolveIncident(orderId: number) {
+    setInlineLoading(orderId);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/incidents`, { cache: "no-store" });
+      if (!res.ok) throw new Error();
+      const incidents: Array<{ id: number; status: string }> = await res.json();
+      const open = incidents.filter((i) => i.status !== "resolved");
+      if (open.length === 0) {
+        toast("No hay incidencias abiertas", "info");
+        return;
+      }
+      await Promise.all(
+        open.map((inc) =>
+          fetch(`/api/incidents/${inc.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "resolved" }),
+          }),
+        ),
+      );
+      setOrders((current) =>
+        current.map((o) =>
+          o.id === orderId ? { ...o, has_open_incident: false, open_incidents_count: 0 } : o,
+        ),
+      );
+      toast("Incidencia resuelta ✓", "success");
+    } catch {
+      toast("Error al resolver la incidencia", "error");
+    } finally {
+      setInlineLoading(null);
+    }
+  }
+
   function buildParams(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(updates)) {
@@ -1267,6 +1300,19 @@ export function OrdersWorkbench({
                           </td>
                           <td>
                             <div className="orders-row-actions">
+                              {/* Resolve incident quick action */}
+                              {order.has_open_incident ? (
+                                <button
+                                  className="button-ghost orders-resolve-btn"
+                                  disabled={isRowLoading}
+                                  onClick={(e) => { e.stopPropagation(); handleInlineResolveIncident(order.id); }}
+                                  title="Resolver incidencia abierta"
+                                  type="button"
+                                >
+                                  ✓ Resolver
+                                </button>
+                              ) : null}
+
                               {/* Assign employee */}
                               {employees.length > 0 ? (
                                 <div className="inline-ctrl-wrap" ref={isAssignOpen ? inlineRef : undefined}>

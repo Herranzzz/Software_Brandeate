@@ -144,6 +144,39 @@ export function ProductionKanban({ initialOrders }: Props) {
     }
   }
 
+  // ── Incident resolve ─────────────────────────────────────────────────────
+  async function handleResolveIncident(orderId: number) {
+    // Fetch open incidents for this order, then resolve the first one
+    try {
+      const res = await fetch(`/api/orders/${orderId}/incidents`, { cache: "no-store" });
+      if (!res.ok) return;
+      const incidents: Array<{ id: number; status: string }> = await res.json();
+      const open = incidents.filter((i) => i.status !== "resolved");
+      if (open.length === 0) {
+        toast("No hay incidencias abiertas en este pedido", "info");
+        return;
+      }
+      // Resolve all open incidents
+      await Promise.all(
+        open.map((inc) =>
+          fetch(`/api/incidents/${inc.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "resolved" }),
+          }),
+        ),
+      );
+      setOrders((current) =>
+        current.map((o) =>
+          o.id === orderId ? { ...o, has_open_incident: false, open_incidents_count: 0 } : o,
+        ),
+      );
+      toast(`Incidencia${open.length > 1 ? "s" : ""} resuelta${open.length > 1 ? "s" : ""} ✓`, "success");
+    } catch {
+      toast("Error al resolver la incidencia", "error");
+    }
+  }
+
   // Drag state
   const dragData = useRef<{ orderId: number; fromStatus: ProductionStatus } | null>(null);
   const [dragOverCol, setDragOverCol] = useState<ProductionStatus | null>(null);
@@ -356,6 +389,16 @@ export function ProductionKanban({ initialOrders }: Props) {
                         ) : null}
                         {order.items.length > 1 ? (
                           <span className="kanban-multi">+{order.items.length - 1}</span>
+                        ) : null}
+                        {order.has_open_incident ? (
+                          <button
+                            className="kanban-resolve-btn"
+                            onClick={(e) => { e.stopPropagation(); handleResolveIncident(order.id); }}
+                            title="Resolver incidencia"
+                            type="button"
+                          >
+                            ✓ Resolver
+                          </button>
                         ) : null}
                       </div>
                     </div>
