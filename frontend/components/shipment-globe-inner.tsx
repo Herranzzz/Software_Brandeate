@@ -95,21 +95,21 @@ export default function ShipmentGlobeInner({ points }: Props) {
           atmosphereColor="#3730a3"
           atmosphereAltitude={0.15}
 
-          /* ── Arcs: fixed altitude, thick, neon ── */
+          /* ── Arcs: thin animated lines ── */
           arcsData={arcs}
           arcColor="color"
           arcAltitude={0.3}
-          arcStroke={1.8}
-          arcDashLength={0.6}
-          arcDashGap={0.08}
-          arcDashAnimateTime={1200}
+          arcStroke={0.25}
+          arcDashLength={0.5}
+          arcDashGap={0.1}
+          arcDashAnimateTime={1400}
           arcLabel="tooltip"
 
           /* ── Points ── */
           pointsData={pts}
           pointColor="color"
           pointRadius="r"
-          pointAltitude={0.004}
+          pointAltitude={0.006}
           pointResolution={20}
           pointLabel="label"
 
