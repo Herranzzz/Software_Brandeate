@@ -1,4 +1,6 @@
+import { DashboardAlerts } from "@/components/dashboard-alerts";
 import { DashboardEmployeeMetrics } from "@/components/dashboard-employee-metrics";
+import { DashboardMyTasks } from "@/components/dashboard-my-tasks";
 import Link from "next/link";
 import { SlaAlertsBanner } from "@/components/sla-alerts-banner";
 
@@ -216,8 +218,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     incidentsLinkParams.set("shop_id", params.shop_id);
   }
   const incidentsLinkHref = `/incidencias?${incidentsLinkParams.toString()}`;
-  const [userResult, shopsResult, recentOrdersResult, incidentsResult, employeeAnalyticsResult, analyticsResult] = await Promise.allSettled([
-    requireAdminUser(),
+  // We need the current user ID for the "Mis tareas" widget, so we resolve
+  // requireAdminUser first, then kick off the parallel fetches.
+  const userResult = await requireAdminUser().catch((e: unknown) => { throw e; });
+  const currentUserForTasks = userResult;
+
+  const [shopsResult, recentOrdersResult, incidentsResult, employeeAnalyticsResult, analyticsResult, myTasksResult] = await Promise.allSettled([
     fetchShops(),
     fetchOrders({ shop_id: params.shop_id, page: 1, per_page: 30 }, { cacheSeconds: 30 }),
     fetchIncidents({
@@ -232,10 +238,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       date_from: dateFrom,
       date_to: dateTo,
     }),
+    fetchOrders({
+      assigned_to_employee_id: currentUserForTasks.id,
+      is_prepared: false,
+      per_page: 20,
+    }, { cacheSeconds: 30 }),
   ]);
-  // requireAdminUser redirects on failure — re-throw to trigger it
-  if (userResult.status === "rejected") throw userResult.reason;
-  const currentUser = userResult.value;
+  const currentUser = currentUserForTasks;
   const firstName = currentUser.name.trim().split(/\s+/)[0] ?? "equipo";
 
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
@@ -247,6 +256,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const employeeAnalytics =
     employeeAnalyticsResult.status === "fulfilled" ? employeeAnalyticsResult.value.employees : [];
   const analytics = analyticsResult.status === "fulfilled" ? analyticsResult.value : null;
+  const myTaskOrders = myTasksResult.status === "fulfilled" ? myTasksResult.value.orders : [];
+
   const hasPartialDataError =
     shopsResult.status === "rejected" ||
     recentOrdersResult.status === "rejected" ||
@@ -339,6 +350,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     },
   ] : undefined;
 
+  const dashAlerts = [
+    ...(blockedOrders > 0 ? [{ emoji: "🔒", label: "pedidos bloqueados", count: blockedOrders, href: "/orders?quick=has_incident", tone: "danger" as const }] : []),
+    ...(overdueSlaOrders > 0 ? [{ emoji: "⏰", label: "pedidos con SLA vencido", count: overdueSlaOrders, href: "/orders?overdue_sla=true", tone: "danger" as const }] : []),
+    ...(urgentIncidents > 0 ? [{ emoji: "🚨", label: "incidencias urgentes o de alta prioridad", count: urgentIncidents, href: incidentsLinkHref, tone: "danger" as const }] : []),
+  ];
+
   return (
     <div className="stack">
       {hasPartialDataError ? (
@@ -425,6 +442,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
       noteBody="Usa este panel como centro de control de Brandeate: revisa pedidos nuevos, detecta bloqueos antes de packing y salta rápido al portal del cliente cuando necesites validar cómo lo está viendo la tienda."
       noteTitle="Empuja la operativa"
+      topContent={
+        <div className="dash-top-row">
+          <DashboardAlerts alerts={dashAlerts} />
+          <DashboardMyTasks orders={myTaskOrders} employeeName={currentUser.name} />
+        </div>
+      }
       supplementaryContent={
         <DashboardEmployeeMetrics
           employees={employeeAnalytics}

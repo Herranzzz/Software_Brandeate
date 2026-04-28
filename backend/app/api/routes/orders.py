@@ -452,6 +452,7 @@ def _build_order_filters(
     shipping_status: str | None = None,
     has_shipment: bool | None = None,
     prepared_by_employee_id: int | None = None,
+    assigned_to_employee_id: int | None = None,
 ) -> sa.Select:
     query = base_query
     if status is not None:
@@ -530,6 +531,8 @@ def _build_order_filters(
         # prepared themselves (the user wants "desde tu nombre" — their own
         # pile, not the whole warehouse).
         query = query.where(Order.prepared_by_employee_id == prepared_by_employee_id)
+    if assigned_to_employee_id is not None:
+        query = query.where(Order.assigned_to_employee_id == assigned_to_employee_id)
     return query
 
 
@@ -555,6 +558,7 @@ def list_orders(
     shipping_status: str | None = None,
     has_shipment: bool | None = None,
     prepared_by_employee_id: int | None = None,
+    assigned_to_employee_id: int | None = None,
     sort_by: Literal["created_desc", "prepared_asc", "prepared_desc"] = "created_desc",
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=DEFAULT_ORDERS_PER_PAGE, ge=1, le=MAX_ORDERS_PER_PAGE),
@@ -586,6 +590,7 @@ def list_orders(
         shipping_status=shipping_status,
         has_shipment=has_shipment,
         prepared_by_employee_id=prepared_by_employee_id,
+        assigned_to_employee_id=assigned_to_employee_id,
     )
 
     # Contar total antes de paginar para X-Total-Count

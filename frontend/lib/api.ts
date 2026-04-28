@@ -129,6 +129,7 @@ export async function fetchOrders(params?: {
   carrier?: string;
   shipping_status?: string;
   prepared_by_employee_id?: number;
+  assigned_to_employee_id?: number;
   sort_by?: "created_desc" | "prepared_asc" | "prepared_desc";
   q?: string;
   page?: string | number;
@@ -187,6 +188,9 @@ export async function fetchOrders(params?: {
   }
   if (params?.prepared_by_employee_id !== undefined) {
     searchParams.set("prepared_by_employee_id", String(params.prepared_by_employee_id));
+  }
+  if (params?.assigned_to_employee_id !== undefined) {
+    searchParams.set("assigned_to_employee_id", String(params.assigned_to_employee_id));
   }
   if (params?.sort_by) {
     searchParams.set("sort_by", params.sort_by);
