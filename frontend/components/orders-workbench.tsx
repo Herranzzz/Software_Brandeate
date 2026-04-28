@@ -974,7 +974,7 @@ export function OrdersWorkbench({
                     👤 Asignar a… ▾
                   </button>
                   {bulkAssignOpen ? (
-                    <div className="inline-dropdown" ref={bulkAssignRef}>
+                    <div className="inline-dropdown">
                       <button
                         className="inline-dropdown-item"
                         onClick={() => handleBulkAssign(null)}
