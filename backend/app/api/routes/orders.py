@@ -78,7 +78,7 @@ from app.services.orders import infer_order_is_personalized, sync_order_item_des
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 DEFAULT_ORDERS_PER_PAGE = 100
-MAX_ORDERS_PER_PAGE = 250
+MAX_ORDERS_PER_PAGE = 500
 
 
 def _prepared_order_state(order: Order) -> bool:
@@ -99,7 +99,7 @@ def _order_query():
         selectinload(Order.shop),
         selectinload(Order.items),
         selectinload(Order.incidents),
-        selectinload(Order.shipment).selectinload(Shipment.events),
+        selectinload(Order.shipments).selectinload(Shipment.events),
         selectinload(Order.prepared_by_employee).load_only(User.id, User.name),
     )
 
@@ -132,7 +132,7 @@ def _order_list_query():
                 OrderItem.personalization_assets_json,
                 OrderItem.created_at,
             ),
-            selectinload(Order.shipment).load_only(
+            selectinload(Order.shipments).load_only(
                 Shipment.id,
                 Shipment.order_id,
                 Shipment.created_by_employee_id,
@@ -278,7 +278,7 @@ def _load_target_orders(
             .options(
                 selectinload(Order.items),
                 selectinload(Order.incidents),
-                selectinload(Order.shipment).selectinload(Shipment.events),
+                selectinload(Order.shipments).selectinload(Shipment.events),
             )
             .where(Order.id.in_(order_ids))
         )
@@ -412,7 +412,7 @@ def _search_term_clause(raw: str):
 
     # Tracking-code-shaped (long alphanumeric upper) → only tracking_number.
     if _TRACKING_RE.match(term.upper()) and not term.isdigit():
-        return Order.shipment.has(Shipment.tracking_number.ilike(pattern))
+        return Order.shipments.any(Shipment.tracking_number.ilike(pattern))
 
     # Free text → broad search. With the pg_trgm GIN indexes added in
     # migration 0032 each ILIKE here uses a trigram index instead of a
@@ -424,7 +424,7 @@ def _search_term_clause(raw: str):
         Order.items.any(OrderItem.sku.ilike(pattern)),
         Order.items.any(OrderItem.name.ilike(pattern)),
         Order.items.any(OrderItem.title.ilike(pattern)),
-        Order.shipment.has(Shipment.tracking_number.ilike(pattern)),
+        Order.shipments.any(Shipment.tracking_number.ilike(pattern)),
     )
 
 
@@ -492,7 +492,7 @@ def _build_order_filters(
     if channel is not None and channel.strip():
         query = query.where(Order.channel == channel.strip())
     if carrier is not None and carrier.strip():
-        query = query.join(Order.shipment).where(Shipment.carrier == carrier.strip())
+        query = query.where(Order.shipments.any(Shipment.carrier == carrier.strip()))
     if q is not None and q.strip():
         query = query.where(_search_term_clause(q.strip()))
     if is_blocked is not None:
@@ -500,10 +500,14 @@ def _build_order_filters(
     if overdue_sla is True:
         today = datetime.now(timezone.utc).date()
         _resolved = ("delivered", "exception", "stalled")
-        query = query.join(Order.shipment).where(
-            Shipment.expected_delivery_date.isnot(None),
-            Shipment.expected_delivery_date < today,
-            Shipment.shipping_status.notin_(_resolved),
+        query = query.where(
+            Order.shipments.any(
+                sa.and_(
+                    Shipment.expected_delivery_date.isnot(None),
+                    Shipment.expected_delivery_date < today,
+                    Shipment.shipping_status.notin_(_resolved),
+                )
+            )
         )
     if shipping_status is not None and shipping_status.strip():
         # Accept a comma-separated list so the frontend can express shipping
@@ -511,18 +515,18 @@ def _build_order_filters(
         # in a single round-trip. Falls back to exact match for a single value.
         statuses = [value.strip() for value in shipping_status.split(",") if value.strip()]
         if len(statuses) == 1:
-            query = query.where(Order.shipment.has(Shipment.shipping_status == statuses[0]))
+            query = query.where(Order.shipments.any(Shipment.shipping_status == statuses[0]))
         elif len(statuses) > 1:
-            query = query.where(Order.shipment.has(Shipment.shipping_status.in_(statuses)))
+            query = query.where(Order.shipments.any(Shipment.shipping_status.in_(statuses)))
     if has_shipment is not None:
         # `has_shipment=True` → order already has a shipment row (label created).
         # `has_shipment=False` → order still has no shipment (ready to be labeled).
         # Drives the new "print queue" employee view: prepared orders without a
         # shipment are the exact set that still need a label printed.
         if has_shipment:
-            query = query.where(Order.shipment.has())
+            query = query.where(Order.shipments.any())
         else:
-            query = query.where(~Order.shipment.has())
+            query = query.where(~Order.shipments.any())
     if prepared_by_employee_id is not None:
         # Scopes the employee print queue so each person only sees labels they
         # prepared themselves (the user wants "desde tu nombre" — their own
@@ -1731,7 +1735,10 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
             resized = cropped
             paste_x, paste_y = region_x, region_y
         elif is_white_bg:
-            paste_x, paste_y = region_x, region_y
+            # Center the fit-scaled design within the region. White gaps on
+            # any side blend with the paper, so centering is always correct.
+            paste_x = region_x + (region_w - fit_w) // 2
+            paste_y = region_y + (region_h - fit_h) // 2
         else:
             # 30×40 non-white: paste at canvas origin so the cover-scaled
             # artwork bleeds across the whole sheet.
@@ -2898,7 +2905,7 @@ def get_delivery_prediction(
 
     order = db.scalar(
         select(Order)
-        .options(selectinload(Order.shipment).selectinload(Shipment.events))
+        .options(selectinload(Order.shipments).selectinload(Shipment.events))
         .where(Order.id == order_id)
     )
     if order is None:

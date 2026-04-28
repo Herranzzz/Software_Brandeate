@@ -47,7 +47,7 @@ const DEFAULT_API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "");
 const DEFAULT_ORDERS_PER_PAGE = 100;
-const MAX_ORDERS_PER_PAGE = 250;
+const MAX_ORDERS_PER_PAGE = 500;
 
 
 export function getApiBaseUrl() {
