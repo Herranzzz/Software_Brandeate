@@ -78,7 +78,7 @@ from app.services.orders import infer_order_is_personalized, sync_order_item_des
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 DEFAULT_ORDERS_PER_PAGE = 100
-MAX_ORDERS_PER_PAGE = 250
+MAX_ORDERS_PER_PAGE = 500
 
 
 def _prepared_order_state(order: Order) -> bool:
