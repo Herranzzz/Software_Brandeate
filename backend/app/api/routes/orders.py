@@ -62,6 +62,7 @@ from app.schemas.order import (
     OrderUpdate,
 )
 from app.schemas.pick_batch import (
+    OrderBulkAssign,
     OrderBulkIncidentCreate,
     OrderBulkPriorityUpdate,
     OrderBulkProductionStatusUpdate,
@@ -676,6 +677,50 @@ def bulk_update_order_priority(
             summary=f"{current_user.name} cambió prioridad a {payload.priority.value}",
             detail={"new_priority": payload.priority.value},
         )
+    db.commit()
+    refreshed = list(
+        db.scalars(
+            _order_list_query().where(Order.id.in_(payload.order_ids)).order_by(Order.created_at.desc(), Order.id.desc())
+        )
+    )
+    _attach_open_incident_counts(db, refreshed)
+    return refreshed
+
+
+@router.post("/bulk/assign", response_model=list[OrderListRead])
+def bulk_assign_orders(
+    payload: OrderBulkAssign,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
+) -> list[Order]:
+    """Assign (or unassign) multiple orders to an employee in one call."""
+    from datetime import datetime, timezone
+
+    orders = _load_target_orders(db, payload.order_ids, accessible_shop_ids)
+
+    assignee = None
+    if payload.employee_id is not None:
+        assignee = db.get(User, payload.employee_id)
+        if assignee is None:
+            raise HTTPException(status_code=404, detail="Empleado no encontrado")
+
+    for order in orders:
+        if assignee is not None:
+            order.assigned_to_employee_id = assignee.id
+            order.assigned_at = datetime.now(timezone.utc)
+            order.assigned_by_employee_id = current_user.id
+            log_activity(
+                db, entity_type="order", entity_id=order.id, shop_id=order.shop_id,
+                action="assigned", actor=current_user,
+                summary=f"Pedido asignado a {assignee.name} (lote)",
+                detail={"assignee_id": assignee.id, "assignee_name": assignee.name},
+            )
+        else:
+            order.assigned_to_employee_id = None
+            order.assigned_at = None
+            order.assigned_by_employee_id = None
+
     db.commit()
     refreshed = list(
         db.scalars(

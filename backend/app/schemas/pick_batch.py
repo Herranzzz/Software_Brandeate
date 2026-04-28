@@ -43,6 +43,11 @@ class OrderBulkIncidentCreate(BaseModel):
     description: str | None = Field(default=None, max_length=5000)
 
 
+class OrderBulkAssign(BaseModel):
+    order_ids: list[int] = Field(min_length=1)
+    employee_id: int | None = None  # None → unassign
+
+
 class PickBatchCreate(BaseModel):
     order_ids: list[int] = Field(min_length=1)
     notes: str | None = Field(default=None, max_length=5000)

@@ -21,11 +21,7 @@ import { getOrderShipmentLabelUrl } from "@/lib/ctt";
 import {
   formatDateTime,
   getOrderLastUpdate,
-  getOrderPriorityMeta,
-  getProductionStatusMeta,
   getTrackingHeadline,
-  orderPriorityOptions,
-  productionStatusOptions,
   sortTrackingEvents,
 } from "@/lib/format";
 import {
@@ -43,31 +39,13 @@ import type {
   Order,
   OrderPriority,
   PickBatch,
-  ProductionStatus,
   Shop,
 } from "@/lib/types";
 
 
 type Employee = { id: number; name: string };
 
-type InlineDropdown =
-  | { type: "priority"; orderId: number }
-  | { type: "prodStatus"; orderId: number }
-  | { type: "assign"; orderId: number };
-
-const priorityLabels: Record<OrderPriority, string> = {
-  low: "Baja",
-  normal: "Normal",
-  high: "Alta",
-  urgent: "Urgente",
-};
-
-const prodStatusLabels: Record<ProductionStatus, string> = {
-  pending_personalization: "Pendiente",
-  in_production: "En producción",
-  packed: "Empaquetado",
-  completed: "Completado",
-};
+type InlineDropdown = { type: "assign"; orderId: number };
 
 type OrdersWorkbenchProps = {
   initialOrders: Order[];
@@ -497,6 +475,36 @@ export function OrdersWorkbench({
   const [view, setView] = useState<"queue" | "batches">(initialView);
   const [isPending, startTransition] = useTransition();
 
+  // ── Bulk assign ────────────────────────────────────────────────────────────
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const bulkAssignRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!bulkAssignOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (bulkAssignRef.current && !bulkAssignRef.current.contains(e.target as Node)) {
+        setBulkAssignOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [bulkAssignOpen]);
+
+  function handleBulkAssign(employeeId: number | null) {
+    if (selectedCount === 0) return;
+    setBulkAssignOpen(false);
+    const empName = employees.find((e) => e.id === employeeId)?.name;
+    runBulkAction<Order[]>("/api/orders/bulk/assign", {
+      order_ids: selectedIds,
+      employee_id: employeeId,
+    }, (updated) => {
+      updateOrdersFromBulk(updated);
+      toast(
+        employeeId ? `${updated.length} pedidos asignados a ${empName ?? "empleado"}` : `${updated.length} pedidos desasignados`,
+        "success",
+      );
+    });
+  }
+
   // ── Inline row actions ─────────────────────────────────────────────────────
   const [openInline, setOpenInline] = useState<InlineDropdown | null>(null);
   const [inlineLoading, setInlineLoading] = useState<number | null>(null); // orderId being updated
@@ -520,61 +528,6 @@ export function OrdersWorkbench({
         ? null
         : dropdown,
     );
-  }
-
-  async function handleInlinePriority(orderId: number, priority: OrderPriority) {
-    setOpenInline(null);
-    setInlineLoading(orderId);
-    const previous = orders.find((o) => o.id === orderId);
-    // Optimistic
-    setOrders((current) =>
-      current.map((o) => (o.id === orderId ? { ...o, priority } : o)),
-    );
-    try {
-      const res = await fetch(`/api/orders/${orderId}/priority`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priority }),
-      });
-      if (!res.ok) throw new Error("Error al cambiar prioridad");
-      const updated: Order = await res.json();
-      setOrders((current) => current.map((o) => (o.id === orderId ? updated : o)));
-      toast("Prioridad actualizada", "success");
-    } catch {
-      if (previous) {
-        setOrders((current) => current.map((o) => (o.id === orderId ? previous : o)));
-      }
-      toast("No se pudo actualizar la prioridad", "error");
-    } finally {
-      setInlineLoading(null);
-    }
-  }
-
-  async function handleInlineProdStatus(orderId: number, status: ProductionStatus) {
-    setOpenInline(null);
-    setInlineLoading(orderId);
-    const previous = orders.find((o) => o.id === orderId);
-    setOrders((current) =>
-      current.map((o) => (o.id === orderId ? { ...o, production_status: status } : o)),
-    );
-    try {
-      const res = await fetch(`/api/orders/${orderId}/production-status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ production_status: status }),
-      });
-      if (!res.ok) throw new Error("Error al cambiar estado de producción");
-      const updated: Order = await res.json();
-      setOrders((current) => current.map((o) => (o.id === orderId ? updated : o)));
-      toast("Estado de producción actualizado", "success");
-    } catch {
-      if (previous) {
-        setOrders((current) => current.map((o) => (o.id === orderId ? previous : o)));
-      }
-      toast("No se pudo actualizar el estado", "error");
-    } finally {
-      setInlineLoading(null);
-    }
   }
 
   async function handleInlineAssign(orderId: number, employeeId: number | null) {
@@ -604,32 +557,6 @@ export function OrdersWorkbench({
         setOrders((current) => current.map((o) => (o.id === orderId ? previous : o)));
       }
       toast("No se pudo asignar el pedido", "error");
-    } finally {
-      setInlineLoading(null);
-    }
-  }
-
-  async function handleInlinePrepare(orderId: number) {
-    setInlineLoading(orderId);
-    const previous = orders.find((o) => o.id === orderId);
-    setOrders((current) =>
-      current.map((o) => (o.id === orderId ? { ...o, production_status: "packed" as ProductionStatus } : o)),
-    );
-    try {
-      const res = await fetch(`/api/orders/${orderId}/production-status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ production_status: "packed" }),
-      });
-      if (!res.ok) throw new Error("Error al preparar");
-      const updated: Order = await res.json();
-      setOrders((current) => current.map((o) => (o.id === orderId ? updated : o)));
-      toast("Pedido marcado como preparado ✓", "success");
-    } catch {
-      if (previous) {
-        setOrders((current) => current.map((o) => (o.id === orderId ? previous : o)));
-      }
-      toast("No se pudo marcar como preparado", "error");
     } finally {
       setInlineLoading(null);
     }
@@ -1002,6 +929,41 @@ export function OrdersWorkbench({
               <span>Aplica acciones por lote sin salir de la cola.</span>
             </div>
             <div className="orders-bulk-actions">
+              {/* Bulk assign */}
+              {employees.length > 0 ? (
+                <div className="inline-ctrl-wrap" ref={bulkAssignRef}>
+                  <button
+                    className="button-secondary"
+                    disabled={isPending}
+                    onClick={() => setBulkAssignOpen((v) => !v)}
+                    type="button"
+                  >
+                    👤 Asignar a… ▾
+                  </button>
+                  {bulkAssignOpen ? (
+                    <div className="inline-dropdown" ref={bulkAssignRef}>
+                      <button
+                        className="inline-dropdown-item"
+                        onClick={() => handleBulkAssign(null)}
+                        type="button"
+                      >
+                        Sin asignar
+                      </button>
+                      {employees.map((emp) => (
+                        <button
+                          className="inline-dropdown-item"
+                          key={emp.id}
+                          onClick={() => handleBulkAssign(emp.id)}
+                          type="button"
+                        >
+                          {emp.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               <button className="button-secondary" disabled={isPending} onClick={handleBulkIncident} type="button">
                 Crear incidencia
               </button>
@@ -1139,7 +1101,6 @@ export function OrdersWorkbench({
                       <th>Variante</th>
                       <th>Imagen</th>
                       <th>Estado</th>
-                      <th>Producción</th>
                       <th>Riesgo SLA</th>
                       <th>Tracking</th>
                       <th>CTT</th>
@@ -1159,13 +1120,7 @@ export function OrdersWorkbench({
                       const orderCancelled = isOrderCancelled(order);
                       const isLastOpenedRow = lastOpenedOrderId === order.id;
                       const isRowLoading = inlineLoading === order.id;
-
-                      const priorityMeta = getOrderPriorityMeta(order.priority);
-                      const prodMeta = getProductionStatusMeta(order.production_status);
-                      const isPriorityOpen = openInline?.type === "priority" && openInline.orderId === order.id;
-                      const isProdOpen = openInline?.type === "prodStatus" && openInline.orderId === order.id;
                       const isAssignOpen = openInline?.type === "assign" && openInline.orderId === order.id;
-                      const canPrepare = order.production_status !== "packed" && order.production_status !== "completed" && !orderCancelled;
 
                       return (
                         <tr
@@ -1270,70 +1225,6 @@ export function OrdersWorkbench({
                               ) : null}
                             </div>
                           </td>
-                          {/* ── Inline production controls ── */}
-                          <td>
-                            <div className="orders-inline-controls">
-                              {/* Priority badge — clickable dropdown */}
-                              <div className="inline-ctrl-wrap" ref={isPriorityOpen ? inlineRef : undefined}>
-                                <button
-                                  className={`${priorityMeta.className} inline-ctrl-btn`}
-                                  disabled={isRowLoading}
-                                  onClick={(e) => { e.stopPropagation(); toggleInline({ type: "priority", orderId: order.id }); }}
-                                  title="Cambiar prioridad"
-                                  type="button"
-                                >
-                                  {priorityLabels[order.priority]} ▾
-                                </button>
-                                {isPriorityOpen ? (
-                                  <div className="inline-dropdown" ref={inlineRef}>
-                                    {orderPriorityOptions.map((p) => (
-                                      <button
-                                        className={`inline-dropdown-item ${order.priority === p ? "inline-dropdown-item-active" : ""}`}
-                                        key={p}
-                                        onClick={() => handleInlinePriority(order.id, p)}
-                                        type="button"
-                                      >
-                                        {priorityLabels[p]}
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-
-                              {/* Production status pill — clickable dropdown */}
-                              <div className="inline-ctrl-wrap" ref={isProdOpen ? inlineRef : undefined}>
-                                <button
-                                  className={`${prodMeta.className} inline-ctrl-btn`}
-                                  disabled={isRowLoading}
-                                  onClick={(e) => { e.stopPropagation(); toggleInline({ type: "prodStatus", orderId: order.id }); }}
-                                  title="Cambiar estado de producción"
-                                  type="button"
-                                >
-                                  {prodStatusLabels[order.production_status]} ▾
-                                </button>
-                                {isProdOpen ? (
-                                  <div className="inline-dropdown" ref={inlineRef}>
-                                    {productionStatusOptions.map((s) => (
-                                      <button
-                                        className={`inline-dropdown-item ${order.production_status === s ? "inline-dropdown-item-active" : ""}`}
-                                        key={s}
-                                        onClick={() => handleInlineProdStatus(order.id, s)}
-                                        type="button"
-                                      >
-                                        {prodStatusLabels[s]}
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-
-                              {order.prepared_by_employee_name ? (
-                                <span className="badge badge-preparer" title={`Preparado por ${order.prepared_by_employee_name}`}>
-                                  {order.prepared_by_employee_name.split(" ")[0]}
-                                </span>
-                              ) : null}
-                            </div>
-                          </td>
                           <td>
                             <div className="table-primary">{age}</div>
                             <div className="table-secondary">
@@ -1391,7 +1282,7 @@ export function OrdersWorkbench({
                                       : "👤"}
                                   </button>
                                   {isAssignOpen ? (
-                                    <div className="inline-dropdown inline-dropdown-right" ref={inlineRef}>
+                                    <div className="inline-dropdown inline-dropdown-right">
                                       <button
                                         className={`inline-dropdown-item ${!order.assigned_to_employee_id ? "inline-dropdown-item-active" : ""}`}
                                         onClick={() => handleInlineAssign(order.id, null)}
@@ -1412,19 +1303,6 @@ export function OrdersWorkbench({
                                     </div>
                                   ) : null}
                                 </div>
-                              ) : null}
-
-                              {/* Quick prepare */}
-                              {canPrepare ? (
-                                <button
-                                  className="button-ghost orders-prepare-btn"
-                                  disabled={isRowLoading}
-                                  onClick={(e) => { e.stopPropagation(); handleInlinePrepare(order.id); }}
-                                  title="Marcar como preparado"
-                                  type="button"
-                                >
-                                  ✓
-                                </button>
                               ) : null}
 
                               <Link

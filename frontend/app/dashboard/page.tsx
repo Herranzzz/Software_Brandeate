@@ -442,19 +442,19 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
       noteBody="Usa este panel como centro de control de Brandeate: revisa pedidos nuevos, detecta bloqueos antes de packing y salta rápido al portal del cliente cuando necesites validar cómo lo está viendo la tienda."
       noteTitle="Empuja la operativa"
-      topContent={
-        <div className="dash-top-row">
-          <DashboardAlerts alerts={dashAlerts} />
-          <DashboardMyTasks orders={myTaskOrders} employeeName={currentUser.name} />
-        </div>
-      }
       supplementaryContent={
-        <DashboardEmployeeMetrics
-          employees={employeeAnalytics}
-          period={employeePeriod}
-          range={range}
-          shopId={params.shop_id}
-        />
+        <>
+          <div className="dash-top-row">
+            <DashboardAlerts alerts={dashAlerts} />
+            <DashboardMyTasks orders={myTaskOrders} employeeName={currentUser.name} />
+          </div>
+          <DashboardEmployeeMetrics
+            employees={employeeAnalytics}
+            period={employeePeriod}
+            range={range}
+            shopId={params.shop_id}
+          />
+        </>
       }
       recentOrders={orders.slice(0, 6).map((order) => ({
         id: order.id,
