@@ -26813,3 +26813,18 @@ hr,
   align-items: center;
   gap: 8px;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   Globo interactivo de envíos
+   ═══════════════════════════════════════════════════════════════ */
+.sglobe-card { overflow: hidden; }
+.sglobe-container {
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0a0a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sglobe-container canvas { display: block; }

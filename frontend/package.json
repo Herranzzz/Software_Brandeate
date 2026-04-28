@@ -16,6 +16,7 @@
     "pdfjs-dist": "^4.10.38",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "react-globe.gl": "^2.37.1",
     "react-leaflet": "^5.0.0"
   },
   "devDependencies": {
