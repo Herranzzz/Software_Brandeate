@@ -11,7 +11,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!token) return new NextResponse("Unauthorized", { status: 401 });
 
   const body = await request.json();
-  const response = await fetch(apiUrl(`/orders/${id}/assign`), {
+  const targetUrl = apiUrl(`/orders/${id}/assign`);
+  console.log("[assign] POST →", targetUrl, "body:", JSON.stringify(body));
+  const response = await fetch(targetUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
