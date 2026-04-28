@@ -74,6 +74,11 @@ async def stream_events(
     user_id = user.id
     user_name = user.name
 
+    # SSE responses live forever; FastAPI's Depends(get_db) would otherwise
+    # pin one DB connection per open client. Release it now — the generator
+    # below does not touch the DB.
+    db.close()
+
     broker = get_broker()
 
     async def generator() -> AsyncGenerator[str, None]:
