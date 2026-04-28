@@ -10,6 +10,8 @@ import { BackgroundDesignJobChip } from "@/components/background-design-job-chip
 import { NotificationBell } from "@/components/notification-bell";
 import { useLayoutState } from "@/components/layout-state-provider";
 import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
+import { KeyboardShortcutsOverlay } from "@/components/keyboard-shortcuts-overlay";
+import { DensityToggle } from "@/components/density-toggle";
 import type { User } from "@/lib/types";
 
 type AppShellUser = Pick<User, "name" | "role">;
@@ -467,6 +469,7 @@ export function AppShell({ children, currentUser }: AppShellProps) {
       <div className="dashboard-main dashboard-main-admin">
         <div className="tenant-topbar tenant-topbar-admin">
           <AdminCommandPalette />
+          <DensityToggle />
           <NotificationBell />
         </div>
         <main className="dashboard-content">{children}</main>
@@ -477,6 +480,7 @@ export function AppShell({ children, currentUser }: AppShellProps) {
           for users who never trigger that flow. Mounted at shell level so
           it persists across page navigations. */}
       <BackgroundDesignJobChip />
+      <KeyboardShortcutsOverlay />
 
       {/* ── Mobile bottom navigation ──────────────────────────── */}
       <nav className="mobile-bottom-nav" aria-label="Navegación principal">

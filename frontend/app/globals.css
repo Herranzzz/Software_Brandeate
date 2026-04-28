@@ -23055,7 +23055,7 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 /* ─── Notification Bell ──────────────────────────────────────────────────── */
 .notif-bell-wrap {
-  position: relative;
+  position: static;
 }
 
 .notif-bell-btn {
@@ -23097,20 +23097,24 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 }
 
 .notif-panel {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  margin-bottom: 8px;
-  width: 320px;
-  max-height: 420px;
+  position: fixed;
+  top: 56px;
+  right: 12px;
+  width: 340px;
+  max-height: 480px;
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
-  z-index: 100;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.12);
+  z-index: 9000;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  animation: notif-in 0.18s ease;
+}
+@keyframes notif-in {
+  from { opacity:0; transform:translateY(-8px) scale(0.97); }
+  to   { opacity:1; transform:none; }
 }
 
 .notif-panel-header {
@@ -23189,8 +23193,9 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 
 @media (max-width: 480px) {
   .notif-panel {
-    width: 280px;
-    left: -8px;
+    width: calc(100vw - 24px);
+    right: 12px;
+    left: 12px;
   }
 }
 
@@ -26828,3 +26833,52 @@ hr,
   justify-content: center;
 }
 .sglobe-container canvas { display: block; }
+
+/* ── Skeleton loaders ── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-hover) 25%, var(--surface-raised) 50%, var(--surface-hover) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Density variants ── */
+[data-density="compact"] .po-table td,
+[data-density="compact"] .po-table th { padding-top: 4px; padding-bottom: 4px; }
+[data-density="compact"] .po-row { height: 36px; }
+
+[data-density="spacious"] .po-table td,
+[data-density="spacious"] .po-table th { padding-top: 14px; padding-bottom: 14px; }
+[data-density="spacious"] .po-row { height: 64px; }
+
+/* ── Keyboard shortcuts overlay ── */
+.kbhelp-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  z-index: 9999; display: flex; align-items: center; justify-content: center;
+  animation: fade-in 0.15s ease;
+}
+.kbhelp-modal {
+  background: var(--surface-raised); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 24px 28px;
+  width: min(520px, 92vw); max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  animation: modal-in 0.18s ease;
+}
+.kbhelp-modal h3 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; }
+.kbhelp-group { margin-bottom: 18px; }
+.kbhelp-group-title { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: 8px; }
+.kbhelp-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border-subtle, var(--border)); }
+.kbhelp-row:last-child { border-bottom: none; }
+.kbhelp-keys { display: flex; gap: 4px; }
+.kbhelp-key { display: inline-flex; align-items: center; justify-content: center; background: var(--surface-hover); border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px; font-size: 0.75rem; font-family: monospace; color: var(--text-primary); min-width: 24px; }
+.kbhelp-desc { font-size: 0.8125rem; color: var(--text-secondary, var(--text-muted)); }
+
+/* ── Density toggle ── */
+.density-toggle { display: flex; align-items: center; gap: 1px; background: var(--surface-hover); border-radius: var(--radius-md); padding: 2px; }
+.density-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; background: transparent; border-radius: calc(var(--radius-md) - 2px); cursor: pointer; color: var(--text-muted); transition: background 0.12s, color 0.12s; font-size: 13px; }
+.density-btn:hover { color: var(--text-primary); }
+.density-btn.is-active { background: var(--surface-raised); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
