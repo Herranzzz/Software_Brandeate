@@ -26599,3 +26599,217 @@ hr,
   padding: 1px 5px;
   font-family: monospace;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   SPRINT 3 — Funnel de producción
+   ═══════════════════════════════════════════════════════════════ */
+.pfunnel { display: flex; flex-direction: column; gap: 24px; }
+
+.pfunnel-steps { display: flex; flex-direction: column; gap: 8px; }
+
+.pfunnel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pfunnel-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  min-width: 0;
+  transition: width 0.4s ease;
+}
+.pfunnel-bar-emoji { font-size: 1rem; flex-shrink: 0; }
+.pfunnel-bar-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pfunnel-bar-value { font-size: 1rem; font-weight: 700; margin-left: auto; flex-shrink: 0; }
+
+.pfunnel-conv {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: right;
+}
+
+.pfunnel-times { display: flex; flex-direction: column; gap: 8px; }
+
+.pfunnel-times-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.pfunnel-time-item {
+  background: var(--surface-alt, #f9fafb);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.pfunnel-time-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 2px; }
+.pfunnel-time-value { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+.pfunnel-time-total { border-color: var(--accent); }
+.pfunnel-time-total .pfunnel-time-value { color: var(--accent); }
+
+/* ═══════════════════════════════════════════════════════════════
+   SPRINT 3 — Mapa de envíos (Leaflet)
+   ═══════════════════════════════════════════════════════════════ */
+.smap-container { border-radius: 12px; overflow: hidden; }
+.smap-loading {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  background: var(--surface-alt, #f9fafb);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.smap-error { color: var(--danger, #ef4444); font-size: 0.85rem; padding: 12px; }
+
+.smap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 4px;
+}
+.smap-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.smap-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.smap-tooltip { font-size: 0.8rem; line-height: 1.5; min-width: 140px; }
+.smap-tooltip strong { display: block; margin-bottom: 2px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   SPRINT 3 — Incidents Kanban
+   ═══════════════════════════════════════════════════════════════ */
+.inc-view-toggle {
+  display: flex;
+  gap: 4px;
+  align-self: flex-start;
+}
+.inc-view-btn {
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: background 0.15s, color 0.15s;
+}
+.inc-view-btn:hover { background: var(--surface-alt, #f3f4f6); color: var(--text); }
+.inc-view-btn-active {
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border-color: var(--accent, #6366f1);
+}
+
+.icard { cursor: grab; }
+.icard-title { font-size: 0.82rem; color: var(--text); margin-top: 2px; }
+.icard-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0 2px;
+  flex-wrap: wrap;
+}
+.icard-type { font-size: 0.72rem; color: var(--muted); background: var(--surface-alt, #f3f4f6); padding: 2px 7px; border-radius: 4px; }
+.icard-order-link { font-size: 0.72rem; font-weight: 600; color: var(--accent, #6366f1); text-decoration: none; }
+.icard-order-link:hover { text-decoration: underline; }
+
+.icard-auto-badge {
+  font-size: 0.62rem;
+  background: #ddd6fe;
+  color: #4c1d95;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.icard-priority-badge {
+  font-size: 0.68rem;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.icard-priority-urgent { background: #fef2f2; color: #b91c1c; }
+.icard-priority-high   { background: #fff7ed; color: #c2410c; }
+.icard-priority-medium { background: #fefce8; color: #a16207; }
+.icard-priority-low    { background: var(--surface-alt, #f3f4f6); color: var(--muted); }
+
+.icard-action-btn {
+  font-size: 0.72rem;
+  padding: 3px 9px;
+  border-radius: 5px;
+  background: var(--surface-alt, #f3f4f6);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.1s;
+  margin-left: auto;
+}
+.icard-action-btn:hover { background: var(--border); }
+.icard-action-resolve { background: #dcfce7; border-color: #86efac; color: #15803d; }
+.icard-action-resolve:hover { background: #bbf7d0; }
+
+/* Guided resolution modal */
+.imodal { max-width: 480px; width: 100%; background: var(--card-bg, #fff); border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 16px; border: 1px solid var(--border); box-shadow: 0 16px 48px rgba(0,0,0,0.14); }
+.imodal-title { font-size: 1.05rem; font-weight: 700; margin: 0; }
+.imodal-hint { font-size: 0.85rem; color: var(--muted); margin: 0; }
+.imodal-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.imodal-option {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt, #f3f4f6);
+  color: var(--text);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.imodal-option:hover { background: var(--border); }
+.imodal-option-active { background: var(--accent, #6366f1); color: #fff; border-color: var(--accent, #6366f1); }
+.imodal-notes-field { display: flex; flex-direction: column; gap: 4px; }
+.imodal-notes {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+  font-family: inherit;
+}
+.imodal-notes:focus { outline: none; border-color: var(--accent, #6366f1); }
+.imodal-actions { display: flex; gap: 8px; justify-content: flex-end; padding-top: 4px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   SPRINT 3 — Topbar notification bell
+   ═══════════════════════════════════════════════════════════════ */
+.tenant-topbar-admin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

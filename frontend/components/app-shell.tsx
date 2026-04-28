@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, t
 
 import { AdminCommandPalette } from "@/components/admin-command-palette";
 import { BackgroundDesignJobChip } from "@/components/background-design-job-chip";
+import { NotificationBell } from "@/components/notification-bell";
 import { useLayoutState } from "@/components/layout-state-provider";
 import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import type { User } from "@/lib/types";
@@ -466,6 +467,7 @@ export function AppShell({ children, currentUser }: AppShellProps) {
       <div className="dashboard-main dashboard-main-admin">
         <div className="tenant-topbar tenant-topbar-admin">
           <AdminCommandPalette />
+          <NotificationBell />
         </div>
         <main className="dashboard-content">{children}</main>
       </div>

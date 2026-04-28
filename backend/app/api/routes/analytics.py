@@ -2,11 +2,14 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 import logging
 
 from app.api.deps import get_accessible_shop_ids, get_db, resolve_shop_scope
 from app.models import OrderStatus, ProductionStatus
+from app.models.order import Order
+from app.models.shipment import Shipment
 from app.schemas.analytics import AnalyticsOverviewRead
 from app.services.analytics import AnalyticsFilters, BUSINESS_TZ, build_analytics_overview
 
@@ -73,3 +76,51 @@ def get_analytics_overview(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to build analytics overview",
         ) from exc
+
+
+@router.get("/province-distribution")
+def get_province_distribution(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    shop_id: int | None = None,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+):
+    """Returns order counts grouped by shipping province code, with status breakdown."""
+    today = datetime.now(BUSINESS_TZ).date()
+    effective_date_to = date_to or today
+    effective_date_from = date_from or (effective_date_to - timedelta(days=DEFAULT_ANALYTICS_WINDOW_DAYS - 1))
+    scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
+
+    q = (
+        db.query(
+            Order.shipping_province_code,
+            func.count(Order.id).label("total"),
+            func.sum(case((Order.status == "cancelled", 1), else_=0)).label("cancelled"),
+            func.sum(case((Shipment.shipping_status == "in_transit", 1), else_=0)).label("in_transit"),
+            func.sum(case((Shipment.shipping_status == "out_for_delivery", 1), else_=0)).label("out_for_delivery"),
+            func.sum(case((Shipment.shipping_status == "delivered", 1), else_=0)).label("delivered"),
+            func.sum(case((Shipment.shipping_status == "exception", 1), else_=0)).label("exception"),
+        )
+        .outerjoin(Shipment, Shipment.order_id == Order.id)
+        .filter(Order.shipping_province_code.isnot(None))
+        .filter(func.date(Order.created_at) >= effective_date_from)
+        .filter(func.date(Order.created_at) <= effective_date_to)
+    )
+
+    if scoped_shop_ids:
+        q = q.filter(Order.shop_id.in_(scoped_shop_ids))
+
+    rows = q.group_by(Order.shipping_province_code).order_by(func.count(Order.id).desc()).all()
+
+    return [
+        {
+            "province_code": row.shipping_province_code,
+            "total": row.total,
+            "in_transit": row.in_transit or 0,
+            "out_for_delivery": row.out_for_delivery or 0,
+            "delivered": row.delivered or 0,
+            "exception": row.exception or 0,
+        }
+        for row in rows
+    ]

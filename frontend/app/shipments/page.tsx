@@ -6,6 +6,8 @@ import {
   getShipmentDateRange,
   type ShipmentPeriod,
 } from "@/components/shared-shipments-view";
+import { ProductionFunnel } from "@/components/production-funnel";
+import { ShipmentMap } from "@/components/shipment-map";
 import { fetchAnalyticsOverview, fetchOrders, fetchShopifyIntegrations, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 import type { Order } from "@/lib/types";
@@ -122,6 +124,34 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
         subtitle="Panorama global de envíos, SLA, aging y puntos de fricción."
         title="Analítica de expediciones"
       />
+
+      {/* Production funnel */}
+      {analytics?.flow && (
+        <div className="card stack">
+          <div>
+            <span className="eyebrow">Producción</span>
+            <h3 className="section-title section-title-small">Funnel de producción</h3>
+          </div>
+          <ProductionFunnel flow={analytics.flow} />
+        </div>
+      )}
+
+      {/* Shipment map */}
+      <div className="card stack">
+        <div>
+          <span className="eyebrow">Distribución geográfica</span>
+          <h3 className="section-title section-title-small">Mapa de pedidos activos</h3>
+          <p className="table-secondary">Tamaño del círculo proporcional al volumen de pedidos. Color según estado dominante.</p>
+        </div>
+        <ShipmentMap dateFrom={dateFrom} dateTo={dateTo} shopId={params.shop_id} />
+        <div className="smap-legend">
+          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#ef4444" }} /> Excepción</span>
+          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#f59e0b" }} /> En reparto</span>
+          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#3b82f6" }} /> En tránsito</span>
+          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#22c55e" }} /> Entregado</span>
+          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#94a3b8" }} /> Sin envío</span>
+        </div>
+      </div>
 
       {/* Alert banner — moved below analytics */}
       {criticalCount > 0 && (

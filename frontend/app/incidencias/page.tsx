@@ -1,6 +1,7 @@
 import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
 import { IncidentStatusActions } from "@/components/incident-status-actions";
+import { IncidentsKanban } from "@/components/incidents-kanban";
 import { IncidentsReconcileButton } from "@/components/incidents-reconcile-button";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
@@ -20,6 +21,7 @@ type IncidenciasPageProps = {
     q?: string;
     shop_id?: string;
     period?: string;
+    view?: string;
   }>;
 };
 
@@ -83,7 +85,8 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
   const periodFilter = params.period ?? "14d";
   const includeHistorical = periodFilter === "all";
   const recentDays = includeHistorical ? undefined : Number.parseInt(periodFilter.replace("d", ""), 10) || 14;
-  const statusFilter = params.status ?? "open";
+  const viewMode = params.view === "kanban" ? "kanban" : "table";
+  const statusFilter = params.status ?? (viewMode === "kanban" ? "all" : "open");
   const statusParam = statusFilter === "all" ? undefined : statusFilter;
   const [incidentsResult, shopsResult] = await Promise.allSettled([
     fetchIncidents({
@@ -110,6 +113,19 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
   const urgentCount = incidents.filter((incident) => incident.priority === "urgent").length;
   const resolvedCount = incidents.filter((incident) => incident.status === "resolved").length;
   const automatedCount = incidents.filter((incident) => incident.is_automated).length;
+
+  // Build URL for view toggle preserving other params
+  const buildViewUrl = (v: string) => {
+    const p = new URLSearchParams();
+    if (params.status) p.set("status", params.status);
+    if (params.priority) p.set("priority", params.priority);
+    if (params.type) p.set("type", params.type);
+    if (params.q) p.set("q", params.q);
+    if (params.shop_id) p.set("shop_id", params.shop_id);
+    if (params.period) p.set("period", params.period);
+    p.set("view", v);
+    return `/incidencias?${p.toString()}`;
+  };
 
   return (
     <div className="stack">
@@ -200,6 +216,29 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
         <KpiCard label="Automáticas" value={String(automatedCount)} tone="default" />
       </section>
 
+      {/* View toggle */}
+      <div className="inc-view-toggle">
+        <a
+          className={`inc-view-btn${viewMode === "table" ? " inc-view-btn-active" : ""}`}
+          href={buildViewUrl("table")}
+        >
+          📋 Tabla
+        </a>
+        <a
+          className={`inc-view-btn${viewMode === "kanban" ? " inc-view-btn-active" : ""}`}
+          href={buildViewUrl("kanban")}
+        >
+          🗂 Kanban
+        </a>
+      </div>
+
+      {viewMode === "kanban" ? (
+        <div className="kanban-wrapper">
+          <IncidentsKanban initialIncidents={incidents} />
+        </div>
+      ) : null}
+
+      {viewMode === "table" ? (
       <Card className="stack table-card">
         <div className="table-header">
           <div>
@@ -286,6 +325,7 @@ export default async function IncidenciasPage({ searchParams }: IncidenciasPageP
           </div>
         )}
       </Card>
+      ) : null}
     </div>
   );
 }
