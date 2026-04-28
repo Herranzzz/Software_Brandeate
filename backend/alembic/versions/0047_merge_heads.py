@@ -2,14 +2,14 @@
 
 Two heads existed after pushing the search-trgm work:
   - 0046_email_flow_drafts (main line)
-  - 0032_search_trgm_indexes (branched off 0030 alongside 0031_inventory_sga)
+  - 0033_shipment_replacements (end of perf-index/trgm branch)
+
+Chain B: 0031_perf_indexes → 0032_search_trgm_indexes → 0033_shipment_replacements
 
 This empty merge revision connects them so alembic has a single head again.
-The trgm + perf-index migrations are idempotent (IF NOT EXISTS) and run
-naturally as alembic walks the previously-orphaned branch.
 
 Revision ID: 0047_merge_heads
-Revises: 0046_email_flow_drafts, 0032_search_trgm_indexes
+Revises: 0046_email_flow_drafts, 0033_shipment_replacements
 Create Date: 2026-04-28
 """
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 
 revision = "0047_merge_heads"
-down_revision = ("0046_email_flow_drafts", "0032_search_trgm_indexes")
+down_revision = ("0046_email_flow_drafts", "0033_shipment_replacements")
 branch_labels = None
 depends_on = None
 
