@@ -9,154 +9,162 @@ type Props = { points: Point[] };
 
 const ORIGIN = { lat: 40.42, lng: -3.70 };
 
-const STATUS_COLOR: Record<string, string> = {
-  exception:        "#f43f5e",
-  out_for_delivery: "#fb923c",
-  in_transit:       "#60a5fa",
-  delivered:        "#34d399",
-  other:            "#a78bfa",
+const STATUS: Record<string, { color: string; label: string }> = {
+  exception:        { color: "#f43f5e", label: "Excepción" },
+  out_for_delivery: { color: "#fb923c", label: "En reparto" },
+  in_transit:       { color: "#38bdf8", label: "En tránsito" },
+  delivered:        { color: "#4ade80", label: "Entregado" },
+  other:            { color: "#a78bfa", label: "Sin envío" },
 };
 
-function dominantColor(p: Point) {
-  if (p.exception > 0)        return STATUS_COLOR.exception;
-  if (p.out_for_delivery > 0) return STATUS_COLOR.out_for_delivery;
-  if (p.in_transit > 0)       return STATUS_COLOR.in_transit;
-  if (p.delivered > 0)        return STATUS_COLOR.delivered;
-  return STATUS_COLOR.other;
+function dominant(p: Point) {
+  if (p.exception > 0)        return "exception";
+  if (p.out_for_delivery > 0) return "out_for_delivery";
+  if (p.in_transit > 0)       return "in_transit";
+  if (p.delivered > 0)        return "delivered";
+  return "other";
 }
-
-/** Floating badge — only for top-N provinces */
-function makeBadge(p: Point, color: string): HTMLDivElement {
-  const el = document.createElement("div");
-  el.style.cssText = "pointer-events:none; transform:translate(-50%,-100%);";
-  el.innerHTML = `
-    <div style="
-      background:rgba(6,9,24,0.88);
-      border:1.5px solid ${color};
-      border-radius:7px;
-      padding:3px 9px 3px 7px;
-      font:600 12px/1.5 system-ui,sans-serif;
-      color:#fff;
-      white-space:nowrap;
-      box-shadow:0 0 14px ${color}99;
-      display:flex; align-items:baseline; gap:5px;
-    ">
-      <span style="color:${color};font-size:10px">●</span>
-      ${p.name}
-      <span style="font-weight:400;color:${color};font-size:11px">${p.total}</span>
-    </div>
-    <div style="width:0;height:0;
-      border-left:5px solid transparent;border-right:5px solid transparent;
-      border-top:6px solid ${color};margin:0 auto;"></div>`;
-  return el;
-}
+const color = (p: Point) => STATUS[dominant(p)].color;
 
 export default function ShipmentGlobeInner({ points }: Props) {
   const globeRef = useRef<{ pointOfView: (pov: object, ms?: number) => void } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 800, h: 500 });
+  const [w, setW] = useState(680);
 
-  const updateSize = useCallback(() => {
-    if (!containerRef.current) return;
-    const w = containerRef.current.offsetWidth;
-    setSize({ w, h: Math.min(Math.round(w * 0.58), 540) });
+  const updateW = useCallback(() => {
+    if (containerRef.current) setW(containerRef.current.offsetWidth);
   }, []);
 
   useEffect(() => {
-    updateSize();
-    const ro = new ResizeObserver(updateSize);
+    updateW();
+    const ro = new ResizeObserver(updateW);
     if (containerRef.current) ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, [updateSize]);
+  }, [updateW]);
 
-  // Fly close to Spain
+  // Fly in to Spain
   useEffect(() => {
     const t = setTimeout(() => {
-      globeRef.current?.pointOfView({ lat: 40.2, lng: -3.5, altitude: 0.55 }, 1200);
-    }, 800);
+      globeRef.current?.pointOfView({ lat: 40.2, lng: -3.5, altitude: 0.9 }, 1500);
+    }, 600);
     return () => clearTimeout(t);
   }, []);
 
   const maxTotal = Math.max(...points.map(p => p.total), 1);
+  const top10 = [...points].sort((a, b) => b.total - a.total).slice(0, 10);
 
-  // ── Arcs: use plain strings so the color field works reliably ─────────
+  // ─── Arcs: FIXED altitude 0.3 so they curve dramatically ──────────────
   const arcs = points.map(p => ({
     startLat: ORIGIN.lat, startLng: ORIGIN.lng,
-    endLat: p.lat,        endLng: p.lng,
-    color: dominantColor(p),
-    label: `${p.name} · ${p.total} pedidos`,
+    endLat:   p.lat,      endLng:   p.lng,
+    color:    color(p),
+    tooltip:  `${p.name}: ${p.total} pedidos`,
   }));
 
-  // ── Glowing points for every province ────────────────────────────────
-  const pts = points.map(p => {
-    const color = dominantColor(p);
-    const r = 0.18 + (p.total / maxTotal) * 0.55;
-    return { lat: p.lat, lng: p.lng, r, color, label: `${p.name}: ${p.total}` };
-  });
+  // ─── Large glowing points ──────────────────────────────────────────────
+  const pts = points.map(p => ({
+    lat: p.lat, lng: p.lng,
+    r: 0.25 + (p.total / maxTotal) * 0.65,
+    color: color(p),
+    label: `${p.name} · ${p.total}`,
+  }));
 
-  // ── Rings: just the top 20 provinces ─────────────────────────────────
-  const rings = points
-    .slice(0, 20)
-    .flatMap(p => {
-      const color = dominantColor(p);
-      const base = 0.4 + (p.total / maxTotal) * 1.6;
-      return [
-        { lat: p.lat, lng: p.lng, maxR: base,        propagationSpeed: 2,   repeatPeriod: 900,  color },
-        { lat: p.lat, lng: p.lng, maxR: base * 0.5,  propagationSpeed: 2.8, repeatPeriod: 1200, color: `${color}77` },
-      ];
-    });
+  // ─── Rings (top 15) ───────────────────────────────────────────────────
+  const rings = [...points].sort((a, b) => b.total - a.total).slice(0, 15).map(p => ({
+    lat: p.lat, lng: p.lng,
+    maxR: 0.5 + (p.total / maxTotal) * 1.4,
+    propagationSpeed: 2.2,
+    repeatPeriod: 850,
+    color: color(p),
+  }));
 
-  // ── HTML badges: top 12 only to avoid crowding ────────────────────────
-  const topPoints = [...points].sort((a, b) => b.total - a.total).slice(0, 12);
-  const htmlData = topPoints.map(p => {
-    const color = dominantColor(p);
-    return { lat: p.lat, lng: p.lng, __el: makeBadge(p, color) };
-  });
+  const H = Math.round(w * 0.56);
 
   return (
-    <div ref={containerRef} className="sglobe-container">
-      <Globe
-        ref={globeRef as React.RefObject<never>}
-        width={size.w}
-        height={size.h}
-        backgroundColor="rgba(0,0,0,0)"
+    <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
+      {/* ── Globe ── */}
+      <div ref={containerRef} style={{ flex: "1 1 0", minWidth: 0, borderRadius: "12px 0 0 12px", overflow: "hidden", background: "#020817" }}>
+        <Globe
+          ref={globeRef as React.RefObject<never>}
+          width={w}
+          height={H}
+          backgroundColor="#020817"
 
-        /* Earth */
-        globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
-        bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
-        atmosphereColor="#4f46e5"
-        atmosphereAltitude={0.18}
+          globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
+          bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
+          atmosphereColor="#3730a3"
+          atmosphereAltitude={0.15}
 
-        /* Arcs — thick, animated */
-        arcsData={arcs}
-        arcColor="color"
-        arcDashLength={0.4}
-        arcDashGap={0.15}
-        arcDashAnimateTime={1600}
-        arcStroke={1.2}
-        arcAltitudeAutoScale={0.28}
-        arcLabel="label"
+          /* ── Arcs: fixed altitude, thick, neon ── */
+          arcsData={arcs}
+          arcColor="color"
+          arcAltitude={0.3}
+          arcStroke={1.8}
+          arcDashLength={0.6}
+          arcDashGap={0.08}
+          arcDashAnimateTime={1200}
+          arcLabel="tooltip"
 
-        /* Glowing points */
-        pointsData={pts}
-        pointColor="color"
-        pointRadius="r"
-        pointAltitude={0.005}
-        pointResolution={16}
-        pointLabel="label"
+          /* ── Points ── */
+          pointsData={pts}
+          pointColor="color"
+          pointRadius="r"
+          pointAltitude={0.004}
+          pointResolution={20}
+          pointLabel="label"
 
-        /* Rings */
-        ringsData={rings}
-        ringColor="color"
-        ringMaxRadius="maxR"
-        ringPropagationSpeed="propagationSpeed"
-        ringRepeatPeriod="repeatPeriod"
+          /* ── Rings ── */
+          ringsData={rings}
+          ringColor="color"
+          ringMaxRadius="maxR"
+          ringPropagationSpeed="propagationSpeed"
+          ringRepeatPeriod="repeatPeriod"
+        />
+      </div>
 
-        /* Floating badges (top 12 only) */
-        htmlElementsData={htmlData}
-        htmlElement={(d) => (d as typeof htmlData[0]).__el}
-        htmlAltitude={0.01}
-      />
+      {/* ── Sidebar ranking ── */}
+      <div style={{
+        width: 196, flexShrink: 0,
+        background: "rgba(2,8,23,0.92)",
+        borderRadius: "0 12px 12px 0",
+        borderLeft: "1px solid rgba(255,255,255,0.07)",
+        padding: "16px 12px",
+        display: "flex", flexDirection: "column", gap: 4,
+        height: H, overflowY: "auto", boxSizing: "border-box",
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#64748b", marginBottom: 8 }}>
+          Top provincias
+        </div>
+        {top10.map((p, i) => {
+          const c = color(p);
+          const pct = Math.round((p.total / maxTotal) * 100);
+          return (
+            <div key={p.province_code} style={{ marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 10, color: "#475569", width: 14, textAlign: "right" }}>{i + 1}</span>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: c, boxShadow: `0 0 6px ${c}` }} />
+                  <span style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 500 }}>{p.name}</span>
+                </div>
+                <span style={{ fontSize: 11, color: c, fontWeight: 700 }}>{p.total}</span>
+              </div>
+              <div style={{ height: 3, background: "rgba(255,255,255,0.06)", borderRadius: 99, marginLeft: 20 }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: c, borderRadius: 99, boxShadow: `0 0 6px ${c}88` }} />
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Status legend */}
+        <div style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+          {Object.entries(STATUS).map(([, { color: c, label }]) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: c }} />
+              <span style={{ fontSize: 10, color: "#64748b" }}>{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

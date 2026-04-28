@@ -144,13 +144,6 @@ export default async function ShipmentsPage({ searchParams }: ShipmentsPageProps
           <p className="table-secondary">Los arcos muestran el flujo desde el almacén hasta cada provincia. Arrastra para rotar.</p>
         </div>
         <ShipmentGlobe dateFrom={dateFrom} dateTo={dateTo} shopId={params.shop_id} />
-        <div className="smap-legend">
-          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#ef4444" }} /> Excepción</span>
-          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#f59e0b" }} /> En reparto</span>
-          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#3b82f6" }} /> En tránsito</span>
-          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#22c55e" }} /> Entregado</span>
-          <span className="smap-legend-item"><span className="smap-dot" style={{ background: "#a78bfa" }} /> Sin envío activo</span>
-        </div>
       </div>
 
       {/* Alert banner — moved below analytics */}
