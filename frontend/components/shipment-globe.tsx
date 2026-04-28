@@ -131,7 +131,7 @@ type Props = { dateFrom?: string; dateTo?: string; shopId?: string };
 export function ShipmentGlobe({ dateFrom, dateTo, shopId }: Props) {
   const [data, setData] = useState<ProvincePoint[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -139,15 +139,31 @@ export function ShipmentGlobe({ dateFrom, dateTo, shopId }: Props) {
     if (dateTo)   params.set("date_to", dateTo);
     if (shopId)   params.set("shop_id", shopId);
     setLoading(true);
-    setError(false);
+    setErrorMsg(null);
     fetch(`/api/analytics/province-distribution?${params}`)
-      .then((r) => r.json())
-      .then((d) => { setData(Array.isArray(d) ? d : []); setLoading(false); })
-      .catch(() => { setError(true); setLoading(false); });
+      .then(async (r) => {
+        const body = await r.json().catch(() => null);
+        if (!r.ok) {
+          const detail = body?.detail ?? body?.message ?? `HTTP ${r.status}`;
+          setErrorMsg(String(detail));
+          setLoading(false);
+          return;
+        }
+        setData(Array.isArray(body) ? body : []);
+        setLoading(false);
+      })
+      .catch((e) => {
+        setErrorMsg(e instanceof Error ? e.message : "Error de red");
+        setLoading(false);
+      });
   }, [dateFrom, dateTo, shopId]);
 
   if (loading) return <div className="smap-loading">Cargando datos del globo…</div>;
-  if (error)   return <div className="smap-error">No se pudo cargar el mapa</div>;
+  if (errorMsg) return (
+    <div className="smap-error">
+      Error al cargar el mapa: <code style={{ fontSize: "0.75rem" }}>{errorMsg}</code>
+    </div>
+  );
 
   const points = data
     .map((p) => {
