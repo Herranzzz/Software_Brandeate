@@ -309,7 +309,7 @@ def _apply_query_filters(
     if filters.carrier is not None and filters.carrier.strip():
         normalized_carrier = filters.carrier.strip().lower()
         query = query.where(
-            Order.shipment.has(func.lower(func.trim(func.coalesce(Shipment.carrier, ""))) == normalized_carrier)
+            Order.shipments.any(func.lower(func.trim(func.coalesce(Shipment.carrier, ""))) == normalized_carrier)
         )
     if filters.channel:
         if filters.channel == "shopify":
@@ -371,7 +371,7 @@ def build_analytics_overview(
                 OrderItem.design_status,
                 OrderItem.personalization_assets_json,
             ),
-            selectinload(Order.shipment)
+            selectinload(Order.shipments)
             .load_only(
                 Shipment.id,
                 Shipment.order_id,

@@ -1,5 +1,5 @@
 import { OrdersWorkbench } from "@/components/orders-workbench";
-import { fetchOrders, fetchPickBatches, fetchShops } from "@/lib/api";
+import { fetchAdminUsers, fetchOrders, fetchPickBatches, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 
 
@@ -87,7 +87,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
 
   const quickParams = quickFilterToApiParams(params.quick);
 
-  const [userResult, ordersResult, shopsResult, batchesResult] = await Promise.allSettled([
+  const [userResult, ordersResult, shopsResult, batchesResult, employeesResult] = await Promise.allSettled([
     requireAdminUser(),
     fetchOrders({
       shop_id: params.shop_id,
@@ -115,6 +115,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     }, { cacheSeconds: 20 }),
     fetchShops(),
     fetchPickBatches({ shop_id: params.shop_id }),
+    fetchAdminUsers(),
   ]);
   if (userResult.status === "rejected") throw userResult.reason;
 
@@ -124,11 +125,15 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       : { orders: [], totalCount: 0 };
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
   const batches = batchesResult.status === "fulfilled" ? batchesResult.value : [];
+  const employees = employeesResult.status === "fulfilled"
+    ? employeesResult.value.map((u) => ({ id: u.id, name: u.name }))
+    : [];
 
   return (
     <div className="stack orders-page">
       <OrdersWorkbench
         batches={batches}
+        employees={employees}
         initialOrders={orders}
         initialTotalCount={totalCount}
         initialPage={page}

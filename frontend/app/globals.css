@@ -25886,3 +25886,141 @@ hr,
   .collab-filter-tabs { padding: 0 14px; }
   .collab-assignment-dropdown { left: 0; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   INLINE TABLE ACTIONS — Sprint 1
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Row loading state */
+.order-row--loading { opacity: 0.55; pointer-events: none; }
+
+/* Inline controls cell */
+.orders-inline-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+/* Assigned badge */
+.badge-assigned {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: #e0f0ff;
+  color: #1a6fbf;
+  border: 1px solid #b3d7f5;
+}
+
+/* Ghost button for inline icon actions */
+.button-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: var(--muted);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.button-ghost:hover {
+  background: var(--surface-alt, #f5f5f5);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.button-ghost:disabled { opacity: 0.45; cursor: default; }
+
+/* Assign button — highlighted when assigned */
+.orders-assign-btn-active {
+  background: #e0f0ff;
+  border-color: #90c4ee;
+  color: #1a6fbf;
+  font-weight: 600;
+}
+
+/* Prepare quick button */
+.orders-prepare-btn {
+  font-size: 0.8rem;
+  padding: 2px 8px;
+  color: #16a34a;
+  border-color: #86efac;
+}
+.orders-prepare-btn:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+  color: #15803d;
+}
+
+/* Inline badge buttons (priority / prod status) */
+.inline-ctrl-btn {
+  cursor: pointer;
+  font-size: 0.68rem !important;
+  padding: 2px 7px !important;
+  border: none;
+  transition: filter 0.1s, opacity 0.1s;
+}
+.inline-ctrl-btn:hover { filter: brightness(0.92); }
+.inline-ctrl-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Dropdown wrapper — must be relative so the popover anchors here */
+.inline-ctrl-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+/* Popover dropdown */
+.inline-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 9999;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-strong, #d1d5db);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  min-width: 140px;
+  overflow: hidden;
+  padding: 4px 0;
+}
+.inline-dropdown-right {
+  left: auto;
+  right: 0;
+}
+
+.inline-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 14px;
+  font-size: 0.8rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.1s;
+}
+.inline-dropdown-item:hover { background: var(--surface-alt, #f5f5f5); }
+.inline-dropdown-item-active {
+  font-weight: 700;
+  background: var(--surface-alt, #f5f5f5);
+}
+
+/* Row actions cell layout */
+.orders-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.orders-row-actions .table-action {
+  flex-shrink: 0;
+}
+
+/* Make action column not wrap on narrow tables */
+.orders-ops-table td:last-child { white-space: nowrap; }
+.orders-ops-table td:nth-last-child(2) { white-space: nowrap; }

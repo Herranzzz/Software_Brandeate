@@ -136,7 +136,7 @@ def reconcile_automated_incidents(
         select(Order)
         .options(
             selectinload(Order.items),
-            selectinload(Order.shipment).selectinload(Shipment.events),
+            selectinload(Order.shipments).selectinload(Shipment.events),
             selectinload(Order.incidents),
         )
         .join(Order.incidents)

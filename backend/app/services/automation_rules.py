@@ -251,7 +251,7 @@ def reconcile_incident_lifecycle(
 
     terminal_condition = or_(
         Order.status == OrderStatus.delivered,
-        Order.shipment.has(
+        Order.shipments.any(
             func.lower(func.trim(func.coalesce(Shipment.shipping_status, ""))) == "delivered"
         ),
     )
