@@ -38,7 +38,7 @@ class RealtimeEvent:
         return f"id: {self.id}\nevent: {self.type}\ndata: {data}\n\n"
 
 
-@dataclass
+@dataclass(eq=False)
 class _Subscriber:
     queue: asyncio.Queue[RealtimeEvent]
     shop_ids: frozenset[int] | None  # None = admin sees all
