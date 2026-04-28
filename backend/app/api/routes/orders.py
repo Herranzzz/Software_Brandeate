@@ -101,7 +101,7 @@ def _order_query():
         selectinload(Order.shop),
         selectinload(Order.items),
         selectinload(Order.incidents),
-        selectinload(Order.shipment).selectinload(Shipment.events),
+        selectinload(Order.shipments).selectinload(Shipment.events),
         selectinload(Order.prepared_by_employee).load_only(User.id, User.name),
         selectinload(Order.assigned_to_employee).load_only(User.id, User.name),
     )
@@ -135,7 +135,7 @@ def _order_list_query():
                 OrderItem.personalization_assets_json,
                 OrderItem.created_at,
             ),
-            selectinload(Order.shipment).load_only(
+            selectinload(Order.shipments).load_only(
                 Shipment.id,
                 Shipment.order_id,
                 Shipment.created_by_employee_id,
@@ -167,6 +167,7 @@ def _order_list_query():
             # uses ShipmentSummaryRead which has no `events` field. Events are
             # only needed on the detail endpoint (ShipmentRead).
             selectinload(Order.prepared_by_employee).load_only(User.id, User.name),
+            selectinload(Order.assigned_to_employee).load_only(User.id, User.name),
         )
     )
 
@@ -281,7 +282,7 @@ def _load_target_orders(
             .options(
                 selectinload(Order.items),
                 selectinload(Order.incidents),
-                selectinload(Order.shipment).selectinload(Shipment.events),
+                selectinload(Order.shipments).selectinload(Shipment.events),
             )
             .where(Order.id.in_(order_ids))
         )
@@ -3023,7 +3024,7 @@ def get_delivery_prediction(
 
     order = db.scalar(
         select(Order)
-        .options(selectinload(Order.shipment).selectinload(Shipment.events))
+        .options(selectinload(Order.shipments).selectinload(Shipment.events))
         .where(Order.id == order_id)
     )
     if order is None:
