@@ -20,7 +20,9 @@ export async function GET(request: NextRequest) {
   const os = searchParams.get("os") ?? "windows";
   const printer = (searchParams.get("printer") ?? "").trim();
   const appUrl = origin;
-  const targetUrl = `${appUrl}/employees/print-queue`;
+  // ?kiosk=1 lets the page auto-enable the silent-print preference on first
+  // load so the operator never has to also flip the /settings toggle by hand.
+  const targetUrl = `${appUrl}/employees/print-queue?kiosk=1`;
 
   const slug = printer
     ? printer.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "impresora"

@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/components/toast";
 import { fetchOrders } from "@/lib/api";
 import { useOrderRealtimeRefresh } from "@/lib/use-order-realtime";
-import { printLabelsMerged, type PrintLabelFailure } from "@/lib/print-utils";
+import { printLabelsMerged, setSilentPrintEnabled, type PrintLabelFailure } from "@/lib/print-utils";
 import type { Order, Shop } from "@/lib/types";
 
 
@@ -52,18 +52,36 @@ function KioskSetupCard({ onDismiss }: { onDismiss: () => void }) {
     <div className="kiosk-setup-card">
       <div className="kiosk-setup-icon">🖨️</div>
       <div className="kiosk-setup-body">
-        <strong>Configura impresión directa en esta máquina</strong>
+        <strong>Configura impresión directa en esta máquina (una sola vez)</strong>
         <p className="muted">
-          Descarga el acceso directo y úsalo para abrir la app. Con él, al pulsar
-          "Imprimir" las etiquetas van directo a la impresora sin ningún diálogo.
+          Descarga el atajo, guárdalo en tu {os === "mac" ? "Escritorio o Dock" : "Escritorio o barra de tareas"},
+          y a partir de ahora <strong>abre Brandeate desde ese atajo</strong> en lugar
+          del icono normal de Chrome. Las etiquetas saldrán directas a la impresora,
+          sin descargar PDF ni cuadro de diálogo. Solo hay que hacerlo una vez por equipo.
         </p>
+        <ol className="muted" style={{ marginTop: 8, paddingLeft: 20, fontSize: 13 }}>
+          <li>Descarga el atajo con el botón de abajo.</li>
+          {os === "mac" ? (
+            <>
+              <li>Muévelo a tu carpeta <strong>Aplicaciones</strong> (o Escritorio).</li>
+              <li>Primera vez: clic derecho → Abrir (para autorizar el script).</li>
+              <li>Arrástralo al Dock para tenerlo siempre a mano.</li>
+            </>
+          ) : (
+            <>
+              <li>Muévelo a tu Escritorio.</li>
+              <li>Clic derecho sobre el archivo → "Anclar a barra de tareas" o "Anclar a Inicio".</li>
+            </>
+          )}
+          <li>A partir de ese momento abre Brandeate haciendo doble clic en el atajo. Mantenlo abierto durante la jornada de etiquetas.</li>
+        </ol>
         <div className="kiosk-setup-actions">
           <button className="button" onClick={download} type="button">
             {os === "windows"
-              ? "⬇ Descargar acceso directo (Windows)"
+              ? "⬇ Descargar atajo (Windows)"
               : os === "mac"
-                ? "⬇ Descargar acceso directo (Mac)"
-                : "⬇ Descargar acceso directo"}
+                ? "⬇ Descargar atajo (Mac)"
+                : "⬇ Descargar atajo"}
           </button>
           <button className="button-link muted" onClick={onDismiss} type="button">
             Ya está configurado · ocultar
@@ -200,6 +218,23 @@ export function PrintQueuePanel({
   useEffect(() => {
     setOrders(initialOrders);
   }, [initialOrders]);
+
+  // Auto-enable silent printing when the operator opens the app via the
+  // kiosk-Chrome shortcut (`?kiosk=1`). The flag persists in localStorage so
+  // they don't need to also flip the toggle in /settings — and it sticks even
+  // if Chrome is later launched normally, so the silent-print iframe path
+  // keeps being used (worst case: browser print dialog instead of fully
+  // silent — still no PDF download). The query param is then stripped to
+  // keep the URL clean and avoid re-running this on every internal nav.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("kiosk") !== "1") return;
+    setSilentPrintEnabled(true);
+    url.searchParams.delete("kiosk");
+    window.history.replaceState({}, "", url.toString());
+    toast("Impresión silenciosa activada en este equipo", "success");
+  }, [toast]);
 
   const refreshFromServer = useCallback(async () => {
     setIsRefreshing(true);
