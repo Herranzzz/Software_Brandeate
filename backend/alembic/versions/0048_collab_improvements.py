@@ -1,7 +1,7 @@
 """collab: comment edit/delete + order assignment
 
 Revision ID: 0048
-Revises: 0047
+Revises: 0047_merge_heads
 Create Date: 2026-04-28
 """
 
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0048"
-down_revision = "0047"
+down_revision = "0047_merge_heads"
 branch_labels = None
 depends_on = None
 
