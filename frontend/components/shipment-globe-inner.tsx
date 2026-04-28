@@ -53,30 +53,25 @@ export default function ShipmentGlobeInner({ points }: Props) {
   const maxTotal = Math.max(...points.map(p => p.total), 1);
   const top10 = [...points].sort((a, b) => b.total - a.total).slice(0, 10);
 
-  // ─── Arcs: FIXED altitude 0.3 so they curve dramatically ──────────────
-  const arcs = points.map(p => ({
-    startLat: ORIGIN.lat, startLng: ORIGIN.lng,
-    endLat:   p.lat,      endLng:   p.lng,
-    color:    color(p),
-    tooltip:  `${p.name}: ${p.total} pedidos`,
-  }));
-
-  // ─── Large glowing points ──────────────────────────────────────────────
+  // ─── Glowing bubble points — sized by volume ──────────────────────────
   const pts = points.map(p => ({
     lat: p.lat, lng: p.lng,
-    r: 0.25 + (p.total / maxTotal) * 0.65,
-    color: color(p),
-    label: `${p.name} · ${p.total}`,
+    r: 0.18 + (p.total / maxTotal) * 0.82,
+    color: color(p) + "cc",   // slight transparency for layering
+    label: `${p.name} · ${p.total} pedidos`,
   }));
 
-  // ─── Rings (top 15) ───────────────────────────────────────────────────
-  const rings = [...points].sort((a, b) => b.total - a.total).slice(0, 15).map(p => ({
-    lat: p.lat, lng: p.lng,
-    maxR: 0.5 + (p.total / maxTotal) * 1.4,
-    propagationSpeed: 2.2,
-    repeatPeriod: 850,
-    color: color(p),
-  }));
+  // ─── Rings — all provinces, speed/size proportional to volume ─────────
+  const rings = points.map(p => {
+    const ratio = p.total / maxTotal;
+    return {
+      lat: p.lat, lng: p.lng,
+      maxR: 0.35 + ratio * 1.6,
+      propagationSpeed: 1.4 + ratio * 2.2,
+      repeatPeriod: 1200 - ratio * 700,
+      color: color(p),
+    };
+  });
 
   const H = Math.round(w * 0.56);
 
@@ -95,25 +90,15 @@ export default function ShipmentGlobeInner({ points }: Props) {
           atmosphereColor="#3730a3"
           atmosphereAltitude={0.15}
 
-          /* ── Arcs: thin animated lines ── */
-          arcsData={arcs}
-          arcColor="color"
-          arcAltitude={0.3}
-          arcStroke={0.25}
-          arcDashLength={0.5}
-          arcDashGap={0.1}
-          arcDashAnimateTime={1400}
-          arcLabel="tooltip"
-
-          /* ── Points ── */
+          /* ── Bubble points ── */
           pointsData={pts}
           pointColor="color"
           pointRadius="r"
-          pointAltitude={0.006}
-          pointResolution={20}
+          pointAltitude={0.01}
+          pointResolution={24}
           pointLabel="label"
 
-          /* ── Rings ── */
+          /* ── Rings (all provinces) ── */
           ringsData={rings}
           ringColor="color"
           ringMaxRadius="maxR"
