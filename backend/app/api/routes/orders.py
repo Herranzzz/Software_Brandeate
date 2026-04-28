@@ -49,6 +49,7 @@ from app.models import (
 )
 from app.schemas.incident import IncidentRead
 from app.schemas.order import (
+    OrderAssignUpdate,
     OrderBlockUpdate,
     OrderInternalNoteUpdate,
     OrderCreate,
@@ -101,6 +102,7 @@ def _order_query():
         selectinload(Order.incidents),
         selectinload(Order.shipment).selectinload(Shipment.events),
         selectinload(Order.prepared_by_employee).load_only(User.id, User.name),
+        selectinload(Order.assigned_to_employee).load_only(User.id, User.name),
     )
 
 
@@ -1036,7 +1038,80 @@ def update_order_internal_note(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+    old_note = order.internal_note or ""
     order.internal_note = payload.internal_note
+    # Log the change so it appears in the activity timeline
+    new_note = payload.internal_note or ""
+    if old_note != new_note:
+        log_activity(
+            db,
+            entity_type="order",
+            entity_id=order_id,
+            shop_id=order.shop_id,
+            action="internal_note_updated",
+            actor=current_user,
+            summary="Nota interna actualizada",
+            detail={"old": old_note[:200] if old_note else None, "new": new_note[:200] if new_note else None},
+        )
+    db.commit()
+    return db.scalar(_order_detail_query().where(Order.id == order_id))
+
+
+@router.post("/{order_id}/assign", response_model=OrderDetailRead)
+def assign_order(
+    order_id: int,
+    payload: OrderAssignUpdate,
+    db: Session = Depends(get_db),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+    current_user: User = Depends(get_current_user),
+) -> Order:
+    """Assign or unassign an order to an employee.
+    Pass employee_id=None to clear the assignment.
+    """
+    from datetime import datetime, timezone
+
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop access denied")
+
+    if payload.employee_id is not None:
+        assignee = db.get(User, payload.employee_id)
+        if assignee is None:
+            raise HTTPException(status_code=404, detail="Empleado no encontrado")
+        order.assigned_to_employee_id = assignee.id
+        order.assigned_at = datetime.now(timezone.utc)
+        order.assigned_by_employee_id = current_user.id
+        log_activity(
+            db,
+            entity_type="order",
+            entity_id=order_id,
+            shop_id=order.shop_id,
+            action="assigned",
+            actor=current_user,
+            summary=f"Pedido asignado a {assignee.name}",
+            detail={"assignee_id": assignee.id, "assignee_name": assignee.name},
+        )
+    else:
+        # Unassign
+        prev_id = order.assigned_to_employee_id
+        prev_name = order.assigned_to_employee.name if order.assigned_to_employee else None
+        order.assigned_to_employee_id = None
+        order.assigned_at = None
+        order.assigned_by_employee_id = None
+        if prev_id:
+            log_activity(
+                db,
+                entity_type="order",
+                entity_id=order_id,
+                shop_id=order.shop_id,
+                action="unassigned",
+                actor=current_user,
+                summary=f"Asignación eliminada" + (f" ({prev_name})" if prev_name else ""),
+                detail={"prev_assignee_id": prev_id, "prev_assignee_name": prev_name},
+            )
+
     db.commit()
     return db.scalar(_order_detail_query().where(Order.id == order_id))
 

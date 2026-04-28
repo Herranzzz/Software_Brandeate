@@ -157,6 +157,18 @@ class Order(Base):
     shipping_option_selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     internal_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Employee assignment — who is responsible for actioning this order
+    assigned_to_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    assigned_by_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     tags_json: Mapped[list[str] | None] = mapped_column(json_type, nullable=True)
     channel: Mapped[str | None] = mapped_column(String(120), nullable=True)
     shopify_financial_status: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -206,6 +218,14 @@ class Order(Base):
         foreign_keys=[last_touched_by_employee_id],
         back_populates="touched_orders",
     )
+    assigned_to_employee = relationship(
+        "User",
+        foreign_keys=[assigned_to_employee_id],
+    )
+    assigned_by_employee = relationship(
+        "User",
+        foreign_keys=[assigned_by_employee_id],
+    )
     incidents = relationship(
         "Incident",
         back_populates="order",
@@ -250,6 +270,11 @@ class Order(Base):
     @property
     def prepared_by_employee_name(self) -> str | None:
         emp = self.prepared_by_employee
+        return emp.name if emp is not None else None
+
+    @property
+    def assigned_to_employee_name(self) -> str | None:
+        emp = self.assigned_to_employee
         return emp.name if emp is not None else None
 
     @property

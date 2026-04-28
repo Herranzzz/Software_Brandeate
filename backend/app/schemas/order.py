@@ -175,6 +175,9 @@ class OrderListRead(BaseModel):
     automation_flags: list["AutomationFlagRead"] = Field(default_factory=list)
     items: list[OrderItemListRead]
     shipment: ShipmentSummaryRead | None = None
+    assigned_to_employee_id: int | None = None
+    assigned_to_employee_name: str | None = None
+    assigned_at: datetime | None = None
 
 
 class OrderRead(BaseModel):
@@ -237,10 +240,18 @@ class OrderRead(BaseModel):
     # this as a list on the order detail; the singular `shipment` above is
     # always shipments[0] and stays for backwards compat.
     shipments: list[ShipmentRead] = Field(default_factory=list)
+    assigned_to_employee_id: int | None = None
+    assigned_to_employee_name: str | None = None
+    assigned_at: datetime | None = None
 
 
 class OrderDetailRead(OrderRead):
     automation_events: list[AutomationEventRead] = Field(default_factory=list)
+
+
+class OrderAssignUpdate(BaseModel):
+    """Body for POST /orders/{id}/assign. Pass employee_id=None to unassign."""
+    employee_id: int | None = None
 
 
 class OrderInternalNoteUpdate(BaseModel):

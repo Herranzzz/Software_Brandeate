@@ -224,6 +224,9 @@ export type Order = {
   items: OrderItem[];
   shipment: Shipment | null;
   shipments: Shipment[];
+  assigned_to_employee_id: number | null;
+  assigned_to_employee_name: string | null;
+  assigned_at: string | null;
   automation_events?: AutomationEvent[];
 };
 

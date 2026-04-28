@@ -11,7 +11,7 @@ import { ProductionBadge } from "@/components/production-badge";
 import { SectionTitle } from "@/components/section-title";
 import { StatusBadge } from "@/components/status-badge";
 import { ShippingOptionsPanel } from "@/components/shipping-options-panel";
-import { fetchOrderById, fetchOrderIncidents, fetchShopCatalogProducts } from "@/lib/api";
+import { fetchOrderById, fetchOrderIncidents, fetchShopCatalogProducts, fetchAdminUsers } from "@/lib/api";
 import { getAuthToken, requirePortalUser } from "@/lib/auth";
 import { formatDateTime, sortTrackingEvents } from "@/lib/format";
 import { getPrimaryDesignPreview, isImageAsset } from "@/lib/personalization";
@@ -216,9 +216,10 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
   const currentUser = await requirePortalUser();
   const { id } = await params;
   const token = await getAuthToken();
-  const [order, incidents] = await Promise.all([
+  const [order, incidents, allUsers] = await Promise.all([
     fetchOrderById(id),
     fetchOrderIncidents(id),
+    fetchAdminUsers().catch(() => []),
   ]);
 
   if (!order || incidents === null) {
@@ -379,10 +380,11 @@ export default async function PortalOrderDetailPage({ params }: PortalOrderDetai
 
           <Card className="stack">
             <OrderCollabPanel
-              orderId={order.id}
-              shopId={order.shop_id}
+              order={order}
               currentUserId={currentUser.id}
               currentUserName={currentUser.name}
+              currentUserRole={currentUser.role}
+              employees={allUsers.map((u) => ({ id: u.id, name: u.name }))}
             />
           </Card>
 

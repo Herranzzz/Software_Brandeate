@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -7,7 +9,7 @@ from app.api.deps import get_accessible_shop_ids, get_current_user, get_db, requ
 from app.models import Order
 from app.models.activity_log import ActivityLog
 from app.models.user import User
-from app.schemas.activity import ActivityLogRead
+from app.schemas.activity import ActivityLogRead, CommentEditRequest
 from app.services.activity import log_activity
 
 router = APIRouter(prefix="/activity", tags=["activity"])
@@ -108,6 +110,56 @@ def create_comment(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+@router.patch("/comment/{comment_id}", response_model=ActivityLogRead)
+def edit_comment(
+    comment_id: int,
+    payload: CommentEditRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+):
+    """Edit the body of a comment. Only the original author can edit."""
+    entry = db.get(ActivityLog, comment_id)
+    if entry is None or entry.is_deleted or entry.action != "comment_added":
+        raise HTTPException(status_code=404, detail="Comentario no encontrado")
+    if entry.actor_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Solo el autor puede editar el comentario")
+    if accessible_shop_ids is not None and entry.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=403, detail="Sin acceso")
+
+    body = payload.body.strip()
+    entry.summary = body
+    entry.edited_at = datetime.now(timezone.utc)
+    if entry.detail_json:
+        entry.detail_json = {**entry.detail_json, "body": body}
+    else:
+        entry.detail_json = {"body": body}
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.delete("/comment/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_comment(
+    comment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+):
+    """Soft-delete a comment. Only the author or an admin can delete."""
+    entry = db.get(ActivityLog, comment_id)
+    if entry is None or entry.is_deleted or entry.action != "comment_added":
+        raise HTTPException(status_code=404, detail="Comentario no encontrado")
+    is_admin = current_user.role.value == "admin" if hasattr(current_user.role, "value") else str(current_user.role) == "admin"
+    if entry.actor_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Sin permiso para borrar este comentario")
+    if accessible_shop_ids is not None and entry.shop_id not in accessible_shop_ids:
+        raise HTTPException(status_code=403, detail="Sin acceso")
+
+    entry.is_deleted = True
+    db.commit()
 
 
 @router.get("/notifications")
