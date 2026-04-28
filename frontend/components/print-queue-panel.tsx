@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 
+import { AppModal } from "@/components/app-modal";
 import { BulkLabelModal } from "@/components/bulk-label-modal";
 import { Card } from "@/components/card";
 import { EmployeesTabNav } from "@/components/employees-tab-nav";
@@ -155,6 +156,26 @@ export function PrintQueuePanel({
     if (typeof window === "undefined") return false;
     return localStorage.getItem("kiosk_setup_dismissed") !== "1";
   });
+
+  // ─── Histórico de etiquetas ────────────────────────────────────────────────
+  // Standalone re-print flow for past sessions: pick an employee + a date
+  // range and download a merged PDF of every CTT label they created in that
+  // window. Decoupled from the live queue (production_status=packed) so it
+  // keeps working after orders move to "completed" and disappear from view.
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
+  type ArchivePreset = "today" | "yesterday" | "custom";
+  const [archivePreset, setArchivePreset] = useState<ArchivePreset>("today");
+  const [archiveEmployeeId, setArchiveEmployeeId] = useState<string>(
+    activePreparerId ? String(activePreparerId) : "",
+  );
+  const todayIso = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+  const [archiveFrom, setArchiveFrom] = useState<string>(todayIso);
+  const [archiveTo, setArchiveTo] = useState<string>(todayIso);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveProgress, setArchiveProgress] = useState<{ done: number; total: number; phase: "downloading" | "merging" } | null>(null);
 
   // Track which order IDs were in the queue at page load (the "pre-session"
   // set). Any order that arrives after that is considered "this session".
@@ -492,6 +513,90 @@ export function PrintQueuePanel({
     void printExistingLabels(visibleOrders);
   }
 
+  /**
+   * Compute [from, to] as local-Spain ISO datetimes for the archive query.
+   * Today  → [today 00:00, now]
+   * Yesterday → [yesterday 00:00, yesterday 23:59:59]
+   * Custom → [archiveFrom 00:00, archiveTo 23:59:59]
+   */
+  function resolveArchiveRange(): { from: string; to: string } {
+    const startOf = (yyyymmdd: string, endOfDay: boolean) => {
+      const [y, m, d] = yyyymmdd.split("-").map((n) => Number.parseInt(n, 10));
+      const date = new Date(y, (m || 1) - 1, d || 1);
+      if (endOfDay) date.setHours(23, 59, 59, 999);
+      else date.setHours(0, 0, 0, 0);
+      return date.toISOString();
+    };
+
+    if (archivePreset === "today") {
+      const today = new Date();
+      const yyyymmdd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      return { from: startOf(yyyymmdd, false), to: new Date().toISOString() };
+    }
+    if (archivePreset === "yesterday") {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      const yyyymmdd = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+      return { from: startOf(yyyymmdd, false), to: startOf(yyyymmdd, true) };
+    }
+    return { from: startOf(archiveFrom, false), to: startOf(archiveTo, true) };
+  }
+
+  async function downloadArchive() {
+    if (archiveBusy) return;
+    setArchiveBusy(true);
+    setArchiveProgress(null);
+    try {
+      const { from, to } = resolveArchiveRange();
+      const params = new URLSearchParams({ from, to });
+      if (archiveEmployeeId) params.set("employee_id", archiveEmployeeId);
+      if (activeShopId) params.set("shop_id", activeShopId);
+
+      const res = await fetch(`/api/shipments/labels-archive?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.detail || `Error ${res.status}`);
+      }
+      const data = (await res.json()) as {
+        shipments: Array<{ tracking_number: string }>;
+        total: number;
+        truncated: boolean;
+      };
+      const codes = data.shipments.map((s) => s.tracking_number).filter(Boolean);
+      if (codes.length === 0) {
+        toast("No hay etiquetas en ese rango", "info");
+        return;
+      }
+      if (data.truncated) {
+        toast(`Mostrando las primeras ${codes.length}; afina el rango para verlas todas`, "warning");
+      }
+      setArchiveProgress({ done: 0, total: codes.length, phase: "downloading" });
+      const failures = await printLabelsMerged(
+        codes,
+        { format: "PDF", forceDownload: true },
+        (done, total) => {
+          const phase = done < total ? "downloading" : "merging";
+          setArchiveProgress({ done, total, phase });
+        },
+      );
+      if (failures.length === 0) {
+        toast(`PDF descargado · ${codes.length} etiquetas`, "success");
+      } else if (failures.length === codes.length) {
+        toast("No se pudo descargar ninguna etiqueta", "error");
+      } else {
+        toast(`Descargadas ${codes.length - failures.length} · ${failures.length} con error`, "warning");
+      }
+      setIsArchiveOpen(false);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Error descargando histórico", "error");
+    } finally {
+      setArchiveBusy(false);
+      setArchiveProgress(null);
+    }
+  }
+
   function printSelected() {
     const subset = visibleOrders.filter((o) => selectedIds.has(o.id));
     void printExistingLabels(subset);
@@ -590,6 +695,15 @@ export function PrintQueuePanel({
               type="button"
             >
               {isRefreshing ? "Actualizando..." : "Actualizar"}
+            </button>
+            <button
+              className="button-secondary"
+              disabled={isPrinting}
+              onClick={() => setIsArchiveOpen(true)}
+              type="button"
+              title="Descargar PDF combinado de etiquetas creadas en una sesión pasada"
+            >
+              Histórico…
             </button>
             <button
               className="button button-primary print-queue-print-all"
@@ -922,6 +1036,111 @@ export function PrintQueuePanel({
           }}
         />
       ) : null}
+
+      <AppModal
+        open={isArchiveOpen}
+        onClose={() => {
+          if (!archiveBusy) setIsArchiveOpen(false);
+        }}
+        eyebrow="Cola de impresión"
+        title="Histórico de etiquetas"
+        subtitle="Reconstruye el PDF combinado de las etiquetas que un compañero creó en una sesión pasada."
+        actions={
+          <>
+            <button
+              className="button-secondary"
+              disabled={archiveBusy}
+              onClick={() => setIsArchiveOpen(false)}
+              type="button"
+            >
+              Cancelar
+            </button>
+            <button
+              className="button button-primary"
+              disabled={archiveBusy}
+              onClick={() => void downloadArchive()}
+              type="button"
+            >
+              {archiveBusy
+                ? archiveProgress
+                  ? archiveProgress.phase === "merging"
+                    ? "Combinando PDF…"
+                    : `Descargando ${archiveProgress.done}/${archiveProgress.total}…`
+                  : "Buscando…"
+                : "Descargar PDF"}
+            </button>
+          </>
+        }
+      >
+        <div className="stack" style={{ gap: 16 }}>
+          <label className="stack" style={{ gap: 6 }}>
+            <span className="eyebrow">Empleado</span>
+            <select
+              className="input"
+              disabled={archiveBusy}
+              onChange={(e) => setArchiveEmployeeId(e.target.value)}
+              value={archiveEmployeeId}
+            >
+              <option value="">Todos los preparadores</option>
+              {preparers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <fieldset className="stack" style={{ gap: 6, border: 0, padding: 0, margin: 0 }}>
+            <legend className="eyebrow">Rango</legend>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              {(["today", "yesterday", "custom"] as const).map((preset) => (
+                <label key={preset} style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    checked={archivePreset === preset}
+                    disabled={archiveBusy}
+                    name="archive-preset"
+                    onChange={() => setArchivePreset(preset)}
+                    type="radio"
+                  />
+                  <span>{preset === "today" ? "Hoy" : preset === "yesterday" ? "Ayer" : "Personalizado"}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          {archivePreset === "custom" ? (
+            <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
+              <label className="stack" style={{ gap: 6, flex: "1 1 160px" }}>
+                <span className="eyebrow">Desde</span>
+                <input
+                  className="input"
+                  disabled={archiveBusy}
+                  max={archiveTo}
+                  onChange={(e) => setArchiveFrom(e.target.value)}
+                  type="date"
+                  value={archiveFrom}
+                />
+              </label>
+              <label className="stack" style={{ gap: 6, flex: "1 1 160px" }}>
+                <span className="eyebrow">Hasta</span>
+                <input
+                  className="input"
+                  disabled={archiveBusy}
+                  min={archiveFrom}
+                  onChange={(e) => setArchiveTo(e.target.value)}
+                  type="date"
+                  value={archiveTo}
+                />
+              </label>
+            </div>
+          ) : null}
+
+          <p className="muted" style={{ fontSize: 13 }}>
+            La búsqueda se basa en cuándo se creó la etiqueta CTT (no en cuándo se preparó el pedido).
+            Funciona aunque el pedido ya haya salido de la cola.
+          </p>
+        </div>
+      </AppModal>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only, selectinload
@@ -65,7 +67,7 @@ def create_shipment(
 ) -> Shipment:
     order = db.scalar(
         select(Order)
-        .options(selectinload(Order.shipment))
+        .options(selectinload(Order.shipments))
         .where(Order.id == payload.order_id)
     )
     if order is None:
@@ -135,6 +137,76 @@ def create_shipment(
         )
         .where(Shipment.id == shipment.id)
     )
+
+
+@router.get("/labels-archive")
+def list_labels_archive(
+    employee_id: int | None = Query(None, description="Filter to one preparer; omit for all"),
+    from_dt: datetime | None = Query(None, alias="from", description="ISO datetime, inclusive"),
+    to_dt: datetime | None = Query(None, alias="to", description="ISO datetime, inclusive"),
+    shop_id: int | None = None,
+    limit: int = Query(2000, ge=1, le=5000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+    accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
+) -> dict:
+    """List CTT tracking codes by employee + date range.
+
+    Powers /employees/print-queue's "Histórico" action: an operator can
+    rebuild the merged-PDF stack of labels someone created earlier today,
+    yesterday, or in any custom window — even after those orders left the
+    live print queue (production_status=completed). Read-only; the merge
+    and download happen client-side via printLabelsMerged.
+
+    Declared above /{shipment_id} on purpose: FastAPI matches by order, and
+    "labels-archive" must not be coerced into the int path param.
+    """
+    query = (
+        select(
+            Shipment.id,
+            Shipment.order_id,
+            Shipment.tracking_number,
+            Shipment.created_at,
+            Shipment.created_by_employee_id,
+        )
+        .where(Shipment.tracking_number != "")
+        .order_by(Shipment.created_at.asc(), Shipment.id.asc())
+        .limit(limit)
+    )
+
+    if employee_id is not None:
+        query = query.where(Shipment.created_by_employee_id == employee_id)
+    if from_dt is not None:
+        query = query.where(Shipment.created_at >= from_dt)
+    if to_dt is not None:
+        query = query.where(Shipment.created_at <= to_dt)
+
+    needs_shop_join = shop_id is not None or accessible_shop_ids is not None
+    if needs_shop_join:
+        query = query.join(Shipment.order)
+        if shop_id is not None:
+            if accessible_shop_ids is not None and shop_id not in accessible_shop_ids:
+                return {"shipments": [], "total": 0, "truncated": False}
+            query = query.where(Order.shop_id == shop_id)
+        elif accessible_shop_ids is not None:
+            query = query.where(Order.shop_id.in_(accessible_shop_ids))
+
+    rows = db.execute(query).all()
+    shipments = [
+        {
+            "id": row.id,
+            "order_id": row.order_id,
+            "tracking_number": row.tracking_number,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "created_by_employee_id": row.created_by_employee_id,
+        }
+        for row in rows
+    ]
+    return {
+        "shipments": shipments,
+        "total": len(shipments),
+        "truncated": len(shipments) >= limit,
+    }
 
 
 @router.get("/{shipment_id}", response_model=ShipmentRead)
