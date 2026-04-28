@@ -34,8 +34,9 @@ export function ProductionFunnel({ flow }: Props) {
         {STEPS.map((step, i) => {
           const value = values[i];
           const widthPct = 40 + (value / max) * 60; // min 40% width
-          const convRate = i > 0 && values[i - 1] > 0
-            ? Math.round((value / values[i - 1]) * 100)
+          // % vs total received (first step), only shown when < 100%
+          const convRate = i > 0 && values[0] > 0
+            ? Math.round((value / values[0]) * 100)
             : null;
 
           return (

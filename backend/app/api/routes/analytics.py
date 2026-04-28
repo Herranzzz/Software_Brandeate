@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 from sqlalchemy.orm import Session
 import logging
 
@@ -86,24 +86,35 @@ def get_province_distribution(
     db: Session = Depends(get_db),
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
 ):
-    """Returns order counts grouped by shipping province code, with status breakdown."""
+    """Returns order counts grouped by province. Uses shipping_province_code when available,
+    falls back to the first 2 digits of shipping_postal_code (Spanish convention)."""
     today = datetime.now(BUSINESS_TZ).date()
     effective_date_to = date_to or today
     effective_date_from = date_from or (effective_date_to - timedelta(days=DEFAULT_ANALYTICS_WINDOW_DAYS - 1))
     scoped_shop_ids = resolve_shop_scope(shop_id, accessible_shop_ids)
 
+    # Derive province key: prefer explicit code, fall back to 2-digit postal prefix
+    province_key = func.coalesce(
+        Order.shipping_province_code,
+        func.substring(Order.shipping_postal_code, 1, 2),
+    )
+
     q = (
         db.query(
-            Order.shipping_province_code,
-            func.count(Order.id).label("total"),
-            func.sum(case((Order.status == "cancelled", 1), else_=0)).label("cancelled"),
+            province_key.label("province_code"),
+            func.count(func.distinct(Order.id)).label("total"),
             func.sum(case((Shipment.shipping_status == "in_transit", 1), else_=0)).label("in_transit"),
             func.sum(case((Shipment.shipping_status == "out_for_delivery", 1), else_=0)).label("out_for_delivery"),
             func.sum(case((Shipment.shipping_status == "delivered", 1), else_=0)).label("delivered"),
             func.sum(case((Shipment.shipping_status == "exception", 1), else_=0)).label("exception"),
         )
         .outerjoin(Shipment, Shipment.order_id == Order.id)
-        .filter(Order.shipping_province_code.isnot(None))
+        .filter(
+            or_(
+                Order.shipping_province_code.isnot(None),
+                Order.shipping_postal_code.isnot(None),
+            )
+        )
         .filter(func.date(Order.created_at) >= effective_date_from)
         .filter(func.date(Order.created_at) <= effective_date_to)
     )
@@ -111,11 +122,15 @@ def get_province_distribution(
     if scoped_shop_ids:
         q = q.filter(Order.shop_id.in_(scoped_shop_ids))
 
-    rows = q.group_by(Order.shipping_province_code).order_by(func.count(Order.id).desc()).all()
+    rows = (
+        q.group_by(province_key)
+        .order_by(func.count(func.distinct(Order.id)).desc())
+        .all()
+    )
 
     return [
         {
-            "province_code": row.shipping_province_code,
+            "province_code": row.province_code,
             "total": row.total,
             "in_transit": row.in_transit or 0,
             "out_for_delivery": row.out_for_delivery or 0,
@@ -123,4 +138,5 @@ def get_province_distribution(
             "exception": row.exception or 0,
         }
         for row in rows
+        if row.province_code  # skip null keys
     ]

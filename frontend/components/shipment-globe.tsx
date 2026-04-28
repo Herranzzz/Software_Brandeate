@@ -151,13 +151,23 @@ export function ShipmentGlobe({ dateFrom, dateTo, shopId }: Props) {
 
   const points = data
     .map((p) => {
-      // Shopify stores codes as "ES-M", "ES-B", etc. — strip the country prefix
-      const raw = p.province_code.toUpperCase();
+      if (!p.province_code) return null;
+      // Handle "ES-M" Shopify format, plain "M", or 2-digit postal "28"
+      const raw = p.province_code.toUpperCase().trim();
       const code = raw.startsWith("ES-") ? raw.slice(3) : raw;
       const coords = PROVINCE_COORDS[code] ?? PROVINCE_COORDS[raw];
       return coords ? { ...p, ...coords } : null;
     })
     .filter(Boolean) as (ProvincePoint & { lat: number; lng: number; name: string })[];
+
+  if (points.length === 0) {
+    return (
+      <div className="smap-loading" style={{ height: 120 }}>
+        Sin datos de provincia en el periodo seleccionado.<br />
+        <span style={{ fontSize: "0.75rem" }}>Los pedidos necesitan código postal o provincia para aparecer en el mapa.</span>
+      </div>
+    );
+  }
 
   return <GlobeInner points={points} />;
 }
