@@ -20,6 +20,15 @@ export async function POST(request: NextRequest, { params }: Params) {
     body: JSON.stringify(body),
     cache: "no-store",
   });
-  const payload = await response.json();
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    console.error("[assign] backend non-JSON response", response.status, await response.text().catch(() => ""));
+    return NextResponse.json({ detail: `Backend error ${response.status}` }, { status: response.status });
+  }
+  if (!response.ok) {
+    console.error("[assign] backend error", response.status, JSON.stringify(payload));
+  }
   return NextResponse.json(payload, { status: response.status });
 }

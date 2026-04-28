@@ -552,15 +552,20 @@ export function OrdersWorkbench({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ employee_id: employeeId }),
       });
-      if (!res.ok) throw new Error("Error al asignar");
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try { const err = await res.json(); detail = err?.detail ?? JSON.stringify(err); } catch { /* ignore */ }
+        throw new Error(detail);
+      }
       const updated: Order = await res.json();
       setOrders((current) => current.map((o) => (o.id === orderId ? updated : o)));
       toast(employeeId ? `Asignado a ${emp?.name ?? "empleado"}` : "Asignación eliminada", "success");
-    } catch {
+    } catch (err) {
       if (previous) {
         setOrders((current) => current.map((o) => (o.id === orderId ? previous : o)));
       }
-      toast("No se pudo asignar el pedido", "error");
+      const msg = err instanceof Error ? err.message : "Error desconocido";
+      toast(`No se pudo asignar: ${msg}`, "error");
     } finally {
       setInlineLoading(null);
     }
