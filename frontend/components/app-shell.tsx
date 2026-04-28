@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, t
 
 
 import { AdminCommandPalette } from "@/components/admin-command-palette";
+import { BackgroundDesignJobChip } from "@/components/background-design-job-chip";
 import { useLayoutState } from "@/components/layout-state-provider";
 import { SidebarCollapseButton } from "@/components/sidebar-collapse-button";
 import type { User } from "@/lib/types";
@@ -468,6 +469,12 @@ export function AppShell({ children, currentUser }: AppShellProps) {
         </div>
         <main className="dashboard-content">{children}</main>
       </div>
+
+      {/* Floating progress chip for any in-flight bulk-design ZIP. Renders
+          itself only when localStorage has an active job, so it's a no-op
+          for users who never trigger that flow. Mounted at shell level so
+          it persists across page navigations. */}
+      <BackgroundDesignJobChip />
 
       {/* ── Mobile bottom navigation ──────────────────────────── */}
       <nav className="mobile-bottom-nav" aria-label="Navegación principal">

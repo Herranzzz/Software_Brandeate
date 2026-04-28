@@ -2,6 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import {
+  clearActiveDesignJob,
+  readActiveDesignJob,
+  writeActiveDesignJob,
+} from "@/components/background-design-job-chip";
+
 import { AppModal } from "@/components/app-modal";
 import { getItemPrimaryAsset } from "@/lib/personalization";
 import type { Order } from "@/lib/types";
@@ -262,7 +268,26 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
   }
 
   async function handleCancelClose() {
+    // Explicit cancel: kill the server-side job AND clear the floating-chip
+    // state. Used only by the "Cancelar descarga" action — closing the modal
+    // by clicking outside / pressing Esc no longer takes this path.
     await cancelActiveJob();
+    clearActiveDesignJob();
+    onClose();
+  }
+
+  /**
+   * Plain close: hide the modal but keep the job running in the background.
+   * The floating chip in the app shell will continue showing progress and
+   * surface the "Descargar ZIP" button when it finishes. This is what the
+   * operator gets by pressing Esc, clicking outside, or hitting the X.
+   *
+   * Setting cancelledRef hands control off to the chip: it bails out of the
+   * modal's local polling loop without triggering a duplicate download (the
+   * chip's "Descargar ZIP" button is now the single download path).
+   */
+  function handleBackgroundClose() {
+    cancelledRef.current = true;
     onClose();
   }
 
@@ -297,6 +322,9 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
 
       let currentJob = (await createResponse.json()) as BulkDownloadJobState;
       activeJobIdRef.current = currentJob.job_id;
+      // Persist for the floating chip so the operator can navigate away from
+      // /orders and the indicator follows them across pages.
+      writeActiveDesignJob({ job_id: currentJob.job_id, started_at: Date.now() });
       if (cancelledRef.current) return;
       syncStateFromJob(currentJob);
 
@@ -419,10 +447,16 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
       URL.revokeObjectURL(objectUrl);
 
       setPhase("done");
+      // Job done — chip already triggered the download from server, but if
+      // it's still in localStorage from this submit, clear it so the chip
+      // hides instead of showing a stale "✓ Listo" after we already
+      // downloaded inline here.
+      clearActiveDesignJob();
     } catch (err) {
       if (cancelledRef.current) return;
       setErrorMsg(err instanceof Error ? err.message : "Error desconocido");
       setPhase("error");
+      clearActiveDesignJob();
     }
   }
 
@@ -432,7 +466,7 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
   return (
     <AppModal
       eyebrow="Producción"
-      onClose={isLoading ? handleCancelClose : onClose}
+      onClose={handleBackgroundClose}
       open
       title="Descargar diseños en bulk"
       subtitle={`${orders.length} pedido${orders.length !== 1 ? "s" : ""} seleccionado${orders.length !== 1 ? "s" : ""}`}
@@ -444,13 +478,33 @@ export function BulkDesignDownloadModal({ orders, onClose }: BulkDesignDownloadM
           </button>
         ) : (
           <>
-            <button
-              className="button-secondary"
-              onClick={isLoading ? () => void handleCancelClose() : onClose}
-              type="button"
-            >
-              Cancelar
-            </button>
+            {isLoading ? (
+              <>
+                <button
+                  className="button-secondary"
+                  onClick={handleBackgroundClose}
+                  title="La descarga sigue en segundo plano. Verás el progreso en la esquina inferior derecha."
+                  type="button"
+                >
+                  Ocultar
+                </button>
+                <button
+                  className="button-link muted"
+                  onClick={() => void handleCancelClose()}
+                  type="button"
+                >
+                  Cancelar descarga
+                </button>
+              </>
+            ) : (
+              <button
+                className="button-secondary"
+                onClick={onClose}
+                type="button"
+              >
+                Cancelar
+              </button>
+            )}
             {phase === "confirm" ? (
               <>
                 <button
