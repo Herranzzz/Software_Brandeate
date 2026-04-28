@@ -24,6 +24,7 @@ MERGE_HEAD = "0047_merge_heads"
 KNOWN_REVISIONS = {
     "0047_merge_heads",
     "0048",
+    "0049",
 }
 
 
