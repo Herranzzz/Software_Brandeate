@@ -45,7 +45,7 @@ import type {
 
 type Employee = { id: number; name: string };
 
-type InlineDropdown = { type: "assign"; orderId: number };
+type InlineDropdown = { type: "assign"; orderId: number; top: number; right: number };
 
 type OrdersWorkbenchProps = {
   initialOrders: Order[];
@@ -510,7 +510,7 @@ export function OrdersWorkbench({
   const [inlineLoading, setInlineLoading] = useState<number | null>(null); // orderId being updated
   const inlineRef = useRef<HTMLDivElement | null>(null);
 
-  // Close inline dropdown on outside click
+  // Close inline dropdown on outside click or scroll
   useEffect(() => {
     if (!openInline) return;
     function handleOutsideClick(e: MouseEvent) {
@@ -518,16 +518,20 @@ export function OrdersWorkbench({
         setOpenInline(null);
       }
     }
+    function handleScroll() { setOpenInline(null); }
     document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("scroll", handleScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("scroll", handleScroll, true);
+    };
   }, [openInline]);
 
-  function toggleInline(dropdown: InlineDropdown) {
-    setOpenInline((current) =>
-      current?.type === dropdown.type && current.orderId === dropdown.orderId
-        ? null
-        : dropdown,
-    );
+  function openAssignDropdown(e: React.MouseEvent<HTMLButtonElement>, orderId: number) {
+    e.stopPropagation();
+    if (openInline?.orderId === orderId) { setOpenInline(null); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setOpenInline({ type: "assign", orderId, top: rect.bottom + 4, right: window.innerWidth - rect.right });
   }
 
   async function handleInlineAssign(orderId: number, employeeId: number | null) {
@@ -1153,7 +1157,6 @@ export function OrdersWorkbench({
                       const orderCancelled = isOrderCancelled(order);
                       const isLastOpenedRow = lastOpenedOrderId === order.id;
                       const isRowLoading = inlineLoading === order.id;
-                      const isAssignOpen = openInline?.type === "assign" && openInline.orderId === order.id;
 
                       return (
                         <tr
@@ -1315,40 +1318,17 @@ export function OrdersWorkbench({
 
                               {/* Assign employee */}
                               {employees.length > 0 ? (
-                                <div className="inline-ctrl-wrap" ref={isAssignOpen ? inlineRef : undefined}>
-                                  <button
-                                    className={`button-ghost orders-assign-btn ${order.assigned_to_employee_id ? "orders-assign-btn-active" : ""}`}
-                                    disabled={isRowLoading}
-                                    onClick={(e) => { e.stopPropagation(); toggleInline({ type: "assign", orderId: order.id }); }}
-                                    title={order.assigned_to_employee_name ? `Asignado: ${order.assigned_to_employee_name}` : "Asignar empleado"}
-                                    type="button"
-                                  >
-                                    {order.assigned_to_employee_name
-                                      ? `👤 ${order.assigned_to_employee_name.split(" ")[0]}`
-                                      : "👤"}
-                                  </button>
-                                  {isAssignOpen ? (
-                                    <div className="inline-dropdown inline-dropdown-right">
-                                      <button
-                                        className={`inline-dropdown-item ${!order.assigned_to_employee_id ? "inline-dropdown-item-active" : ""}`}
-                                        onClick={() => handleInlineAssign(order.id, null)}
-                                        type="button"
-                                      >
-                                        Sin asignar
-                                      </button>
-                                      {employees.map((emp) => (
-                                        <button
-                                          className={`inline-dropdown-item ${order.assigned_to_employee_id === emp.id ? "inline-dropdown-item-active" : ""}`}
-                                          key={emp.id}
-                                          onClick={() => handleInlineAssign(order.id, emp.id)}
-                                          type="button"
-                                        >
-                                          {emp.name}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  ) : null}
-                                </div>
+                                <button
+                                  className={`button-ghost orders-assign-btn ${order.assigned_to_employee_id ? "orders-assign-btn-active" : ""}`}
+                                  disabled={isRowLoading}
+                                  onClick={(e) => openAssignDropdown(e, order.id)}
+                                  title={order.assigned_to_employee_name ? `Asignado: ${order.assigned_to_employee_name}` : "Asignar empleado"}
+                                  type="button"
+                                >
+                                  {order.assigned_to_employee_name
+                                    ? `👤 ${order.assigned_to_employee_name.split(" ")[0]}`
+                                    : "👤"}
+                                </button>
                               ) : null}
 
                               <Link
@@ -1570,6 +1550,37 @@ export function OrdersWorkbench({
         </Card>
       </aside>
       ) : null}
+
+      {/* ── Assign dropdown — rendered fixed to escape overflow clipping ── */}
+      {openInline ? (() => {
+        const order = orders.find((o) => o.id === openInline.orderId);
+        if (!order) return null;
+        return (
+          <div
+            className="inline-dropdown"
+            ref={inlineRef}
+            style={{ position: "fixed", top: openInline.top, right: openInline.right, left: "auto", zIndex: 99999 }}
+          >
+            <button
+              className={`inline-dropdown-item ${!order.assigned_to_employee_id ? "inline-dropdown-item-active" : ""}`}
+              onClick={() => handleInlineAssign(order.id, null)}
+              type="button"
+            >
+              Sin asignar
+            </button>
+            {employees.map((emp) => (
+              <button
+                className={`inline-dropdown-item ${order.assigned_to_employee_id === emp.id ? "inline-dropdown-item-active" : ""}`}
+                key={emp.id}
+                onClick={() => handleInlineAssign(order.id, emp.id)}
+                type="button"
+              >
+                {emp.name}
+              </button>
+            ))}
+          </div>
+        );
+      })() : null}
     </div>
   );
 }
