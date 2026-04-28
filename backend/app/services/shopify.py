@@ -453,6 +453,22 @@ mutation FulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: 
 """
 
 
+FULFILLMENT_CANCEL_MUTATION = """
+mutation FulfillmentCancel($id: ID!) {
+  fulfillmentCancel(id: $id) {
+    fulfillment {
+      id
+      status
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""
+
+
 FULFILLMENT_EVENT_CREATE_MUTATION = """
 mutation FulfillmentEventCreate($fulfillmentEvent: FulfillmentEventInput!) {
   fulfillmentEventCreate(fulfillmentEvent: $fulfillmentEvent) {
@@ -1096,6 +1112,62 @@ def _request_shopify_client_credentials_token(
     if not access_token:
         raise ShopifyCredentialsError("Shopify did not return an access token")
     return access_token
+
+
+def cancel_shopify_fulfillment(
+    *,
+    db: Session,
+    order: Order,
+    fulfillment_id: str,
+) -> bool:
+    """Cancel a Shopify fulfillment by GID. Used when a replacement label is
+    issued for an order — the prior fulfillment is closed so the new one
+    (created by the next tracking push) becomes the active record on
+    Shopify's side.
+
+    Returns True if Shopify reported the fulfillment as cancelled. Logs and
+    swallows non-fatal Shopify errors so a failed cancel doesn't block the
+    operator from issuing the new label — the worst case is a stale Shopify
+    fulfillment that can be cleaned up manually.
+    """
+    integration = db.scalar(
+        select(ShopIntegration).where(
+            ShopIntegration.shop_id == order.shop_id,
+            ShopIntegration.provider == SHOPIFY_PROVIDER,
+            ShopIntegration.is_active.is_(True),
+        )
+    )
+    if integration is None:
+        logger.warning(
+            "Shopify cancel skipped — no integration order_id=%s fulfillment=%s",
+            order.id, fulfillment_id,
+        )
+        return False
+
+    try:
+        access_token = resolve_shopify_access_token(db, integration)
+        payload = _run_shopify_graphql(
+            shop_domain=integration.shop_domain,
+            access_token=access_token,
+            query=FULFILLMENT_CANCEL_MUTATION,
+            variables={"id": fulfillment_id},
+        )
+    except Exception as exc:
+        logger.warning(
+            "Shopify fulfillmentCancel failed order_id=%s fulfillment=%s err=%s",
+            order.id, fulfillment_id, exc,
+        )
+        return False
+
+    container = payload.get("data", {}).get("fulfillmentCancel", {}) or {}
+    user_errors = container.get("userErrors") or []
+    if user_errors:
+        logger.warning(
+            "Shopify fulfillmentCancel returned userErrors order_id=%s errors=%s",
+            order.id, user_errors,
+        )
+        return False
+    return True
 
 
 def push_tracking_to_shopify(
@@ -2277,7 +2349,7 @@ def find_existing_order(
             .options(
                 selectinload(Order.items),
                 selectinload(Order.incidents),
-                selectinload(Order.shipment).selectinload(Shipment.events),
+                selectinload(Order.shipments).selectinload(Shipment.events),
             )
         )
     )
@@ -2395,15 +2467,17 @@ def maybe_create_imported_shipment(order: Order, shopify_order: ShopifyOrder) ->
     if not carrier and not tracking_number and not tracking_url and not tracking_status:
         return False
 
-    order.shipment = Shipment(
-        fulfillment_id=primary_fulfillment.id if primary_fulfillment else None,
-        carrier=carrier or "Shopify fulfillment",
-        tracking_number=tracking_number or "",
-        tracking_url=tracking_url or None,
-        shipping_status=tracking_status,
-        shipping_status_detail=tracking_status_detail,
-        shopify_sync_status="synced",
-        shopify_synced_at=datetime.now(timezone.utc),
+    order.shipments.append(
+        Shipment(
+            fulfillment_id=primary_fulfillment.id if primary_fulfillment else None,
+            carrier=carrier or "Shopify fulfillment",
+            tracking_number=tracking_number or "",
+            tracking_url=tracking_url or None,
+            shipping_status=tracking_status,
+            shipping_status_detail=tracking_status_detail,
+            shopify_sync_status="synced",
+            shopify_synced_at=datetime.now(timezone.utc),
+        )
     )
     logger.info("Shopify order %s shipment created", shopify_public_order_id(shopify_order))
     return True
@@ -3208,16 +3282,16 @@ def backfill_missing_shopify_order_links(
                     Order.items.any(OrderItem.product_id.is_(None)),
                     Order.items.any(OrderItem.variant_id.is_(None)),
                     Order.items.any(OrderItem.variant_title.is_(None)),
-                    ~Order.shipment.has(),
-                    Order.shipment.has(Shipment.fulfillment_id.is_(None)),
-                    Order.shipment.has(Shipment.tracking_number == ""),
-                    Order.shipment.has(Shipment.tracking_url.is_(None)),
+                    ~Order.shipments.any(),
+                    Order.shipments.any(Shipment.fulfillment_id.is_(None)),
+                    Order.shipments.any(Shipment.tracking_number == ""),
+                    Order.shipments.any(Shipment.tracking_url.is_(None)),
                 )
             )
             .options(
                 selectinload(Order.items),
                 selectinload(Order.incidents),
-                selectinload(Order.shipment).selectinload(Shipment.events),
+                selectinload(Order.shipments).selectinload(Shipment.events),
             )
             .order_by(Order.created_at.desc(), Order.id.desc())
             .limit(max(max_orders, 1))

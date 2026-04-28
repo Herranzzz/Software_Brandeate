@@ -1,7 +1,7 @@
 import secrets
 from datetime import datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -22,7 +22,6 @@ class Shipment(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     order_id: Mapped[int] = mapped_column(
         ForeignKey("orders.id", ondelete="CASCADE"),
-        unique=True,
         index=True,
     )
     created_by_employee_id: Mapped[int | None] = mapped_column(
@@ -64,15 +63,46 @@ class Shipment(Base):
         index=True,
         default=generate_public_token,
     )
+    # Replacement metadata: 1 = original; 2+ = sequential reissues for the
+    # same order (lost parcel, damage, customer redelivery, etc.). The CTT
+    # label gets a "-R{n}" suffix on its reference for n >= 2 so handlers
+    # immediately see it's a reenvío.
+    replacement_sequence: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+    replacement_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    replaces_shipment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("shipments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_cost_pending: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    shopify_fulfillment_cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
     )
 
-    order = relationship("Order", back_populates="shipment")
+    order = relationship("Order", back_populates="shipments")
     created_by_employee = relationship("User", back_populates="created_shipments", foreign_keys=[created_by_employee_id])
     shipping_rule = relationship("ShippingRule", back_populates="shipments")
+    replaces = relationship(
+        "Shipment",
+        remote_side="Shipment.id",
+        foreign_keys=[replaces_shipment_id],
+        post_update=True,
+    )
     events = relationship(
         "TrackingEvent",
         back_populates="shipment",

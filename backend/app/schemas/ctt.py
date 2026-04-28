@@ -60,3 +60,27 @@ class CTTBulkShippingResponse(BaseModel):
     created_count: int
     skipped_count: int
     failed_count: int
+
+
+class CTTReplacementShippingRequest(BaseModel):
+    """Body for POST /ctt/shippings/{order_id}/replacements.
+
+    `replacement_reason` is required so we always have an audit trail for
+    why a second (or third) label was issued. Service/weight default to
+    the active shipment's values if omitted.
+    """
+
+    replacement_reason: str = Field(min_length=1, max_length=2000)
+    weight_tier_code: str | None = None
+    shipping_type_code: str | None = None
+    item_count: int = Field(default=1, ge=1, le=99)
+
+
+class CTTReplacementShippingResponse(BaseModel):
+    shipping_code: str
+    tracking_url: str | None = None
+    shopify_sync_status: str | None = None
+    shopify_previous_fulfillment_cancelled: bool = False
+    shipment: ShipmentRead | None = None
+    replaced_shipment_id: int | None = None
+    ctt_response: dict

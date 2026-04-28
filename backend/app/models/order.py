@@ -177,11 +177,14 @@ class Order(Base):
         cascade="all, delete-orphan",
         order_by="OrderItem.id",
     )
-    shipment = relationship(
+    # Replacement shipments live here (original = sequence 1, reissues = 2+).
+    # Loaded as a list ordered most-recent-first so shipments[0] is active.
+    # Cascade lives on this list relationship.
+    shipments = relationship(
         "Shipment",
         back_populates="order",
-        uselist=False,
         cascade="all, delete-orphan",
+        order_by="desc(Shipment.replacement_sequence), desc(Shipment.id)",
     )
     shipping_rate_quotes = relationship(
         "ShippingRateQuote",
@@ -215,6 +218,20 @@ class Order(Base):
         cascade="all, delete-orphan",
         order_by="desc(AutomationEvent.created_at), desc(AutomationEvent.id)",
     )
+
+    @property
+    def shipment(self):
+        """The active shipment — highest replacement_sequence, else None.
+
+        Backwards-compat shim for code that pre-dates multi-shipment orders.
+        Reads from the loaded `shipments` list; does NOT trigger a lazy load
+        beyond what selectinload(Order.shipments) already provides. Use
+        `order.shipments` directly when you need history (incident triage,
+        replacement audit, etc.).
+        """
+        if not self.shipments:
+            return None
+        return self.shipments[0]
 
     @property
     def open_incidents_count(self) -> int:

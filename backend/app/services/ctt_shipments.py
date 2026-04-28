@@ -85,7 +85,17 @@ def create_ctt_shipment_for_order(
     order: Order,
     payload: CTTCreateShippingRequest,
     current_user: User | None = None,
+    replacement_reason: str | None = None,
 ) -> CTTShipmentCreationResult:
+    """Create or update the active CTT shipment for an order.
+
+    When `replacement_reason` is provided this ALWAYS creates a brand-new
+    Shipment row with replacement_sequence = (max existing) + 1, so the
+    original (sequence 1) and any prior replacements stay in the audit
+    trail. Otherwise it reuses the existing active shipment if one is
+    present (today's behavior, preserved for the standard label flow).
+    """
+    is_replacement = replacement_reason is not None
     settings = get_settings()
     shop_shipping_settings = (
         order.shop.shipping_settings_json
@@ -195,6 +205,17 @@ def create_ctt_shipment_for_order(
     )
     notify_recipient_email = _resolve_notify_recipient_email(shop_shipping_settings)
     label_reference = _resolve_label_reference(order, shop_shipping_settings)
+    # Compute the replacement sequence for THIS new shipment. Always-create
+    # path (replacement) gets max+1; standard path stays at the active
+    # shipment's existing sequence (or 1 for a brand-new order).
+    if is_replacement:
+        existing_max = max((s.replacement_sequence or 1) for s in order.shipments) if order.shipments else 0
+        new_sequence = existing_max + 1
+        # Suffix the CTT label reference so handlers see "1234-R2" on the
+        # printed label and immediately know it's a reenvío.
+        label_reference = f"{label_reference}-R{new_sequence}"
+    else:
+        new_sequence = (order.shipment.replacement_sequence if order.shipment is not None else 1)
 
     items: list[dict]
     if payload.items:
@@ -271,7 +292,27 @@ def create_ctt_shipment_for_order(
         raise CTTShipmentOrchestrationError("CTT no devolvió un shipping_code válido")
 
     tracking_url = _extract_tracking_url(ctt_response) or None
-    shipment = order.shipment or Shipment(order_id=order.id, carrier="CTT Express", tracking_number="")
+    # Replacement path → always-new shipment row, even if an active one exists.
+    # Standard path → reuse the active shipment (today's behavior).
+    if is_replacement:
+        previous_shipment = order.shipment  # active shipment being replaced
+        shipment = Shipment(
+            order_id=order.id,
+            carrier="CTT Express",
+            tracking_number="",
+            replacement_sequence=new_sequence,
+            replacement_reason=replacement_reason,
+            replaces_shipment_id=previous_shipment.id if previous_shipment is not None else None,
+            is_cost_pending=True,  # cost is filled in later when CTT bills
+        )
+        order.shipments.append(shipment)
+    else:
+        shipment = order.shipment or Shipment(
+            order_id=order.id,
+            carrier="CTT Express",
+            tracking_number="",
+            replacement_sequence=1,
+        )
     if current_user is not None and shipment.created_by_employee_id is None:
         shipment.created_by_employee_id = current_user.id
     shipment.carrier = "CTT Express"
@@ -299,8 +340,10 @@ def create_ctt_shipment_for_order(
     shipment.expected_ship_date = today
     delivery_days = _CTT_DELIVERY_DAYS.get(shipping_type_code or "C24", 2)
     shipment.expected_delivery_date = _add_business_days(today, delivery_days)
-    if order.shipment is None:
-        order.shipment = shipment
+    # New non-replacement shipment → attach to the order's list. Replacement
+    # path already appended above.
+    if not is_replacement and shipment not in order.shipments:
+        order.shipments.append(shipment)
 
     if not any(event.status_norm == "label_created" for event in shipment.events):
         shipment.events.append(

@@ -233,6 +233,10 @@ class OrderRead(BaseModel):
     automation_flags: list["AutomationFlagRead"] = Field(default_factory=list)
     items: list[OrderItemRead]
     shipment: ShipmentRead | None = None
+    # Full shipment history (original + replacements). The frontend renders
+    # this as a list on the order detail; the singular `shipment` above is
+    # always shipments[0] and stays for backwards compat.
+    shipments: list[ShipmentRead] = Field(default_factory=list)
 
 
 class OrderDetailRead(OrderRead):

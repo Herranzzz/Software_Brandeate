@@ -85,6 +85,13 @@ class ShipmentSummaryRead(BaseModel):
     shopify_synced_at: datetime | None
     public_token: str
     created_at: datetime
+    # Replacement metadata. sequence=1 = original; 2+ = reissue. Surfaces in
+    # the UI as a badge ("Reenvío R2") on the shipment card.
+    replacement_sequence: int = 1
+    replacement_reason: str | None = None
+    replaces_shipment_id: int | None = None
+    is_cost_pending: bool = False
+    shopify_fulfillment_cancelled_at: datetime | None = None
 
 
 class ShipmentRead(ShipmentSummaryRead):

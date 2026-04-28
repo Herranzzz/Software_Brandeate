@@ -83,6 +83,11 @@ export type Shipment = {
   public_token: string;
   created_at: string;
   events?: TrackingEvent[];
+  replacement_sequence: number;
+  replacement_reason: string | null;
+  replaces_shipment_id: number | null;
+  is_cost_pending: boolean;
+  shopify_fulfillment_cancelled_at: string | null;
 };
 
 export type IncidentType =
@@ -218,6 +223,7 @@ export type Order = {
   automation_flags: AutomationFlag[];
   items: OrderItem[];
   shipment: Shipment | null;
+  shipments: Shipment[];
   automation_events?: AutomationEvent[];
 };
 

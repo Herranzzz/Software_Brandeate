@@ -1,5 +1,6 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
@@ -14,6 +15,8 @@ from app.schemas.ctt import (
     CTTBulkShippingResult,
     CTTCreateShippingRequest,
     CTTCreateShippingResponse,
+    CTTReplacementShippingRequest,
+    CTTReplacementShippingResponse,
 )
 from app.core.config import get_settings
 from app.services.ctt import CTTError, get_label, get_pod
@@ -23,6 +26,7 @@ from app.services.ctt_shipments import (
     create_ctt_shipment_for_order,
 )
 from app.services.label_cache import get_cached_label, store_label
+from app.services.shopify import cancel_shopify_fulfillment
 
 
 logger = logging.getLogger(__name__)
@@ -60,7 +64,7 @@ def create_ctt_shipping(
 
     order = db.scalar(
         select(Order)
-        .options(selectinload(Order.shipment).selectinload(Shipment.events))
+        .options(selectinload(Order.shipments).selectinload(Shipment.events))
         .where(Order.id == payload.order_id)
     )
     if order is None:
@@ -82,6 +86,79 @@ def create_ctt_shipping(
         tracking_url=result.tracking_url,
         shopify_sync_status=result.shopify_sync_status,
         shipment=result.shipment,
+        ctt_response=result.ctt_response,
+    )
+
+
+@router.post(
+    "/shippings/{order_id}/replacements",
+    response_model=CTTReplacementShippingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_ctt_replacement_shipping(
+    order_id: int,
+    payload: CTTReplacementShippingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+) -> CTTReplacementShippingResponse:
+    locked_order_id = db.scalar(
+        select(Order.id).where(Order.id == order_id).with_for_update()
+    )
+    if locked_order_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+
+    order = db.scalar(
+        select(Order)
+        .options(selectinload(Order.shipments).selectinload(Shipment.events))
+        .where(Order.id == order_id)
+    )
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+
+    active_shipment = order.shipment
+    if active_shipment is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El pedido no tiene ningún envío CTT activo para reemplazar",
+        )
+
+    shopify_previous_fulfillment_cancelled = False
+    fulfillment_id = active_shipment.fulfillment_id
+    if fulfillment_id:
+        cancelled = cancel_shopify_fulfillment(db=db, order=order, fulfillment_id=fulfillment_id)
+        if cancelled:
+            active_shipment.shopify_fulfillment_cancelled_at = datetime.now(timezone.utc)
+            shopify_previous_fulfillment_cancelled = True
+
+    shipping_request = CTTCreateShippingRequest(
+        order_id=order_id,
+        weight_tier_code=payload.weight_tier_code or active_shipment.weight_tier_code,
+        shipping_type_code=payload.shipping_type_code or active_shipment.shipping_type_code,
+        item_count=payload.item_count,
+        resolution_mode="automatic",
+    )
+
+    try:
+        result = create_ctt_shipment_for_order(
+            db=db,
+            order=order,
+            payload=shipping_request,
+            current_user=current_user,
+            replacement_reason=payload.replacement_reason,
+        )
+        db.commit()
+        db.refresh(result.shipment)
+    except CTTShipmentOrchestrationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    return CTTReplacementShippingResponse(
+        shipping_code=result.shipping_code,
+        tracking_url=result.tracking_url,
+        shopify_sync_status=result.shopify_sync_status,
+        shopify_previous_fulfillment_cancelled=shopify_previous_fulfillment_cancelled,
+        shipment=result.shipment,
+        replaced_shipment_id=active_shipment.id,
         ctt_response=result.ctt_response,
     )
 
@@ -111,7 +188,7 @@ def create_ctt_shippings_bulk(
             actor = session.get(User, actor_id)
             order = session.scalar(
                 select(Order)
-                .options(selectinload(Order.shipment).selectinload(Shipment.events))
+                .options(selectinload(Order.shipments).selectinload(Shipment.events))
                 .where(Order.id == order_id)
             )
             if order is None:

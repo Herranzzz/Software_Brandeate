@@ -1,15 +1,15 @@
 :root {
   /* — Surface & background — */
-  --bg: #e8e8f0;
+  --bg: #faf9f7;
   --surface: #ffffff;
-  --surface-soft: #f4f4f8;
-  --surface-strong: #ebebf2;
-  --surface-sunken: #dcdce6;
+  --surface-soft: #f4f3f0;
+  --surface-strong: #edece8;
+  --surface-sunken: #e6e4df;
 
   /* — Borders (near-invisible — tonal bg does the work) — */
-  --border: rgba(15, 15, 25, 0.07);
-  --border-strong: rgba(15, 15, 25, 0.12);
-  --hairline: rgba(15, 15, 25, 0.05);
+  --border: rgba(10, 8, 5, 0.08);
+  --border-strong: rgba(10, 8, 5, 0.13);
+  --hairline: rgba(10, 8, 5, 0.05);
 
   /* — Typography — */
   --text: #0a0a0f;
@@ -20610,6 +20610,37 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   font-weight: 400;
 }
 
+/* Replacement shipment badges */
+.order-shipment-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 20px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.order-shipment-badge-replacement { background: rgba(234,88,12,0.12); color: #c2410c; }
+.order-shipment-badge-original    { background: var(--canvas); color: var(--muted); border: 1px solid var(--border); }
+.order-shipment-badge-pending     { background: rgba(234,179,8,0.12); color: #a16207; font-size: 0.72rem; font-weight: 700; border-radius: 6px; padding: 2px 8px; }
+
+/* Historical (non-active) shipment rows get a subtle dimmed separator */
+.order-shipment-body-historical {
+  opacity: 0.82;
+  border-top: 1px dashed var(--border);
+  margin-top: 2px;
+}
+
+.order-shipment-replacement-reason {
+  padding: 8px 18px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  background: var(--canvas);
+}
+
 /* Items grid */
 .order-items-grid {
   display: flex;
@@ -23848,6 +23879,108 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   .dash-incident-summary {
     flex-wrap: wrap;
     gap: 4px;
+  }
+
+  /* ── KPI grids ───────────────────────────────────────────── */
+  /* Admin dashboard (5 cols desktop → 2 cols mobile) */
+  .admin-dashboard-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px;
+  }
+
+  /* Production queue (6 cols desktop → 2 cols mobile) */
+  .production-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px;
+  }
+
+  /* ── Production table: horizontal scroll ─────────────────── */
+  .production-table-card {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Reduce extreme min-width so table fits on tablet/large phone */
+  .production-table {
+    min-width: 900px;
+  }
+
+  /* ── Order detail ────────────────────────────────────────── */
+  /* Action buttons: stretch full width so they're easy to tap */
+  .order-detail-action-row {
+    justify-content: stretch;
+  }
+  .order-detail-action-row > * {
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+  }
+
+  /* Stats strip: 2-col grid instead of awkward flex wrap */
+  .order-detail-stats {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .order-detail-stat {
+    min-width: 0;
+  }
+
+  /* Shipment card KV: 1 col on mobile */
+  .order-kv-list-cols {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Shipment top row: stack carrier + tracking vertically */
+  .order-shipment-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .order-shipment-tracking-block {
+    align-items: flex-start;
+  }
+
+  /* ── CTT modal ───────────────────────────────────────────── */
+  /* Hide the info hero on mobile to save space */
+  .ctt-create-hero {
+    display: none;
+  }
+
+  /* Sticky bar stacks vertically */
+  .ctt-create-sticky-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 14px;
+  }
+  .ctt-create-sticky-button {
+    min-width: 100%;
+  }
+
+  /* ── Modals: full-screen bottom sheet ────────────────────── */
+  .app-modal-sheet,
+  .app-modal-sheet-wide {
+    border-radius: 24px 24px 0 0 !important;
+    max-height: 94vh;
+    padding: 16px 14px;
+  }
+
+  /* ── Generic .grid-2 inside modals: 1 col ─────────────────── */
+  .app-modal-body .grid-2,
+  .stack .grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── Order nav row: hide position counter to save space ──── */
+  .order-nav-pos {
+    display: none;
+  }
+
+  /* ── Page header: stack title + actions ─────────────────── */
+  .order-detail-nav-row {
+    flex-wrap: wrap;
+    gap: 6px;
   }
 }
 
