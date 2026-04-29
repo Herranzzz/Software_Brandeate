@@ -12,7 +12,7 @@ from fastapi import HTTPException, status
 from app.models import User
 
 
-TOKEN_TTL_HOURS = 2          # access token: 2 horas
+TOKEN_TTL_HOURS = 8          # access token: 8 horas (jornada laboral completa)
 REFRESH_TOKEN_TTL_DAYS = 30  # refresh token: 30 días
 
 

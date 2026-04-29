@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, t
 
 
 import { AdminCommandPalette } from "@/components/admin-command-palette";
+import { AuthRefresher } from "@/components/auth-refresher";
 import { BackgroundDesignJobChip } from "@/components/background-design-job-chip";
 import { NotificationBell } from "@/components/notification-bell";
 import { useLayoutState } from "@/components/layout-state-provider";
@@ -477,6 +478,7 @@ export function AppShell({ children, currentUser }: AppShellProps) {
           itself only when localStorage has an active job, so it's a no-op
           for users who never trigger that flow. Mounted at shell level so
           it persists across page navigations. */}
+      <AuthRefresher />
       <BackgroundDesignJobChip />
       <KeyboardShortcutsOverlay />
 

@@ -1204,13 +1204,13 @@ export function OrdersWorkbench({
                                       </span>
                                     ) : null}
                                   </div>
-                                  {displayItem.design_link ? (
+                                  {displayItem.design_link && !orderCancelled ? (
                                     <a className="table-link" href={displayItem.design_link} rel="noreferrer" target="_blank">
                                       Abrir diseño
                                     </a>
-                                  ) : (
+                                  ) : !orderCancelled ? (
                                     <div className="table-secondary">Sin design link</div>
-                                  )}
+                                  ) : null}
                                   {hasRepeatedQuantity(displayItem) ? (
                                     <div className="table-secondary">Misma línea de Shopify · misma personalización</div>
                                   ) : null}
@@ -1308,33 +1308,40 @@ export function OrdersWorkbench({
                           </td>
                           <td>
                             <div className="orders-row-actions">
-                              {/* Resolve incident quick action */}
-                              {order.has_open_incident ? (
-                                <button
-                                  className="button-ghost orders-resolve-btn"
-                                  disabled={isRowLoading}
-                                  onClick={(e) => { e.stopPropagation(); handleInlineResolveIncident(order.id); }}
-                                  title="Resolver incidencia abierta"
-                                  type="button"
-                                >
-                                  ✓ Resolver
-                                </button>
-                              ) : null}
+                              {orderCancelled ? (
+                                /* Cancelled orders: read-only badge + ficha link only */
+                                <span className="badge badge-status-cancelled">Cancelado</span>
+                              ) : (
+                                <>
+                                  {/* Resolve incident quick action */}
+                                  {order.has_open_incident ? (
+                                    <button
+                                      className="button-ghost orders-resolve-btn"
+                                      disabled={isRowLoading}
+                                      onClick={(e) => { e.stopPropagation(); handleInlineResolveIncident(order.id); }}
+                                      title="Resolver incidencia abierta"
+                                      type="button"
+                                    >
+                                      ✓ Resolver
+                                    </button>
+                                  ) : null}
 
-                              {/* Assign employee */}
-                              {employees.length > 0 ? (
-                                <button
-                                  className={`button-ghost orders-assign-btn ${order.assigned_to_employee_id ? "orders-assign-btn-active" : ""}`}
-                                  disabled={isRowLoading}
-                                  onClick={(e) => openAssignDropdown(e, order.id)}
-                                  title={order.assigned_to_employee_name ? `Asignado: ${order.assigned_to_employee_name}` : "Asignar empleado"}
-                                  type="button"
-                                >
-                                  {order.assigned_to_employee_name
-                                    ? `👤 ${order.assigned_to_employee_name.split(" ")[0]}`
-                                    : "👤"}
-                                </button>
-                              ) : null}
+                                  {/* Assign employee */}
+                                  {employees.length > 0 ? (
+                                    <button
+                                      className={`button-ghost orders-assign-btn ${order.assigned_to_employee_id ? "orders-assign-btn-active" : ""}`}
+                                      disabled={isRowLoading}
+                                      onClick={(e) => openAssignDropdown(e, order.id)}
+                                      title={order.assigned_to_employee_name ? `Asignado: ${order.assigned_to_employee_name}` : "Asignar empleado"}
+                                      type="button"
+                                    >
+                                      {order.assigned_to_employee_name
+                                        ? `👤 ${order.assigned_to_employee_name.split(" ")[0]}`
+                                        : "👤"}
+                                    </button>
+                                  ) : null}
+                                </>
+                              )}
 
                               <Link
                                 className="button-secondary table-action"

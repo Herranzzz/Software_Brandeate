@@ -23,9 +23,6 @@
 // have succeeded on retry.
 const FETCH_TIMEOUT_MS = 60000;
 const IFRAME_CLEANUP_DELAY_MS = 2500;
-const PRINT_RENDER_DELAY_MS = 350;
-// High DPI so thermal labels stay crisp. 300 DPI / 72 = ~4.17.
-const PDF_RENDER_SCALE = 3;
 
 /** localStorage key controlling silent-print mode on this device. */
 export const SILENT_PRINT_STORAGE_KEY = "brandeate_silent_print_enabled";
@@ -149,191 +146,109 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
   }
 }
 
-// ─── Silent-print path ────────────────────────────────────────────────────
+// ─── Print-via-embed path ─────────────────────────────────────────────────
 
 /**
- * Render a PDF blob to <img> pages inside a hidden iframe and print.
+ * Build an HTML document that embeds a PDF blob and auto-calls window.print().
  *
- * Why this way: Chrome's built-in PDF viewer (what you get from <embed> or
- * iframe.src=pdfUrl) intercepts window.print() and bypasses --kiosk-printing,
- * so the dialog or the in-viewer "click to print" step shows up anyway.
+ * Why <embed> instead of <img> rasterisation via PDF.js:
+ *  • No worker / OffscreenCanvas required — zero CSP issues on Vercel.
+ *  • Chrome's built-in PDF renderer (which handles the <embed>) IS included
+ *    in the print output when the enclosing HTML document is printed.
+ *  • With --kiosk-printing the dialog is bypassed, giving fully silent print.
+ *  • Without --kiosk-printing the native print dialog appears automatically,
+ *    so the operator never has to click "Imprimir" a second time.
  *
- * We rasterise every page to a canvas with pdf.js, inline the result as <img>
- * tags in a plain HTML document, and print THAT. Since the iframe is plain
- * HTML, --kiosk-printing applies and the job goes straight to the default
- * printer with zero UI.
+ * The caller chooses between two delivery modes:
+ *  • newTab=false (default / kiosk): inject into a hidden 595×842 iframe in
+ *    the current page; call iframe.contentWindow.print() after the PDF loads.
+ *  • newTab=true: open the HTML blob in a new tab; the tab's <script> calls
+ *    window.print() and then window.close() after print completes.
  */
-type RenderedPagePayload = {
-  blob: Blob;
-  widthPt: number;
-  heightPt: number;
-};
-
-async function rasterisePdfInWorker(buffer: ArrayBuffer): Promise<RenderedPagePayload[]> {
-  // OffscreenCanvas lets us rasterise pages off the main thread so the UI
-  // stays responsive while a 20-page bulk renders. Older Safari lacks it —
-  // the caller falls back to the synchronous main-thread path.
-  const worker = new Worker(new URL("./pdf-render-worker.ts", import.meta.url), {
-    type: "module",
-  });
-  try {
-    return await new Promise<RenderedPagePayload[]>((resolve, reject) => {
-      worker.onmessage = (event: MessageEvent) => {
-        const data = event.data as
-          | { type: "result"; pages: RenderedPagePayload[] }
-          | { type: "error"; message: string };
-        if (data.type === "result") resolve(data.pages);
-        else reject(new Error(data.message));
-      };
-      worker.onerror = (event) => reject(new Error(event.message || "Worker error"));
-      worker.postMessage(
-        { type: "render", buffer, scale: PDF_RENDER_SCALE },
-        [buffer],
-      );
-    });
-  } finally {
-    worker.terminate();
-  }
-}
-
-async function rasterisePdfOnMainThread(buffer: ArrayBuffer): Promise<RenderedPagePayload[]> {
-  const pdfjs = await import("pdfjs-dist");
-  try {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
-      import.meta.url,
-    ).toString();
-  } catch {
-    pdfjs.GlobalWorkerOptions.workerSrc = "";
-  }
-  const pdf = await pdfjs.getDocument({ data: buffer }).promise;
-  const pages: RenderedPagePayload[] = [];
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const viewportAt1 = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil(viewport.width);
-    canvas.height = Math.ceil(viewport.height);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas 2D context unavailable");
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    const blob = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))),
-        "image/png",
-      ),
-    );
-    pages.push({
-      blob,
-      widthPt: viewportAt1.width,
-      heightPt: viewportAt1.height,
-    });
-    page.cleanup();
-  }
-  pdf.destroy();
-  return pages;
-}
-
-async function printBlobOnce(blob: Blob): Promise<void> {
-  const buffer = await blob.arrayBuffer();
-  const supportsOffscreen =
-    typeof OffscreenCanvas !== "undefined" && typeof Worker !== "undefined";
-
-  let renderedPages: RenderedPagePayload[];
-  if (supportsOffscreen) {
-    try {
-      renderedPages = await rasterisePdfInWorker(buffer);
-    } catch {
-      // Worker init/render failed (CSP, SharedArrayBuffer headers, etc.) —
-      // fall back to main-thread rendering so prints still go through.
-      renderedPages = await rasterisePdfOnMainThread(buffer.slice(0));
-    }
-  } else {
-    renderedPages = await rasterisePdfOnMainThread(buffer);
-  }
-
-  // Convert blobs to object URLs and remember them for cleanup after print.
-  const pageUrls: string[] = renderedPages.map((p) => URL.createObjectURL(p.blob));
-  const pageSizes = renderedPages.map((p) => ({ widthPt: p.widthPt, heightPt: p.heightPt }));
-
-  const first = pageSizes[0] ?? { widthPt: 595, heightPt: 842 };
-  // mm conversion for @page size (1pt = 0.3528mm).
-  const widthMm = (first.widthPt * 0.3528).toFixed(2);
-  const heightMm = (first.heightPt * 0.3528).toFixed(2);
-
-  const imgsHtml = pageUrls
-    .map(
-      (src, idx) =>
-        `<img src="${src}" alt="page-${idx + 1}" class="page" />`,
-    )
-    .join("\n");
-
-  const html = [
-    "<!DOCTYPE html>",
-    "<html>",
-    "<head>",
-    '<meta charset="utf-8" />',
+function buildPrintHtml(pdfBlobUrl: string, opts: { newTab?: boolean } = {}): string {
+  const closeAfterPrint = opts.newTab ? "window.addEventListener('afterprint',function(){setTimeout(window.close,400)});" : "";
+  return [
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>",
     "<style>",
-    `  @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }`,
-    "  * { margin:0; padding:0; box-sizing:border-box; }",
-    "  html, body { width:100%; }",
-    "  body { background:#fff; }",
-    "  .page { display:block; width:100%; height:auto; page-break-after:always; }",
-    "  .page:last-child { page-break-after:auto; }",
-    "  @media print {",
-    "    html, body { width: auto; }",
-    "    .page { width: 100%; height: 100vh; object-fit: contain; }",
-    "  }",
-    "</style>",
-    "</head>",
-    "<body>",
-    imgsHtml,
-    "</body>",
-    "</html>",
-  ].join("\n");
+    "* { margin:0; padding:0; box-sizing:border-box }",
+    "html, body { width:100%; height:100%; overflow:hidden; background:#fff }",
+    "@page { margin:0; size:auto }",
+    "embed { display:block; width:100%; height:100vh }",
+    "</style></head><body>",
+    `<embed src="${pdfBlobUrl}" type="application/pdf">`,
+    "<script>",
+    // Give the PDF embed ~1.5 s to render before calling print.
+    // There is no reliable 'load' event on <embed> for PDFs in all browsers.
+    `(function(){var d=false;function p(){if(d)return;d=true;window.print();${closeAfterPrint}}setTimeout(p,1500);})();`,
+    "</script></body></html>",
+  ].join("");
+}
 
+/**
+ * Print a PDF blob by injecting it into a hidden iframe in the current page.
+ * Resolves once the print call has been dispatched (the dialog may still be
+ * open; that's fine — the operator interacts with it independently).
+ */
+async function printBlobInIframe(blob: Blob): Promise<void> {
+  const pdfUrl = URL.createObjectURL(blob);
+  const html = buildPrintHtml(pdfUrl);
   const htmlBlob = new Blob([html], { type: "text/html" });
   const htmlUrl = URL.createObjectURL(htmlBlob);
 
   return new Promise<void>((resolve) => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("aria-hidden", "true");
+    // Off-screen but still rendered at a realistic size so the PDF plugin
+    // initialises correctly (display:none prevents plugin loading).
     iframe.style.cssText =
       "position:fixed;top:-9999px;left:-9999px;width:595px;height:842px;opacity:0;border:none;pointer-events:none;";
 
     let settled = false;
-    let printDelayId = 0;
+    let timerId = 0;
 
     function cleanup() {
       if (settled) return;
       settled = true;
-      if (printDelayId) window.clearTimeout(printDelayId);
+      clearTimeout(timerId);
       setTimeout(() => {
         if (document.body.contains(iframe)) document.body.removeChild(iframe);
         URL.revokeObjectURL(htmlUrl);
-        for (const url of pageUrls) URL.revokeObjectURL(url);
+        URL.revokeObjectURL(pdfUrl);
         resolve();
       }, IFRAME_CLEANUP_DELAY_MS);
     }
 
     iframe.onload = () => {
-      if (settled || printDelayId) return;
-      printDelayId = window.setTimeout(() => {
-        try {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-        } catch {
-          // swallow — cleanup resolves so the flow advances
-        }
-        cleanup();
-      }, PRINT_RENDER_DELAY_MS);
+      if (settled) return;
+      // The HTML document has loaded; the <embed> is still fetching the PDF.
+      // Wait an extra 1.5 s on top of what the HTML script already waits so
+      // we don't clean up the iframe before the print job is dispatched.
+      timerId = window.setTimeout(cleanup, 1500 + IFRAME_CLEANUP_DELAY_MS);
     };
 
-    iframe.onerror = () => cleanup();
-    iframe.src = htmlUrl;
+    iframe.onerror = cleanup;
     document.body.appendChild(iframe);
+    iframe.src = htmlUrl;
   });
+}
+
+/**
+ * Print a PDF blob by opening the HTML wrapper in a new browser tab.
+ * The tab auto-calls window.print() and closes itself after printing.
+ * Useful when the caller cannot inject iframes (e.g. strict sandbox) or when
+ * the operator prefers to see the label before confirming the print.
+ */
+function printBlobInNewTab(blob: Blob): void {
+  const pdfUrl = URL.createObjectURL(blob);
+  const html = buildPrintHtml(pdfUrl, { newTab: true });
+  const htmlBlob = new Blob([html], { type: "text/html" });
+  const htmlUrl = URL.createObjectURL(htmlBlob);
+  window.open(htmlUrl, "_blank", "noopener");
+  // Revoke blob URLs after the new tab has had time to load.
+  setTimeout(() => {
+    URL.revokeObjectURL(htmlUrl);
+    URL.revokeObjectURL(pdfUrl);
+  }, 30_000);
 }
 
 async function fetchLabelBlob(
@@ -421,24 +336,34 @@ export async function printLabel(
     return;
   }
 
-  // Silent/kiosk mode: rasterize via PDF.js and print without dialog.
-  // Falls through to new-tab on any failure so the operator can still print.
+  // Fetch the blob once; both silent and newtab paths need it.
+  let blob: Blob;
+  try {
+    blob = await fetchLabelBlob(trackingCode, format, options.signal);
+    if (options.signal?.aborted) return;
+  } catch {
+    // Network / timeout — fall back to opening the raw URL so the operator
+    // can still print manually from the PDF viewer.
+    window.open(buildLabelUrl(trackingCode, format, false), "_blank", "noopener");
+    return;
+  }
+
   if (mode === "silent") {
+    // Silent/kiosk: inject into a hidden iframe and call contentWindow.print().
+    // With --kiosk-printing Chrome skips the dialog; without it the native
+    // print dialog still appears, but the operator only has to confirm once.
     try {
-      const blob = await fetchLabelBlob(trackingCode, format, options.signal);
-      if (options.signal?.aborted) return;
-      await printBlobOnce(blob);
+      await printBlobInIframe(blob);
       return;
     } catch {
-      // PDF.js / worker / CSP failure — open in new tab as fallback.
+      // Iframe approach failed — fall through to new-tab.
     }
   }
 
-  // Default (and silent-mode fallback): open PDF in a new browser tab.
-  // The native PDF viewer renders it instantly; Ctrl+P / the viewer's print
-  // button shows the print dialog. Zero dependencies, no workers, no iframes.
-  const url = buildLabelUrl(trackingCode, format, false);
-  window.open(url, "_blank", "noopener");
+  // Default (and silent-mode fallback): open an HTML wrapper in a new tab.
+  // The wrapper embeds the PDF and auto-calls window.print(), so the print
+  // dialog opens immediately without the operator having to click anything.
+  printBlobInNewTab(blob);
 }
 
 /**
@@ -514,18 +439,15 @@ export async function printLabelsMerged(
     const merged = blobs.length === 1 ? blobs[0] : await mergePdfBlobs(blobs);
     if (mode === "silent") {
       try {
-        await printBlobOnce(merged);
+        await printBlobInIframe(merged);
       } catch {
-        // Silent path failed — fall back to opening the blob in a new tab.
-        const blobUrl = URL.createObjectURL(merged);
-        window.open(blobUrl, "_blank", "noopener");
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        // Iframe failed — open HTML wrapper in a new tab as fallback.
+        printBlobInNewTab(merged);
       }
     } else if (mode === "newtab") {
-      // Open merged PDF blob in a new tab for native-viewer printing.
-      const blobUrl = URL.createObjectURL(merged);
-      window.open(blobUrl, "_blank", "noopener");
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      // HTML wrapper opens in a new tab and auto-calls window.print() so the
+      // operator never has to click the print button in the PDF viewer.
+      printBlobInNewTab(merged);
     } else {
       const filename = `etiquetas-${new Date().toISOString().slice(0, 10)}-${blobs.length}.pdf`;
       triggerBlobDownload(merged, filename);
