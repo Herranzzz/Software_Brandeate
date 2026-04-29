@@ -116,9 +116,13 @@ function extensionFor(format: LabelPrintFormat): string {
 }
 
 function resolveMode(options: PrintLabelOptions): "silent" | "download" {
-  if (options.forceSilent) return "silent";
   if (options.forceDownload) return "download";
-  return isSilentPrintEnabled() ? "silent" : "download";
+  // Both silent mode (kiosk) and normal mode use the same PDF.js → iframe path.
+  // With --kiosk-printing Chrome skips the dialog entirely.
+  // Without it the browser shows its standard print dialog.
+  // Either way is better than a silent file download — the user wants to print,
+  // not hunt for a file in their Downloads folder.
+  return "silent";
 }
 
 // ─── Download path ────────────────────────────────────────────────────────
