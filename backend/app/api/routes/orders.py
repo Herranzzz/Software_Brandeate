@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 import sqlalchemy as sa
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, load_only, selectinload
 from starlette.background import BackgroundTask
 
@@ -416,7 +416,7 @@ def _search_term_clause(raw: str):
 
     # Tracking-code-shaped (long alphanumeric upper) → only tracking_number.
     if _TRACKING_RE.match(term.upper()) and not term.isdigit():
-        return Order.shipment.has(Shipment.tracking_number.ilike(pattern))
+        return Order.shipments.any(Shipment.tracking_number.ilike(pattern))
 
     # Free text → broad search. With the pg_trgm GIN indexes added in
     # migration 0032 each ILIKE here uses a trigram index instead of a
@@ -428,7 +428,7 @@ def _search_term_clause(raw: str):
         Order.items.any(OrderItem.sku.ilike(pattern)),
         Order.items.any(OrderItem.name.ilike(pattern)),
         Order.items.any(OrderItem.title.ilike(pattern)),
-        Order.shipment.has(Shipment.tracking_number.ilike(pattern)),
+        Order.shipments.any(Shipment.tracking_number.ilike(pattern)),
     )
 
 
@@ -497,7 +497,7 @@ def _build_order_filters(
     if channel is not None and channel.strip():
         query = query.where(Order.channel == channel.strip())
     if carrier is not None and carrier.strip():
-        query = query.join(Order.shipment).where(Shipment.carrier == carrier.strip())
+        query = query.where(Order.shipments.any(Shipment.carrier == carrier.strip()))
     if q is not None and q.strip():
         query = query.where(_search_term_clause(q.strip()))
     if is_blocked is not None:
@@ -505,29 +505,31 @@ def _build_order_filters(
     if overdue_sla is True:
         today = datetime.now(timezone.utc).date()
         _resolved = ("delivered", "exception", "stalled")
-        query = query.join(Order.shipment).where(
-            Shipment.expected_delivery_date.isnot(None),
-            Shipment.expected_delivery_date < today,
-            Shipment.shipping_status.notin_(_resolved),
-        )
+        query = query.where(Order.shipments.any(
+            and_(
+                Shipment.expected_delivery_date.isnot(None),
+                Shipment.expected_delivery_date < today,
+                Shipment.shipping_status.notin_(_resolved),
+            )
+        ))
     if shipping_status is not None and shipping_status.strip():
         # Accept a comma-separated list so the frontend can express shipping
         # groups like "in_transit,picked_up,pickup_available,attempted_delivery"
         # in a single round-trip. Falls back to exact match for a single value.
         statuses = [value.strip() for value in shipping_status.split(",") if value.strip()]
         if len(statuses) == 1:
-            query = query.where(Order.shipment.has(Shipment.shipping_status == statuses[0]))
+            query = query.where(Order.shipments.any(Shipment.shipping_status == statuses[0]))
         elif len(statuses) > 1:
-            query = query.where(Order.shipment.has(Shipment.shipping_status.in_(statuses)))
+            query = query.where(Order.shipments.any(Shipment.shipping_status.in_(statuses)))
     if has_shipment is not None:
         # `has_shipment=True` → order already has a shipment row (label created).
         # `has_shipment=False` → order still has no shipment (ready to be labeled).
         # Drives the new "print queue" employee view: prepared orders without a
         # shipment are the exact set that still need a label printed.
         if has_shipment:
-            query = query.where(Order.shipment.has())
+            query = query.where(Order.shipments.any())
         else:
-            query = query.where(~Order.shipment.has())
+            query = query.where(~Order.shipments.any())
     if prepared_by_employee_id is not None:
         # Scopes the employee print queue so each person only sees labels they
         # prepared themselves (the user wants "desde tu nombre" — their own
