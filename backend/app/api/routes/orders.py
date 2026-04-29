@@ -1861,7 +1861,13 @@ def _add_cut_lines_to_image(image_path: str, output_path: str, print_variant: st
             resized = cropped
             paste_x, paste_y = region_x, region_y
         elif is_white_bg:
-            paste_x, paste_y = region_x, region_y
+            # Center the fit-scaled image inside the design region so white
+            # gaps are distributed equally on both sides rather than all
+            # accumulating on the right (which makes the design look notably
+            # left-biased when the source aspect ratio is narrower than the
+            # region's 0.75 ratio).
+            paste_x = region_x + (region_w - fit_w) // 2
+            paste_y = region_y + (region_h - fit_h) // 2
         else:
             # 30×40 non-white: paste at canvas origin so the cover-scaled
             # artwork bleeds across the whole sheet.
