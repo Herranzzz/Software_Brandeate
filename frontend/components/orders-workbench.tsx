@@ -510,7 +510,11 @@ export function OrdersWorkbench({
   const [inlineLoading, setInlineLoading] = useState<number | null>(null); // orderId being updated
   const inlineRef = useRef<HTMLDivElement | null>(null);
 
-  // Close inline dropdown on outside click or scroll
+  // Close inline dropdown on outside click.
+  // NOTE: we intentionally do NOT close on scroll — the dropdown is
+  // position:fixed so it stays in the viewport when the table scrolls,
+  // and closing on scroll prevented operators from scrolling to a row
+  // before clicking the assign button.
   useEffect(() => {
     if (!openInline) return;
     function handleOutsideClick(e: MouseEvent) {
@@ -518,12 +522,9 @@ export function OrdersWorkbench({
         setOpenInline(null);
       }
     }
-    function handleScroll() { setOpenInline(null); }
     document.addEventListener("mousedown", handleOutsideClick);
-    document.addEventListener("scroll", handleScroll, true);
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
-      document.removeEventListener("scroll", handleScroll, true);
     };
   }, [openInline]);
 
