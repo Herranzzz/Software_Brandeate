@@ -1,5 +1,5 @@
 import { PrintQueuePanel } from "@/components/print-queue-panel";
-import { fetchAdminUsers, fetchOrders, fetchShops } from "@/lib/api";
+import { fetchAdminUsers, fetchShops } from "@/lib/api";
 import { requireAdminUser } from "@/lib/auth";
 
 
@@ -44,25 +44,16 @@ export default async function PrintQueuePage({ searchParams }: PrintQueuePagePro
   const shopId = params.shop_id && params.shop_id.trim() !== "" ? params.shop_id : undefined;
   const { selection, preparedById } = resolvePreparer(params.preparer, params.scope, currentUser.id);
 
-  const [ordersResult, shopsResult, opsResult, superResult] = await Promise.allSettled([
-    fetchOrders({
-      is_prepared: true,
-      production_status: "packed",
-      shop_id: shopId,
-      prepared_by_employee_id: preparedById,
-      // FIFO: lo primero preparado es lo primero impreso. La UI y el merge
-      // del PDF respetan este orden, así lo que se ve en pantalla coincide
-      // con la pila que sale de la impresora.
-      sort_by: "prepared_asc",
-      per_page: 250,
-    }),
+  // Orders are fetched client-side on mount (see PrintQueuePanel) so that a
+  // slow backend never causes a Vercel serverless timeout and the page renders
+  // instantly. Shops and preparer lists are small and cheap — keep them SSR
+  // so the dropdowns are populated before any interaction.
+  const [shopsResult, opsResult, superResult] = await Promise.allSettled([
     fetchShops(),
     fetchAdminUsers({ role: "ops_admin" }),
     fetchAdminUsers({ role: "super_admin" }),
   ]);
 
-  const initialOrders = ordersResult.status === "fulfilled" ? ordersResult.value.orders : [];
-  const initialTotal = ordersResult.status === "fulfilled" ? ordersResult.value.totalCount : 0;
   const shops = shopsResult.status === "fulfilled" ? shopsResult.value : [];
 
   // Lista canónica de preparadores. Combinamos ops_admin + super_admin (los
@@ -85,8 +76,6 @@ export default async function PrintQueuePage({ searchParams }: PrintQueuePagePro
       activeShopId={shopId ?? ""}
       currentUserId={currentUser.id}
       currentUserName={currentUser.name}
-      initialOrders={initialOrders}
-      initialTotal={initialTotal}
       preparerSelection={selection}
       preparers={preparers}
       shops={shops}

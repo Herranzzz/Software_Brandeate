@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { AppModal } from "@/components/app-modal";
 import { BulkLabelModal } from "@/components/bulk-label-modal";
@@ -93,8 +93,6 @@ function KioskSetupCard({ onDismiss }: { onDismiss: () => void }) {
 }
 
 type PrintQueuePanelProps = {
-  initialOrders: Order[];
-  initialTotal: number;
   shops: Shop[];
   activeShopId: string;
   currentUserId: number;
@@ -134,8 +132,6 @@ function getTrackingCode(order: Order): string | null {
 
 
 export function PrintQueuePanel({
-  initialOrders,
-  initialTotal,
   shops,
   activeShopId,
   currentUserId,
@@ -161,11 +157,12 @@ export function PrintQueuePanel({
   const { toast } = useToast();
   const [, startTransition] = useTransition();
 
-  const [orders, setOrders] = useState<Order[]>(initialOrders);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [showBulkLabelModal, setShowBulkLabelModal] = useState(false);
   const [modalOrders, setModalOrders] = useState<Order[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isRemoving, setIsRemoving] = useState<number | null>(null);
   const [isBulkRemoving, setIsBulkRemoving] = useState(false);
   const [printProgress, setPrintProgress] = useState<{ done: number; total: number; phase: "downloading" | "printing" } | null>(null);
@@ -197,9 +194,10 @@ export function PrintQueuePanel({
 
   // Track which order IDs were in the queue at page load (the "pre-session"
   // set). Any order that arrives after that is considered "this session".
-  const [sessionBaseIds] = useState<Set<number>>(
-    () => new Set(initialOrders.map((o) => o.id)),
-  );
+  // We populate this after the first client-side fetch so it mirrors what
+  // was already in the queue when the operator opened the page.
+  const [sessionBaseIds, setSessionBaseIds] = useState<Set<number>>(() => new Set());
+  const sessionBasePopulatedRef = useRef(false);
 
   // Default to "today" so residual pedidos preparados hace días que nunca se
   // completaron (impresora caída, navegador cerrado, etc.) no se mezclen con
@@ -211,13 +209,6 @@ export function PrintQueuePanel({
     localStorage.setItem("kiosk_setup_dismissed", "1");
     setShowSetupCard(false);
   }
-
-  // Keep local list in sync when the server component re-renders after navigation
-  // or refresh() — otherwise freshly prepared orders pushed by a teammate wouldn't
-  // show up until full page reload.
-  useEffect(() => {
-    setOrders(initialOrders);
-  }, [initialOrders]);
 
   // Auto-enable silent printing when the operator opens the app via the
   // kiosk-Chrome shortcut (`?kiosk=1`). The flag persists in localStorage so
@@ -236,8 +227,8 @@ export function PrintQueuePanel({
     toast("Impresión silenciosa activada en este equipo", "success");
   }, [toast]);
 
-  const refreshFromServer = useCallback(async () => {
-    setIsRefreshing(true);
+  const refreshFromServer = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setIsRefreshing(true);
     try {
       const { orders: fresh } = await fetchOrders({
         is_prepared: true,
@@ -248,6 +239,13 @@ export function PrintQueuePanel({
         per_page: 250,
       });
       setOrders(fresh);
+      // Seed the session-base set exactly once, from the first fetch, so that
+      // any order already in the queue when the operator opened the page is NOT
+      // counted as "nueva esta sesión".
+      if (!sessionBasePopulatedRef.current) {
+        sessionBasePopulatedRef.current = true;
+        setSessionBaseIds(new Set(fresh.map((o) => o.id)));
+      }
       // Prune any stale selections that no longer apply.
       setSelectedIds((prev) => {
         const next = new Set<number>();
@@ -257,23 +255,34 @@ export function PrintQueuePanel({
         return next;
       });
     } catch {
-      toast("No se pudo refrescar la cola", "error");
+      if (!silent) toast("No se pudo refrescar la cola", "error");
     } finally {
-      setIsRefreshing(false);
+      if (!silent) setIsRefreshing(false);
+      setIsInitialLoading(false);
     }
   }, [activeShopId, toast, activePreparerId]);
+
+  // Fetch orders client-side on mount (and whenever filter params change because
+  // the server component re-renders after navigation). This avoids SSR timeouts
+  // on slow backends — the page renders instantly and orders load in the
+  // background. `silent=true` suppresses the "Actualizando…" spinner and the
+  // error toast; we already show a "Cargando cola…" skeleton via isInitialLoading.
+  useEffect(() => {
+    setIsInitialLoading(true);
+    void refreshFromServer({ silent: true });
+  }, [refreshFromServer]);
 
   // Realtime: re-fetch immediately when a teammate mutates an order.
   // Debounced inside the hook so bulk "preparar" of N orders → 1 refetch.
   useOrderRealtimeRefresh(() => {
-    void refreshFromServer();
+    void refreshFromServer({ silent: true });
   });
 
   // Safety-net poll in case the SSE stream is disconnected (tab backgrounded,
   // server restart mid-flight). 60 s is loose — realtime does the heavy lifting.
   useEffect(() => {
     const intervalId = window.setInterval(() => {
-      void refreshFromServer();
+      void refreshFromServer({ silent: true });
     }, 60000);
     return () => window.clearInterval(intervalId);
   }, [refreshFromServer]);
@@ -942,7 +951,12 @@ export function PrintQueuePanel({
           </div>
         ) : null}
 
-        {visibleOrders.length === 0 ? (
+        {isInitialLoading ? (
+          <div className="print-queue-empty">
+            <strong>Cargando cola…</strong>
+            <p className="muted">Obteniendo pedidos preparados…</p>
+          </div>
+        ) : visibleOrders.length === 0 ? (
           <div className="print-queue-empty">
             <strong>{isFiltered ? "Sin resultados con estos filtros" : "¡Todo impreso!"}</strong>
             <p className="muted">
