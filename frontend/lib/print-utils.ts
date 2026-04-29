@@ -115,14 +115,11 @@ function extensionFor(format: LabelPrintFormat): string {
   return format.toLowerCase();
 }
 
-function resolveMode(options: PrintLabelOptions): "silent" | "download" {
+function resolveMode(options: PrintLabelOptions): "silent" | "newtab" | "download" {
   if (options.forceDownload) return "download";
-  // Both silent mode (kiosk) and normal mode use the same PDF.js → iframe path.
-  // With --kiosk-printing Chrome skips the dialog entirely.
-  // Without it the browser shows its standard print dialog.
-  // Either way is better than a silent file download — the user wants to print,
-  // not hunt for a file in their Downloads folder.
-  return "silent";
+  if (options.forceSilent || isSilentPrintEnabled()) return "silent";
+  // Default: open in new tab — native PDF viewer, zero dependencies.
+  return "newtab";
 }
 
 // ─── Download path ────────────────────────────────────────────────────────
@@ -418,15 +415,30 @@ export async function printLabel(
   const format = options.format ?? "PDF";
   const mode = resolveMode(options);
 
+  // Non-PDF formats or explicit download → save file.
   if (mode === "download" || format !== "PDF") {
-    // ZPL/EPL cannot go through the HTML print path.
     downloadByAnchor(trackingCode, format);
     return;
   }
 
-  const blob = await fetchLabelBlob(trackingCode, format, options.signal);
-  if (options.signal?.aborted) return;
-  await printBlobOnce(blob);
+  // Silent/kiosk mode: rasterize via PDF.js and print without dialog.
+  // Falls through to new-tab on any failure so the operator can still print.
+  if (mode === "silent") {
+    try {
+      const blob = await fetchLabelBlob(trackingCode, format, options.signal);
+      if (options.signal?.aborted) return;
+      await printBlobOnce(blob);
+      return;
+    } catch {
+      // PDF.js / worker / CSP failure — open in new tab as fallback.
+    }
+  }
+
+  // Default (and silent-mode fallback): open PDF in a new browser tab.
+  // The native PDF viewer renders it instantly; Ctrl+P / the viewer's print
+  // button shows the print dialog. Zero dependencies, no workers, no iframes.
+  const url = buildLabelUrl(trackingCode, format, false);
+  window.open(url, "_blank", "noopener");
 }
 
 /**
@@ -501,7 +513,19 @@ export async function printLabelsMerged(
   if (blobs.length > 0) {
     const merged = blobs.length === 1 ? blobs[0] : await mergePdfBlobs(blobs);
     if (mode === "silent") {
-      await printBlobOnce(merged);
+      try {
+        await printBlobOnce(merged);
+      } catch {
+        // Silent path failed — fall back to opening the blob in a new tab.
+        const blobUrl = URL.createObjectURL(merged);
+        window.open(blobUrl, "_blank", "noopener");
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      }
+    } else if (mode === "newtab") {
+      // Open merged PDF blob in a new tab for native-viewer printing.
+      const blobUrl = URL.createObjectURL(merged);
+      window.open(blobUrl, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
     } else {
       const filename = `etiquetas-${new Date().toISOString().slice(0, 10)}-${blobs.length}.pdf`;
       triggerBlobDownload(merged, filename);
