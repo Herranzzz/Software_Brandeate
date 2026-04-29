@@ -423,11 +423,13 @@ def _search_term_clause(raw: str):
     # sequential scan.
     return or_(
         Order.external_id.ilike(pattern),
+        Order.shopify_order_name.ilike(pattern),
         Order.customer_name.ilike(pattern),
         Order.customer_email.ilike(pattern),
         Order.items.any(OrderItem.sku.ilike(pattern)),
         Order.items.any(OrderItem.name.ilike(pattern)),
         Order.items.any(OrderItem.title.ilike(pattern)),
+        Order.items.any(OrderItem.variant_title.ilike(pattern)),
         Order.shipments.any(Shipment.tracking_number.ilike(pattern)),
     )
 
