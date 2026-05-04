@@ -12,7 +12,7 @@ import {
   getInitialCttWeightBand,
   getOrderShippingContact,
 } from "@/lib/ctt";
-import { prefetchLabelBlob, printLabel } from "@/lib/print-utils";
+import { prefetchLabelBlob } from "@/lib/print-utils";
 import type { Order, ShippingRuleResolution, Shop } from "@/lib/types";
 
 type CttLabelCellProps = {
@@ -66,8 +66,6 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
   const [shopifySyncStatus, setShopifySyncStatus] = useState("");
   const [isRefreshingOrder, setIsRefreshingOrder] = useState(false);
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
-  const [isPrintingLabel, setIsPrintingLabel] = useState(false);
-
   // Pre-loaded print iframe — ready for a synchronous win.print() call.
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
   const printPdfUrlRef = useRef("");
@@ -148,44 +146,34 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
     iframe.src = htmlUrl;
   }
 
-  // ── Print action — called synchronously inside the click handler ──────
+  // ── Print action — always synchronous inside the click handler ──────────
+  //
+  // Chrome blocks window.print() if called after any await/setTimeout — the
+  // user gesture context is lost. Both paths here are synchronous:
+  //   Fast path: pre-loaded hidden iframe → iframe.contentWindow.print()
+  //   Fallback:  window.open(pdfUrl, '_blank') — always allowed in a click handler
 
   function handlePrintLabel() {
-    if (isPrintingLabel) return;
     const code = shippingCode || order.shipment?.tracking_number;
     if (!code) return;
 
-    // Fast path: iframe already loaded → synchronous print (user gesture intact).
+    // Fast path: iframe pre-loaded and ready.
     if (printReady && printFrameRef.current?.contentWindow) {
       const win = printFrameRef.current.contentWindow;
-      win.addEventListener(
-        "afterprint",
-        () => {
-          window.setTimeout(cleanupPrintFrame, 500);
-        },
-        { once: true },
-      );
+      win.addEventListener("afterprint", () => { window.setTimeout(cleanupPrintFrame, 500); }, { once: true });
       try {
         win.print();
+        return;
       } catch {
         cleanupPrintFrame();
-        // Fallback to async (will open new tab if gesture is lost, but at least works).
-        void printLabel(code, { format: "PDF" });
+        // Fall through to window.open below.
       }
-      return;
     }
 
-    // Slow path: iframe not ready yet (prefetch still in progress, or existing
-    // label that hasn't finished loading). Async fetch + print — may open new tab
-    // in Chrome because the gesture context is broken by the await.
-    setIsPrintingLabel(true);
-    void printLabel(code, { format: "PDF" })
-      .catch((err) => {
-        toast(err instanceof Error ? err.message : "No se pudo imprimir", "error");
-      })
-      .finally(() => {
-        setIsPrintingLabel(false);
-      });
+    // Reliable fallback: open PDF in a new tab (synchronous, never blocked by Chrome).
+    // If the blob was pre-fetched it opens instantly; otherwise the browser fetches it.
+    const url = printPdfUrlRef.current || `/api/ctt/shippings/${code}/label`;
+    window.open(url, "_blank", "noopener");
   }
 
   // ── Prefetch helper shared by new label (mode=print) and existing label ─
@@ -315,7 +303,6 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
     }
     setOpen(false);
     setIsPreviewVisible(false);
-    setIsPrintingLabel(false);
   }
 
   // ── Label creation ────────────────────────────────────────────────────
@@ -470,15 +457,10 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
             <div className="ctt-label-actions-grid">
               <button
                 className="button ctt-print-big"
-                disabled={isPrintingLabel}
                 onClick={handlePrintLabel}
                 type="button"
               >
-                {isPrintingLabel
-                  ? "Imprimiendo..."
-                  : printReady
-                    ? "Imprimir etiqueta ·"
-                    : "Imprimir etiqueta"}
+                {printReady ? "Imprimir etiqueta ·" : "Imprimir etiqueta"}
               </button>
               <a
                 className="button-secondary ctt-download-btn"
