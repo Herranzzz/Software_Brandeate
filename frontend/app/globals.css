@@ -4827,6 +4827,147 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   flex-wrap: wrap;
 }
 
+/* ── Confirm phase: items list ── */
+.ctt-confirm-items {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(var(--accent-rgb), 0.16);
+  background: var(--surface-soft);
+}
+
+.ctt-confirm-items-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ctt-confirm-items-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.ctt-confirm-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.ctt-confirm-item-check {
+  color: #16a34a;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.ctt-confirm-item-name {
+  flex: 1;
+  font-size: 0.93rem;
+}
+
+.ctt-confirm-item-qty {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* ── Confirm phase: address summary ── */
+.ctt-confirm-address {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.ctt-confirm-address p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+/* ── Creating (loading) state ── */
+.ctt-creating-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 56px 24px;
+  text-align: center;
+  min-height: 220px;
+}
+
+.ctt-creating-state p {
+  color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 360px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.ctt-creating-spinner {
+  width: 42px;
+  height: 42px;
+  border: 3px solid rgba(var(--accent-rgb), 0.18);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ctt-spin 0.75s linear infinite;
+}
+
+@keyframes ctt-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Collapsible edit section ── */
+.ctt-edit-details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.ctt-edit-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--muted);
+  list-style: none;
+  user-select: none;
+}
+
+.ctt-edit-summary::-webkit-details-marker { display: none; }
+
+.ctt-edit-summary::before {
+  content: "▸";
+  font-size: 0.75rem;
+  transition: transform 0.15s;
+}
+
+.ctt-edit-details[open] .ctt-edit-summary::before {
+  transform: rotate(90deg);
+}
+
+.ctt-edit-summary:hover {
+  color: var(--accent);
+}
+
+.ctt-edit-fields {
+  padding: 0 16px 16px;
+}
+
 .modal-head {
   justify-content: space-between;
   align-items: flex-start;

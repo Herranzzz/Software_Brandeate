@@ -31,11 +31,11 @@ from app.services.shopify import cancel_shopify_fulfillment
 
 logger = logging.getLogger(__name__)
 
-# Cap concurrent outbound CTT calls. CTT's gateway throttles aggressive clients
-# (transient 429/502 already retried with backoff in app.services.ctt), so we
-# stay well below their soft limit. 8 still leaves DB pool headroom (pool_size=20)
-# for other endpoints to remain responsive while a bulk is running.
-_BULK_CTT_CONCURRENCY = 8
+# Cap concurrent outbound CTT calls. Render's starter instances cap at ~512 MB;
+# each CTT thread keeps a DB session + response buffer in memory, so 8 workers
+# caused OOM crashes under load. 3 is enough to finish a typical batch in well
+# under a minute while keeping peak memory safe.
+_BULK_CTT_CONCURRENCY = 3
 
 
 router = APIRouter(prefix="/ctt", tags=["ctt"])

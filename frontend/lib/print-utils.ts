@@ -1,28 +1,48 @@
 /**
- * Label handling utilities.
+ * Label fetching, merging and printing.
  *
- * Two paths depending on the per-device preference stored in localStorage
- * under the key read by `isSilentPrintEnabled()`:
+ * One primitive (`printPdfBlob`) drives every print path:
+ *   1. Create a blob URL from the PDF.
+ *   2. Append a hidden iframe whose `src` is that blob URL.
+ *      The browser's built-in PDF viewer renders the PDF inside the iframe.
+ *   3. Wait for the iframe's `load` event — this fires AFTER the PDF viewer
+ *      has parsed the document, so we don't need any magic-number timeouts.
+ *   4. Focus the iframe's contentWindow (some browsers require this) and call
+ *      `contentWindow.print()`. With Chrome's `--kiosk-printing` flag the
+ *      dialog is bypassed; otherwise the native dialog opens automatically
+ *      with the PDF already selected.
+ *   5. Listen for `afterprint` on the contentWindow to clean up reliably.
+ *      A fallback timer guarantees cleanup even if `afterprint` never fires
+ *      (kiosk mode, some PDF viewers, browser quirks).
  *
- *   1. Silent print (kiosk mode) — wraps the PDF in a minimal HTML page with
- *      <embed> and drives a hidden iframe to call contentWindow.print(). With
- *      Chrome launched via `--kiosk-printing` this skips the dialog and
- *      prints directly to the default printer. WITHOUT that flag the browser
- *      still shows its normal print dialog — it doesn't break, it just isn't
- *      silent.
+ * For batch printing we fetch labels in parallel (concurrency 6), merge them
+ * into a single PDF with pdf-lib, and print as ONE job. The operator only
+ * sees one print dialog regardless of how many labels are in the batch.
  *
- *   2. Download — plain <a download> (or blob URL for merged bulk PDFs). The
- *      user prints from their PDF viewer / OS. Reliable everywhere.
+ * Modes:
+ *   - "print"    (default): hidden iframe + print(). Silent in kiosk mode.
+ *   - "newtab"   : open PDF in a new tab; operator prints manually.
+ *   - "download" : save the file (also forced for ZPL/EPL formats).
  *
- * The toggle lives in /settings → tab "Impresión". It's stored per-device
- * (localStorage) so each operator station can opt-in independently.
+ * Callers select the mode either explicitly via options or implicitly via
+ * `isSilentPrintEnabled()` (the per-device toggle in /settings → Impresión).
  */
 
-// Backend CTT label timeout is 20s with 1 retry (~42s worst case). Frontend
-// timeout sits comfortably above so we never fail while the backend would still
-// have succeeded on retry.
-const FETCH_TIMEOUT_MS = 60000;
-const IFRAME_CLEANUP_DELAY_MS = 2500;
+// ─── Constants ────────────────────────────────────────────────────────────
+
+/** Backend label timeout is ~42 s worst case; client sits comfortably above. */
+const FETCH_TIMEOUT_MS = 60_000;
+
+/** Max time we wait for the iframe to fire `load` before we give up. */
+const PRINT_READY_TIMEOUT_MS = 30_000;
+
+/** Cleanup fallback if `afterprint` never fires (kiosk mode, quirks, etc.). */
+const CLEANUP_FALLBACK_MS = 90_000;
+
+/** Concurrent label fetches in batch mode. */
+const BATCH_FETCH_CONCURRENCY = 6;
+
+// ─── Per-device preferences ──────────────────────────────────────────────
 
 /** localStorage key controlling silent-print mode on this device. */
 export const SILENT_PRINT_STORAGE_KEY = "brandeate_silent_print_enabled";
@@ -46,7 +66,7 @@ export function setPrinterNameHint(name: string): void {
     if (trimmed) window.localStorage.setItem(PRINTER_NAME_STORAGE_KEY, trimmed);
     else window.localStorage.removeItem(PRINTER_NAME_STORAGE_KEY);
   } catch {
-    // ignore
+    // ignore — private mode, storage quota, etc.
   }
 }
 
@@ -65,9 +85,11 @@ export function setSilentPrintEnabled(enabled: boolean): void {
     if (enabled) window.localStorage.setItem(SILENT_PRINT_STORAGE_KEY, "1");
     else window.localStorage.removeItem(SILENT_PRINT_STORAGE_KEY);
   } catch {
-    // ignore — private mode, storage quota, etc.
+    // ignore
   }
 }
+
+// ─── Public types ────────────────────────────────────────────────────────
 
 export type LabelPrintFormat = "PDF" | "ZPL" | "EPL";
 
@@ -77,7 +99,9 @@ export interface PrintLabelOptions {
   forceSilent?: boolean;
   /** Force download regardless of the stored preference. */
   forceDownload?: boolean;
-  /** Legacy option kept for API compatibility — no longer used. */
+  /** Force opening the label in a new tab. */
+  forceNewTab?: boolean;
+  /** Legacy option kept for API compatibility — no longer needed. */
   fallbackToNewTab?: boolean;
   /** Allows the caller to cancel in-flight label fetches (e.g. modal closed). */
   signal?: AbortSignal;
@@ -99,6 +123,8 @@ export type PrintLabelFailure = {
   error: PrintLabelError;
 };
 
+// ─── URL helpers ─────────────────────────────────────────────────────────
+
 function buildLabelUrl(
   trackingCode: string,
   format: LabelPrintFormat,
@@ -112,144 +138,24 @@ function extensionFor(format: LabelPrintFormat): string {
   return format.toLowerCase();
 }
 
-function resolveMode(options: PrintLabelOptions): "silent" | "newtab" | "download" {
+// ─── Mode resolution ─────────────────────────────────────────────────────
+
+type ResolvedMode = "print" | "newtab" | "download";
+
+function resolveMode(options: PrintLabelOptions, format: LabelPrintFormat): ResolvedMode {
+  // Non-PDF formats can't be embedded in the print iframe — always download.
+  if (format !== "PDF") return "download";
   if (options.forceDownload) return "download";
-  if (options.forceSilent || isSilentPrintEnabled()) return "silent";
-  // Default: open in new tab — native PDF viewer, zero dependencies.
-  return "newtab";
+  if (options.forceNewTab) return "newtab";
+  if (options.forceSilent || isSilentPrintEnabled()) return "print";
+  // Default: silent print via hidden iframe. Without --kiosk-printing the
+  // browser still shows its native print dialog (with the PDF preselected),
+  // so the operator only confirms once. This is more reliable than opening
+  // a new tab because popup blockers don't apply.
+  return "print";
 }
 
-// ─── Download path ────────────────────────────────────────────────────────
-
-function downloadByAnchor(trackingCode: string, format: LabelPrintFormat): void {
-  const anchor = document.createElement("a");
-  anchor.href = buildLabelUrl(trackingCode, format, true);
-  anchor.download = `etiqueta-${trackingCode}.${extensionFor(format)}`;
-  anchor.rel = "noopener";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-}
-
-function triggerBlobDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  try {
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.rel = "noopener";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  }
-}
-
-// ─── Print-via-embed path ─────────────────────────────────────────────────
-
-/**
- * Build an HTML document that embeds a PDF blob and auto-calls window.print().
- *
- * Why <embed> instead of <img> rasterisation via PDF.js:
- *  • No worker / OffscreenCanvas required — zero CSP issues on Vercel.
- *  • Chrome's built-in PDF renderer (which handles the <embed>) IS included
- *    in the print output when the enclosing HTML document is printed.
- *  • With --kiosk-printing the dialog is bypassed, giving fully silent print.
- *  • Without --kiosk-printing the native print dialog appears automatically,
- *    so the operator never has to click "Imprimir" a second time.
- *
- * The caller chooses between two delivery modes:
- *  • newTab=false (default / kiosk): inject into a hidden 595×842 iframe in
- *    the current page; call iframe.contentWindow.print() after the PDF loads.
- *  • newTab=true: open the HTML blob in a new tab; the tab's <script> calls
- *    window.print() and then window.close() after print completes.
- */
-function buildPrintHtml(pdfBlobUrl: string, opts: { newTab?: boolean } = {}): string {
-  const closeAfterPrint = opts.newTab ? "window.addEventListener('afterprint',function(){setTimeout(window.close,400)});" : "";
-  return [
-    "<!DOCTYPE html><html><head><meta charset='utf-8'>",
-    "<style>",
-    "* { margin:0; padding:0; box-sizing:border-box }",
-    "html, body { width:100%; height:100%; overflow:hidden; background:#fff }",
-    "@page { margin:0; size:auto }",
-    "embed { display:block; width:100%; height:100vh }",
-    "</style></head><body>",
-    `<embed src="${pdfBlobUrl}" type="application/pdf">`,
-    "<script>",
-    // Give the PDF embed ~1.5 s to render before calling print.
-    // There is no reliable 'load' event on <embed> for PDFs in all browsers.
-    `(function(){var d=false;function p(){if(d)return;d=true;window.print();${closeAfterPrint}}setTimeout(p,1500);})();`,
-    "</script></body></html>",
-  ].join("");
-}
-
-/**
- * Print a PDF blob by injecting it into a hidden iframe in the current page.
- * Resolves once the print call has been dispatched (the dialog may still be
- * open; that's fine — the operator interacts with it independently).
- */
-async function printBlobInIframe(blob: Blob): Promise<void> {
-  const pdfUrl = URL.createObjectURL(blob);
-  const html = buildPrintHtml(pdfUrl);
-  const htmlBlob = new Blob([html], { type: "text/html" });
-  const htmlUrl = URL.createObjectURL(htmlBlob);
-
-  return new Promise<void>((resolve) => {
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("aria-hidden", "true");
-    // Off-screen but still rendered at a realistic size so the PDF plugin
-    // initialises correctly (display:none prevents plugin loading).
-    iframe.style.cssText =
-      "position:fixed;top:-9999px;left:-9999px;width:595px;height:842px;opacity:0;border:none;pointer-events:none;";
-
-    let settled = false;
-    let timerId = 0;
-
-    function cleanup() {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timerId);
-      setTimeout(() => {
-        if (document.body.contains(iframe)) document.body.removeChild(iframe);
-        URL.revokeObjectURL(htmlUrl);
-        URL.revokeObjectURL(pdfUrl);
-        resolve();
-      }, IFRAME_CLEANUP_DELAY_MS);
-    }
-
-    iframe.onload = () => {
-      if (settled) return;
-      // The HTML document has loaded; the <embed> is still fetching the PDF.
-      // Wait an extra 1.5 s on top of what the HTML script already waits so
-      // we don't clean up the iframe before the print job is dispatched.
-      timerId = window.setTimeout(cleanup, 1500 + IFRAME_CLEANUP_DELAY_MS);
-    };
-
-    iframe.onerror = cleanup;
-    document.body.appendChild(iframe);
-    iframe.src = htmlUrl;
-  });
-}
-
-/**
- * Print a PDF blob by opening the HTML wrapper in a new browser tab.
- * The tab auto-calls window.print() and closes itself after printing.
- * Useful when the caller cannot inject iframes (e.g. strict sandbox) or when
- * the operator prefers to see the label before confirming the print.
- */
-function printBlobInNewTab(blob: Blob): void {
-  const pdfUrl = URL.createObjectURL(blob);
-  const html = buildPrintHtml(pdfUrl, { newTab: true });
-  const htmlBlob = new Blob([html], { type: "text/html" });
-  const htmlUrl = URL.createObjectURL(htmlBlob);
-  window.open(htmlUrl, "_blank", "noopener");
-  // Revoke blob URLs after the new tab has had time to load.
-  setTimeout(() => {
-    URL.revokeObjectURL(htmlUrl);
-    URL.revokeObjectURL(pdfUrl);
-  }, 30_000);
-}
+// ─── Network ─────────────────────────────────────────────────────────────
 
 async function fetchLabelBlob(
   trackingCode: string,
@@ -258,7 +164,6 @@ async function fetchLabelBlob(
 ): Promise<Blob> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  // Propagate caller cancellation (e.g. user closes the bulk modal mid-fetch).
   const onExternalAbort = () => controller.abort();
   if (externalSignal) {
     if (externalSignal.aborted) controller.abort();
@@ -268,6 +173,7 @@ async function fetchLabelBlob(
     const res = await fetch(buildLabelUrl(trackingCode, format, false), {
       signal: controller.signal,
       credentials: "include",
+      cache: "no-store",
     });
     if (!res.ok) {
       let detail = `${res.status} ${res.statusText}`;
@@ -275,17 +181,30 @@ async function fetchLabelBlob(
         const body = (await res.json()) as { detail?: string };
         if (body?.detail) detail = body.detail;
       } catch {
-        // ignore non-JSON error body
+        // non-JSON error body, fall back to status text
       }
-      throw new PrintLabelError(trackingCode, `No se pudo descargar la etiqueta: ${detail}`);
+      throw new PrintLabelError(
+        trackingCode,
+        `No se pudo descargar la etiqueta: ${detail}`,
+      );
     }
-    return await res.blob();
+    const blob = await res.blob();
+    if (blob.size === 0) {
+      throw new PrintLabelError(
+        trackingCode,
+        "El servidor devolvió una etiqueta vacía.",
+      );
+    }
+    return blob;
   } catch (err) {
     if (err instanceof PrintLabelError) throw err;
     if (err instanceof DOMException && err.name === "AbortError") {
+      // Caller cancelled; surface as PrintLabelError but with explicit message.
       throw new PrintLabelError(
         trackingCode,
-        `Tiempo de espera agotado al descargar la etiqueta (${FETCH_TIMEOUT_MS / 1000}s).`,
+        externalSignal?.aborted
+          ? "Operación cancelada."
+          : `Tiempo de espera agotado al descargar la etiqueta (${FETCH_TIMEOUT_MS / 1000}s).`,
         err,
       );
     }
@@ -300,75 +219,284 @@ async function fetchLabelBlob(
   }
 }
 
+// ─── PDF merge ───────────────────────────────────────────────────────────
+
 async function mergePdfBlobs(blobs: Blob[]): Promise<Blob> {
+  if (blobs.length === 0) {
+    throw new Error("Cannot merge zero PDFs");
+  }
+  if (blobs.length === 1) return blobs[0];
+
   const { PDFDocument } = await import("pdf-lib");
   const merged = await PDFDocument.create();
   for (const blob of blobs) {
-    const arrayBuffer = await blob.arrayBuffer();
-    const src = await PDFDocument.load(arrayBuffer);
+    const buffer = await blob.arrayBuffer();
+    const src = await PDFDocument.load(buffer, { ignoreEncryption: true });
     const pages = await merged.copyPages(src, src.getPageIndices());
-    for (const page of pages) {
-      merged.addPage(page);
-    }
+    for (const page of pages) merged.addPage(page);
   }
   const bytes = await merged.save();
-  return new Blob([bytes], { type: "application/pdf" });
+  return new Blob([bytes as BlobPart], { type: "application/pdf" });
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────
+// ─── Print primitive ─────────────────────────────────────────────────────
+
+/**
+ * Print a PDF blob via a hidden iframe. Resolves once the print dialog has
+ * been triggered (the dialog itself is the user's responsibility).
+ *
+ * The PDF is wrapped in a same-origin HTML document containing an <embed>.
+ * Loading the PDF blob URL directly makes Chrome hand the iframe off to its
+ * PDF-viewer extension, which runs cross-origin — calling contentWindow.print()
+ * on it throws a SecurityError. The HTML wrapper keeps the iframe same-origin
+ * so print() always works without opening a new tab.
+ *
+ * A 1-second delay after the HTML loads gives the <embed> time to render the
+ * PDF before the dialog opens; without it the dialog may show a blank page.
+ */
+function printPdfBlob(blob: Blob): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const pdfUrl = URL.createObjectURL(blob);
+
+    const htmlContent =
+      "<!DOCTYPE html><html><head><style>" +
+      "*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden}" +
+      "embed{display:block;width:100%;height:100%;border:0}" +
+      "</style></head><body>" +
+      `<embed src="${pdfUrl}" type="application/pdf">` +
+      "</body></html>";
+    const htmlBlob = new Blob([htmlContent], { type: "text/html" });
+    const htmlUrl = URL.createObjectURL(htmlBlob);
+
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.setAttribute("title", "print");
+    // Off-screen but rendered at a real size — display:none prevents some
+    // browsers' PDF plugins from initialising.
+    iframe.style.cssText =
+      "position:fixed;right:-99999px;bottom:-99999px;width:595px;height:842px;border:0;visibility:hidden;pointer-events:none;";
+
+    let printTriggered = false;
+    let cleaned = false;
+    let readyTimerId = 0;
+    let embedDelayTimerId = 0;
+    let fallbackTimerId = 0;
+
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      window.clearTimeout(readyTimerId);
+      window.clearTimeout(embedDelayTimerId);
+      window.clearTimeout(fallbackTimerId);
+      try {
+        iframe.contentWindow?.removeEventListener("afterprint", onAfterPrint);
+      } catch {
+        // cross-origin or disposed window — ignore
+      }
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+      URL.revokeObjectURL(pdfUrl);
+      URL.revokeObjectURL(htmlUrl);
+    };
+
+    const onAfterPrint = () => {
+      // Small delay so the browser actually dispatches the job before we
+      // tear down the iframe (some print drivers read the document late).
+      window.setTimeout(cleanup, 500);
+    };
+
+    const onLoad = () => {
+      if (printTriggered) return;
+      printTriggered = true;
+      window.clearTimeout(readyTimerId);
+
+      const win = iframe.contentWindow;
+      if (!win) {
+        cleanup();
+        reject(new Error("Iframe contentWindow not available"));
+        return;
+      }
+
+      // Give the <embed> time to render the PDF before opening the dialog.
+      embedDelayTimerId = window.setTimeout(() => {
+        try {
+          win.addEventListener("afterprint", onAfterPrint, { once: true });
+        } catch {
+          // afterprint listener may fail in some sandboxed contexts; the
+          // fallback timer below will still clean up.
+        }
+        try {
+          win.focus();
+        } catch {
+          // ignore — focus is best-effort
+        }
+        try {
+          win.print();
+        } catch (err) {
+          cleanup();
+          reject(err);
+          return;
+        }
+        // The dialog (if any) is now the operator's responsibility.
+        resolve();
+        // Guarantee cleanup even if afterprint never fires.
+        fallbackTimerId = window.setTimeout(cleanup, CLEANUP_FALLBACK_MS);
+      }, 1000);
+    };
+
+    iframe.addEventListener("load", onLoad, { once: true });
+    iframe.addEventListener("error", () => {
+      cleanup();
+      reject(new Error("Failed to load PDF in iframe"));
+    });
+
+    // Hard cap: if the HTML wrapper never loads, give up.
+    readyTimerId = window.setTimeout(() => {
+      if (!printTriggered) {
+        cleanup();
+        reject(new Error("PDF preview did not load in time"));
+      }
+    }, PRINT_READY_TIMEOUT_MS);
+
+    document.body.appendChild(iframe);
+    iframe.src = htmlUrl;
+  });
+}
+
+// ─── New-tab fallback ────────────────────────────────────────────────────
+
+/**
+ * Open the PDF blob directly in a new tab. The browser's built-in PDF viewer
+ * shows it; the operator prints manually. Returns false if the popup was
+ * blocked by the browser.
+ */
+function openPdfInNewTab(blob: Blob): boolean {
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank", "noopener");
+  // Revoke after the tab has had time to load. Too short and Safari/Firefox
+  // can race the navigation; 60s is generous.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return win !== null;
+}
+
+// ─── Download ────────────────────────────────────────────────────────────
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+}
+
+function downloadByAnchor(trackingCode: string, format: LabelPrintFormat): void {
+  // Stream directly from the backend with Content-Disposition: attachment.
+  const anchor = document.createElement("a");
+  anchor.href = buildLabelUrl(trackingCode, format, true);
+  anchor.download = `etiqueta-${trackingCode}.${extensionFor(format)}`;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+// ─── Public API: single label ────────────────────────────────────────────
 
 /**
  * Print (or download) a single label by tracking code.
  *
- * Mode is decided by `isSilentPrintEnabled()` unless overridden via
- * `forceSilent` / `forceDownload` in the options.
+ * Mode is decided automatically based on the per-device preference and the
+ * label format, but callers can override via the options.
  */
 export async function printLabel(
   trackingCode: string,
   options: PrintLabelOptions = {},
 ): Promise<void> {
   const format = options.format ?? "PDF";
-  const mode = resolveMode(options);
+  const mode = resolveMode(options, format);
 
-  // Non-PDF formats or explicit download → save file.
-  if (mode === "download" || format !== "PDF") {
+  // Non-PDF: stream-download from the backend; no need to fetch as a blob.
+  if (mode === "download" && format !== "PDF") {
     downloadByAnchor(trackingCode, format);
     return;
   }
 
-  // Fetch the blob once; both silent and newtab paths need it.
+  // PDF path — always fetch the blob so we can retry / fall back.
   let blob: Blob;
   try {
     blob = await fetchLabelBlob(trackingCode, format, options.signal);
-    if (options.signal?.aborted) return;
-  } catch {
-    // Network / timeout — fall back to opening the raw URL so the operator
-    // can still print manually from the PDF viewer.
-    window.open(buildLabelUrl(trackingCode, format, false), "_blank", "noopener");
+  } catch (err) {
+    // Hard failure on fetch — let the caller decide what to show. Re-throw
+    // so toasts/UI feedback can pick it up.
+    throw err;
+  }
+  if (options.signal?.aborted) return;
+
+  if (mode === "download") {
+    downloadBlob(blob, `etiqueta-${trackingCode}.${extensionFor(format)}`);
     return;
   }
 
-  if (mode === "silent") {
-    // Silent/kiosk: inject into a hidden iframe and call contentWindow.print().
-    // With --kiosk-printing Chrome skips the dialog; without it the native
-    // print dialog still appears, but the operator only has to confirm once.
-    try {
-      await printBlobInIframe(blob);
-      return;
-    } catch {
-      // Iframe approach failed — fall through to new-tab.
+  if (mode === "newtab") {
+    if (!openPdfInNewTab(blob)) {
+      // Popup blocked — fall back to download.
+      downloadBlob(blob, `etiqueta-${trackingCode}.pdf`);
     }
+    return;
   }
 
-  // Default (and silent-mode fallback): open an HTML wrapper in a new tab.
-  // The wrapper embeds the PDF and auto-calls window.print(), so the print
-  // dialog opens immediately without the operator having to click anything.
-  printBlobInNewTab(blob);
+  // mode === "print": hidden iframe + window.print().
+  try {
+    await printPdfBlob(blob);
+  } catch {
+    // Iframe path failed (sandbox, disabled PDF viewer, plugin missing).
+    // Fall through to opening the PDF in a new tab.
+    if (!openPdfInNewTab(blob)) {
+      downloadBlob(blob, `etiqueta-${trackingCode}.pdf`);
+    }
+  }
 }
 
 /**
- * Fetch + merge all labels into a single PDF, then either silently print it
- * or trigger a single download of the merged file.
+ * Pre-fetch a label PDF blob without printing it.
+ * Call right after shipment creation so the blob is ready in memory when the
+ * operator clicks "Imprimir etiqueta" — the print dialog opens without any
+ * additional network round-trip.
+ */
+export async function prefetchLabelBlob(
+  trackingCode: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return fetchLabelBlob(trackingCode, "PDF", signal);
+}
+
+/**
+ * Print a pre-fetched PDF blob directly, using the same iframe + dialog path
+ * as `printLabel`. Falls back to new-tab → download on failure.
+ */
+export async function printFromBlob(blob: Blob): Promise<void> {
+  try {
+    await printPdfBlob(blob);
+  } catch {
+    if (!openPdfInNewTab(blob)) {
+      downloadBlob(blob, "etiqueta.pdf");
+    }
+  }
+}
+
+// ─── Public API: batch ───────────────────────────────────────────────────
+
+/**
+ * Fetch all labels in parallel (concurrency 6), merge them into a single PDF,
+ * and dispatch ONE print job (or one download / new-tab depending on mode).
+ *
+ * Returns the list of fetch failures. The successful labels are still printed.
  */
 export async function printLabelsMerged(
   trackingCodes: string[],
@@ -379,54 +507,52 @@ export async function printLabelsMerged(
 
   const format = options.format ?? "PDF";
 
+  // ZPL/EPL aren't mergeable — fall back to per-label flow.
   if (format !== "PDF") {
     return printLabelsSequential(trackingCodes, options, onProgress);
   }
 
-  const mode = resolveMode(options);
   const failures: PrintLabelFailure[] = [];
   // Index-aligned with trackingCodes so the merged PDF preserves UI order
-  // regardless of which download finishes first. A null slot means that
-  // tracking code failed and is excluded from the merge.
+  // regardless of which fetch finishes first.
   const blobsByIndex: Array<Blob | null> = new Array(trackingCodes.length).fill(null);
-  let fetched = 0;
+  let fetchedCount = 0;
 
-  const CONCURRENCY = 6;
   let nextIndex = 0;
+  const total = trackingCodes.length;
 
   async function fetchOne(index: number) {
     const code = trackingCodes[index];
     try {
-      const blob = await fetchLabelBlob(code, "PDF", options.signal);
-      blobsByIndex[index] = blob;
+      blobsByIndex[index] = await fetchLabelBlob(code, "PDF", options.signal);
     } catch (err) {
-      if (err instanceof PrintLabelError) {
-        failures.push({ trackingCode: code, error: err });
-      } else {
-        failures.push({
-          trackingCode: code,
-          error: new PrintLabelError(
-            code,
-            err instanceof Error ? err.message : "Error desconocido al descargar",
-            err,
-          ),
-        });
-      }
+      failures.push({
+        trackingCode: code,
+        error:
+          err instanceof PrintLabelError
+            ? err
+            : new PrintLabelError(
+                code,
+                err instanceof Error ? err.message : "Error desconocido al descargar",
+                err,
+              ),
+      });
     } finally {
-      fetched++;
-      onProgress?.(fetched, trackingCodes.length);
+      fetchedCount++;
+      onProgress?.(fetchedCount, total);
     }
   }
 
-  const workers: Promise<void>[] = [];
   async function worker() {
-    while (nextIndex < trackingCodes.length) {
+    while (nextIndex < total) {
       if (options.signal?.aborted) return;
       const i = nextIndex++;
       await fetchOne(i);
     }
   }
-  for (let i = 0; i < Math.min(CONCURRENCY, trackingCodes.length); i++) {
+
+  const workers: Promise<void>[] = [];
+  for (let i = 0; i < Math.min(BATCH_FETCH_CONCURRENCY, total); i++) {
     workers.push(worker());
   }
   await Promise.all(workers);
@@ -434,32 +560,53 @@ export async function printLabelsMerged(
   if (options.signal?.aborted) return failures;
 
   const blobs = blobsByIndex.filter((b): b is Blob => b !== null);
+  if (blobs.length === 0) return failures;
 
-  if (blobs.length > 0) {
-    const merged = blobs.length === 1 ? blobs[0] : await mergePdfBlobs(blobs);
-    if (mode === "silent") {
-      try {
-        await printBlobInIframe(merged);
-      } catch {
-        // Iframe failed — open HTML wrapper in a new tab as fallback.
-        printBlobInNewTab(merged);
-      }
-    } else if (mode === "newtab") {
-      // HTML wrapper opens in a new tab and auto-calls window.print() so the
-      // operator never has to click the print button in the PDF viewer.
-      printBlobInNewTab(merged);
-    } else {
-      const filename = `etiquetas-${new Date().toISOString().slice(0, 10)}-${blobs.length}.pdf`;
-      triggerBlobDownload(merged, filename);
-    }
+  let merged: Blob;
+  try {
+    merged = await mergePdfBlobs(blobs);
+  } catch (err) {
+    // Merge failed — fall back to printing the first blob so at least the
+    // operator gets something. Surface the merge error via failures list.
+    failures.push({
+      trackingCode: "(merge)",
+      error: new PrintLabelError(
+        "(merge)",
+        err instanceof Error ? err.message : "No se pudo combinar las etiquetas",
+        err,
+      ),
+    });
+    merged = blobs[0];
+  }
+
+  const mode = resolveMode(options, "PDF");
+  const date = new Date().toISOString().slice(0, 10);
+  const filename = `etiquetas-${date}-${blobs.length}.pdf`;
+
+  if (mode === "download") {
+    downloadBlob(merged, filename);
+    return failures;
+  }
+
+  if (mode === "newtab") {
+    if (!openPdfInNewTab(merged)) downloadBlob(merged, filename);
+    return failures;
+  }
+
+  // mode === "print"
+  try {
+    await printPdfBlob(merged);
+  } catch {
+    if (!openPdfInNewTab(merged)) downloadBlob(merged, filename);
   }
 
   return failures;
 }
 
 /**
- * Sequential per-label flow. Honours the silent/download preference for each
- * label individually.
+ * Sequential per-label flow. Use only for non-PDF formats (each label is its
+ * own print/download). For PDF, prefer `printLabelsMerged` — it's faster and
+ * shows a single dialog.
  */
 export async function printLabelsSequential(
   trackingCodes: string[],
@@ -474,22 +621,22 @@ export async function printLabelsSequential(
     try {
       await printLabel(code, options);
     } catch (err) {
-      if (err instanceof PrintLabelError) {
-        failures.push({ trackingCode: code, error: err });
-      } else {
-        failures.push({
-          trackingCode: code,
-          error: new PrintLabelError(
-            code,
-            err instanceof Error ? err.message : "Error desconocido al imprimir",
-            err,
-          ),
-        });
-      }
+      failures.push({
+        trackingCode: code,
+        error:
+          err instanceof PrintLabelError
+            ? err
+            : new PrintLabelError(
+                code,
+                err instanceof Error ? err.message : "Error desconocido al imprimir",
+                err,
+              ),
+      });
     }
     onProgress?.(i + 1, trackingCodes.length);
+    // Short pause between dialogs so the browser doesn't drop the next one.
     if (i < trackingCodes.length - 1) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
     }
   }
 
