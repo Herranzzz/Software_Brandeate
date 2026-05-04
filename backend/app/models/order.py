@@ -67,7 +67,9 @@ class Order(Base):
             native_enum=False,
             create_constraint=True,
             validate_strings=True,
-        )
+        ),
+        # Index added in migration 0050 — hot column for list filters.
+        index=True,
     )
     production_status: Mapped[ProductionStatus] = mapped_column(
         Enum(
@@ -78,6 +80,8 @@ class Order(Base):
             validate_strings=True,
         ),
         default=ProductionStatus.pending_personalization,
+        # Index added in migration 0050 — hot column for print-queue filters.
+        index=True,
     )
     priority: Mapped[OrderPriority] = mapped_column(
         Enum(

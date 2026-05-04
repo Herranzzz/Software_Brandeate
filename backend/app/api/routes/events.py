@@ -76,16 +76,24 @@ async def stream_events(
 
     # SSE responses live forever; FastAPI's Depends(get_db) would otherwise
     # pin one DB connection per open client. Release it now — the generator
-    # below does not touch the DB.
-    db.close()
+    # below does not touch the DB. Defensively swallow close errors: a failed
+    # close shouldn't tear down a successfully authenticated stream.
+    try:
+        db.close()
+    except Exception:  # noqa: BLE001 — best-effort cleanup
+        logger.warning("Failed to release DB session before SSE stream", exc_info=True)
 
     broker = get_broker()
 
     async def generator() -> AsyncGenerator[str, None]:
-        sub = await broker.subscribe(user_id=user_id, shop_ids=shop_ids)
-        # Announce ourselves so peers can render presence immediately.
-        yield ":connected\n\n"
+        # Subscribe inside the generator so any failure short-circuits before
+        # the StreamingResponse starts pumping bytes. `sub` is bound to None
+        # so the finally-block can no-op safely if subscribe() itself raised.
+        sub = None
         try:
+            sub = await broker.subscribe(user_id=user_id, shop_ids=shop_ids)
+            # Announce ourselves so peers can render presence immediately.
+            yield ":connected\n\n"
             while True:
                 if await request.is_disconnected():
                     break
@@ -99,8 +107,21 @@ async def stream_events(
                     # Heartbeat comment keeps intermediaries from timing us out
                     # and gives the client a way to notice the stream is alive.
                     yield ": ping\n\n"
+        except asyncio.CancelledError:
+            # Normal: client disconnected, ASGI server is cancelling the task.
+            # Re-raise after cleanup so the runtime knows we honoured the cancel.
+            raise
+        except Exception:  # noqa: BLE001 — log and exit, don't crash the worker
+            logger.exception("SSE generator crashed for user %s", user_id)
         finally:
-            await broker.unsubscribe(sub)
+            # GUARANTEED cleanup of the broker subscription. Without this, slow
+            # disconnects + repeated reconnects pile up zombie subscribers in
+            # the broker's fan-out set and eventually OOM the worker.
+            if sub is not None:
+                try:
+                    await broker.unsubscribe(sub)
+                except Exception:  # noqa: BLE001
+                    logger.warning("Failed to unsubscribe SSE stream", exc_info=True)
 
     return StreamingResponse(
         generator(),

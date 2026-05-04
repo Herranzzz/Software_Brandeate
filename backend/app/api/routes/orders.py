@@ -87,6 +87,20 @@ def _prepared_order_state(order: Order) -> bool:
     return order.production_status in {ProductionStatus.packed, ProductionStatus.completed} or order.status == OrderStatus.ready_to_ship
 
 
+def _lock_order_for_update(db: Session, order_id: int) -> Order | None:
+    """Load an order WITH a row-level lock so concurrent edits serialise.
+
+    Without this two operators preparing the same order at the same time will
+    both read the old state, both write a different new state, and one of the
+    writes is silently lost. The lock is released when the session commits or
+    rolls back. Use only inside a transaction (the FastAPI request scope IS a
+    transaction by default).
+    """
+    return db.scalar(
+        select(Order).where(Order.id == order_id).with_for_update()
+    )
+
+
 def _touch_order_activity(order: Order, user: User, *, mark_prepared: bool = False) -> None:
     now = datetime.now(timezone.utc)
     order.last_touched_by_employee_id = user.id
@@ -996,7 +1010,7 @@ def update_order_status(
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
     current_user: User = Depends(get_current_user),
 ) -> Order:
-    order = db.get(Order, order_id)
+    order = _lock_order_for_update(db, order_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
@@ -1029,7 +1043,7 @@ def update_order_production_status(
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
     current_user: User = Depends(get_current_user),
 ) -> Order:
-    order = db.get(Order, order_id)
+    order = _lock_order_for_update(db, order_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:
@@ -1061,7 +1075,7 @@ def update_order_priority(
     accessible_shop_ids: set[int] | None = Depends(get_accessible_shop_ids),
     current_user: User = Depends(get_current_user),
 ) -> Order:
-    order = db.get(Order, order_id)
+    order = _lock_order_for_update(db, order_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if accessible_shop_ids is not None and order.shop_id not in accessible_shop_ids:

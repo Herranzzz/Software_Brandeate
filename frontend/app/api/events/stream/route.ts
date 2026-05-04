@@ -24,6 +24,21 @@ export async function GET(request: NextRequest) {
     },
   );
 
+  // When the backend says the token is expired, signal the client via a
+  // named SSE event instead of returning a 401 HTTP status (EventSource
+  // doesn't expose the HTTP status code in its onerror callback, so the
+  // client can't distinguish auth failures from network errors).
+  if (upstream.status === 401) {
+    const authErrorBody = 'event: auth_error\ndata: {"code":401}\n\n';
+    return new Response(authErrorBody, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+      },
+    });
+  }
+
   if (!upstream.ok || upstream.body === null) {
     return new Response("Upstream unavailable", { status: upstream.status || 502 });
   }

@@ -46,22 +46,37 @@ export function NotificationBell() {
     try {
       setLoading(true);
       const res = await fetch("/api/activity/notifications?limit=15");
+      if (res.status === 401) {
+        // Token expired — ask AuthRefresher to handle it; don't thrash.
+        window.dispatchEvent(new CustomEvent("auth:401"));
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setNotifications(data);
       }
     } catch {
-      // silent
+      // silent — network error, retry next tick
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Initial load + poll every 60s
+  // Initial load + poll every 60s.
+  // On auth:refreshed, fetch immediately so the bell catches up.
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 60000);
-    return () => clearInterval(interval);
+
+    function onRefreshed() {
+      void fetchData();
+    }
+    window.addEventListener("auth:refreshed", onRefreshed);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("auth:refreshed", onRefreshed);
+    };
   }, [fetchData]);
 
   // Close on outside click

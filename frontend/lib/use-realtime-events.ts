@@ -47,12 +47,20 @@ export type RealtimeEvent =
 
 type Listener = (event: RealtimeEvent) => void;
 
-type ConnectionState = "idle" | "connecting" | "open" | "reconnecting" | "closed";
+type ConnectionState = "idle" | "connecting" | "open" | "reconnecting" | "auth_failed" | "closed";
 
 // Module-level singleton: exactly one EventSource per tab even if multiple
-// components use the hook. Reconnects with exponential backoff (up to 15s)
-// on error; the browser's EventSource auto-reconnect is too aggressive and
-// doesn't respect transient 5xx.
+// components use the hook.
+//
+// Auth failure handling:
+//  • The Next.js proxy (/api/events/stream) converts a backend 401 into a
+//    named SSE event `auth_error` so we can detect it (EventSource.onerror
+//    does not expose the HTTP status code).
+//  • On auth_error: dispatch window CustomEvent "auth:401" so AuthRefresher
+//    runs a token refresh, then halt reconnect attempts (state = auth_failed).
+//  • On window CustomEvent "auth:refreshed": resume with a fresh connection.
+//  • This prevents the 401-flood seen when the client kept reconnecting every
+//    few seconds with a stale token, piling up multiple concurrent SSE streams.
 class RealtimeClient {
   private source: EventSource | null = null;
   private listeners = new Set<Listener>();
@@ -60,6 +68,7 @@ class RealtimeClient {
   private state: ConnectionState = "idle";
   private reconnectAttempts = 0;
   private reconnectTimer: number | null = null;
+  private authRefreshedHandler: (() => void) | null = null;
 
   addListener(fn: Listener): () => void {
     this.listeners.add(fn);
@@ -84,7 +93,17 @@ class RealtimeClient {
   }
 
   private ensureOpen() {
-    if (this.source || this.state === "connecting") return;
+    // Guard against calling open() when we already have a connection attempt
+    // in flight (connecting), a live connection (source != null), a pending
+    // reconnect timer (reconnecting), or a paused-for-auth state (auth_failed).
+    if (
+      this.source !== null ||
+      this.state === "connecting" ||
+      this.state === "reconnecting" ||
+      this.state === "auth_failed"
+    ) {
+      return;
+    }
     this.open();
   }
 
@@ -108,6 +127,32 @@ class RealtimeClient {
       this.dispatch(ev as MessageEvent, "job_progress");
     });
 
+    // The proxy sends this named event when the backend returns 401.
+    // We halt reconnects and wait for AuthRefresher to issue a fresh token.
+    src.addEventListener("auth_error", () => {
+      src.close();
+      this.source = null;
+      this.clearReconnectTimer();
+      this.setState("auth_failed");
+
+      // Tell AuthRefresher to refresh immediately.
+      window.dispatchEvent(new CustomEvent("auth:401"));
+
+      // Once AuthRefresher succeeds it dispatches "auth:refreshed".
+      // We listen for that once to resume the SSE connection.
+      const onRefreshed = () => {
+        if (this.listeners.size === 0) return;
+        this.reconnectAttempts = 0;
+        this.open();
+      };
+      // Remove any previous listener to avoid duplicates.
+      if (this.authRefreshedHandler) {
+        window.removeEventListener("auth:refreshed", this.authRefreshedHandler);
+      }
+      this.authRefreshedHandler = onRefreshed;
+      window.addEventListener("auth:refreshed", onRefreshed, { once: true });
+    });
+
     src.onerror = () => {
       src.close();
       this.source = null;
@@ -118,8 +163,19 @@ class RealtimeClient {
       this.setState("reconnecting");
       const delay = Math.min(1000 * 2 ** this.reconnectAttempts, 15_000);
       this.reconnectAttempts++;
-      this.reconnectTimer = window.setTimeout(() => this.open(), delay);
+      this.clearReconnectTimer();
+      this.reconnectTimer = window.setTimeout(() => {
+        this.reconnectTimer = null;
+        this.open();
+      }, delay);
     };
+  }
+
+  private clearReconnectTimer() {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   private dispatch(
@@ -144,9 +200,10 @@ class RealtimeClient {
   }
 
   private close() {
-    if (this.reconnectTimer !== null) {
-      window.clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+    this.clearReconnectTimer();
+    if (this.authRefreshedHandler) {
+      window.removeEventListener("auth:refreshed", this.authRefreshedHandler);
+      this.authRefreshedHandler = null;
     }
     this.source?.close();
     this.source = null;

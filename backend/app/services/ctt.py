@@ -31,6 +31,13 @@ _RETRY_MAX_ATTEMPTS = 3
 _RETRY_BASE_DELAY = 0.6
 _RETRY_MAX_DELAY = 4.0
 _RETRY_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
+# Hard upper bound for a single _urlopen_with_retry call regardless of how many
+# retries happen. Without it, a slow CTT gateway can block a worker thread for
+# minutes (per_attempt_timeout × attempts + backoff) and exhaust the thread
+# pool used by the bulk-label endpoint. 75s is generous given the per-attempt
+# timeout we use (max 30s for label fetches × 3 retries + 4s backoff = ~98s),
+# while still leaving Render's request timeout headroom.
+_OVERALL_DEADLINE_S = 75.0
 
 
 def _ssl_context() -> ssl.SSLContext | None:
@@ -70,10 +77,16 @@ def _urlopen_with_retry(
     final attempt. Non-transient errors (4xx HTTPError, SSL, invalid URL) are
     raised immediately without retry.
     """
+    started = time.monotonic()
+    deadline = started + _OVERALL_DEADLINE_S
     last_exc: Exception | None = None
     for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        # Cap per-attempt timeout so the overall call cannot exceed the
+        # deadline even if the underlying socket would happily wait longer.
+        remaining = max(1.0, deadline - time.monotonic())
+        attempt_timeout = min(timeout, remaining)
         try:
-            with request.urlopen(req, context=_ssl_context(), timeout=timeout) as resp:
+            with request.urlopen(req, context=_ssl_context(), timeout=attempt_timeout) as resp:
                 return resp.read()
         except error.HTTPError as exc:
             last_exc = exc
@@ -100,9 +113,20 @@ def _urlopen_with_retry(
                 op_label, exc.reason, attempt, _RETRY_MAX_ATTEMPTS,
             )
 
+        # Bail out if we wouldn't have time for another attempt anyway.
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "CTT overall deadline reached on %s after %.1fs, aborting retries",
+                op_label, time.monotonic() - started,
+            )
+            raise last_exc
+
         delay = min(_RETRY_BASE_DELAY * (2 ** (attempt - 1)), _RETRY_MAX_DELAY)
         delay += random.uniform(0, delay * 0.25)
-        time.sleep(delay)
+        # Don't sleep past the deadline — would just delay the inevitable raise.
+        delay = min(delay, max(0.0, deadline - time.monotonic() - 0.1))
+        if delay > 0:
+            time.sleep(delay)
 
     # unreachable — loop either returns or raises
     assert last_exc is not None

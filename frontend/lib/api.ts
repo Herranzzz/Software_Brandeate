@@ -278,9 +278,16 @@ export async function fetchShopCustomers(params?: {
 }
 
 
-export async function fetchAdminUsers(params?: {
-  role?: string;
-}) {
+/**
+ * Admin/employee directory — changes only when admins are added or roles
+ * updated, so we can cache aggressively. Default 60s gives a good balance
+ * between freshness (a new operator appears in dropdowns within a minute)
+ * and avoiding unnecessary backend hits on every page navigation.
+ */
+export async function fetchAdminUsers(
+  params?: { role?: string },
+  options?: { cacheSeconds?: number },
+) {
   const searchParams = new URLSearchParams();
   if (params?.role) {
     searchParams.set("role", params.role);
@@ -288,10 +295,20 @@ export async function fetchAdminUsers(params?: {
 
   const query = searchParams.toString();
   const headers = await buildAuthHeaders();
-  const response = await fetch(apiUrl(`/users${query ? `?${query}` : ""}`), {
-    cache: "no-store",
+  const cacheSeconds = options?.cacheSeconds ?? 60;
+  const fetchOptions: RequestInit & { next?: { revalidate: number; tags?: string[] } } = {
     headers,
-  });
+  };
+  if (cacheSeconds > 0) {
+    fetchOptions.cache = "force-cache";
+    fetchOptions.next = { revalidate: cacheSeconds, tags: ["admin-users"] };
+  } else {
+    fetchOptions.cache = "no-store";
+  }
+  const response = await fetch(
+    apiUrl(`/users${query ? `?${query}` : ""}`),
+    fetchOptions,
+  );
 
   const payload = await parseResponse<{ users: AdminUser[] }>(response);
   return payload.users;
@@ -463,12 +480,29 @@ export async function fetchPublicTracking(token: string) {
 }
 
 
-export async function fetchShops() {
+/**
+ * Reference data — shops change rarely (manual admin action). We cache for
+ * 120s by default so navigating between pages doesn't trigger a backend
+ * round-trip every time. Pass cacheSeconds: 0 to force a fresh read after
+ * a known mutation.
+ *
+ * Per-user safety: Next.js's fetch cache key includes request headers, so
+ * different users (with different Authorization tokens) hit different cache
+ * entries and never see each other's shops.
+ */
+export async function fetchShops(options?: { cacheSeconds?: number }) {
   const headers = await buildAuthHeaders();
-  const response = await fetch(apiUrl("/shops"), {
-    cache: "no-store",
+  const cacheSeconds = options?.cacheSeconds ?? 120;
+  const fetchOptions: RequestInit & { next?: { revalidate: number; tags?: string[] } } = {
     headers,
-  });
+  };
+  if (cacheSeconds > 0) {
+    fetchOptions.cache = "force-cache";
+    fetchOptions.next = { revalidate: cacheSeconds, tags: ["shops"] };
+  } else {
+    fetchOptions.cache = "no-store";
+  }
+  const response = await fetch(apiUrl("/shops"), fetchOptions);
 
   return parseResponse<Shop[]>(response);
 }

@@ -40,6 +40,9 @@ export function AuthRefresher() {
         });
 
         if (res.ok) {
+          // Signal all subsystems (SSE, notifications, etc.) that a fresh
+          // token is available so they can reconnect / refetch.
+          window.dispatchEvent(new CustomEvent("auth:refreshed"));
           if (opts.reloadOnSuccess) {
             // Re-run SSR with the fresh cookie. Using router.refresh() is
             // lighter than a full page reload and avoids scroll-jump.
