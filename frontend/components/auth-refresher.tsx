@@ -8,8 +8,8 @@
  *    access token (8 h TTL) never expires while the operator is working.
  *  • Reactive: listens for a global "auth:401" CustomEvent that any fetch
  *    helper can dispatch on a 401 response. On that event it attempts one
- *    refresh; if it succeeds it reloads the page to re-run SSR with the new
- *    cookie; if it fails it redirects to /login with a friendly message.
+ *    refresh; if it succeeds it dispatches "auth:refreshed" so SSE/notifications
+ *    reconnect; if it fails it redirects to /login with a friendly message.
  *  • Visibility: re-checks on tab focus so tokens renew even after a long
  *    idle period (browser tabs sleeping, screen locked, etc.).
  */
@@ -28,7 +28,7 @@ export function AuthRefresher() {
   const router = useRouter();
 
   const tryRefresh = useCallback(
-    async (opts: { reloadOnSuccess?: boolean } = {}): Promise<boolean> => {
+    async (opts: { hardReload?: boolean } = {}): Promise<boolean> => {
       const now = Date.now();
       if (now - lastRefreshAttempt < MIN_REFRESH_GAP_MS) return false;
       lastRefreshAttempt = now;
@@ -43,10 +43,12 @@ export function AuthRefresher() {
           // Signal all subsystems (SSE, notifications, etc.) that a fresh
           // token is available so they can reconnect / refetch.
           window.dispatchEvent(new CustomEvent("auth:refreshed"));
-          if (opts.reloadOnSuccess) {
-            // Re-run SSR with the fresh cookie. Using router.refresh() is
-            // lighter than a full page reload and avoids scroll-jump.
-            router.refresh();
+          // Don't call router.refresh() on every auth cycle — it shows a
+          // loading state and is unnecessary if the page is already working.
+          // Only hard-reload on visibility-based proactive refresh where SSR
+          // data might be genuinely stale (handled at call site via opts).
+          if (opts.hardReload) {
+            window.location.reload();
           }
           return true;
         }
@@ -77,7 +79,7 @@ export function AuthRefresher() {
         // Only refresh proactively if the tab was hidden for a while.
         // We use lastRefreshAttempt as a rough proxy.
         if (Date.now() - lastRefreshAttempt > REFRESH_INTERVAL_MS) {
-          void tryRefresh({ reloadOnSuccess: true });
+          void tryRefresh();
         }
       }
     }
@@ -90,7 +92,7 @@ export function AuthRefresher() {
   // 401 response and wants the session layer to handle it.
   useEffect(() => {
     function on401() {
-      void tryRefresh({ reloadOnSuccess: true });
+      void tryRefresh();
     }
     window.addEventListener("auth:401", on401);
     return () => window.removeEventListener("auth:401", on401);
