@@ -12,7 +12,7 @@ import {
   getInitialCttWeightBand,
   getOrderShippingContact,
 } from "@/lib/ctt";
-import { prefetchLabelBlob, printFromBlob, printLabel } from "@/lib/print-utils";
+import { prefetchLabelBlob, printLabel } from "@/lib/print-utils";
 import type { Order, ShippingRuleResolution, Shop } from "@/lib/types";
 
 type CttLabelCellProps = {
@@ -23,9 +23,34 @@ type CttLabelCellProps = {
 
 // confirm  → user reviews items + address before creating
 // creating → API call in flight (can be backgrounded by closing the modal)
-// success  → label created, PDF prefetching in background
+// success  → label created, print frame loading in background
 // error    → creation failed, retry available
 type Phase = "confirm" | "creating" | "success" | "error";
+
+// ─── Hidden iframe pre-loader ──────────────────────────────────────────────
+//
+// Chrome blocks window.print() unless it is called synchronously within a
+// user-gesture handler (click, keypress). Any await or setTimeout in between
+// breaks the gesture context and print() is silently ignored.
+//
+// Fix: build the print iframe *before* the user clicks "Imprimir etiqueta"
+// (while the label is being fetched / after creation). When the user clicks we
+// call iframe.contentWindow.print() synchronously — no awaits, no timers.
+//
+// The PDF blob URL is embedded in a same-origin HTML wrapper so that
+// contentWindow is accessible (loading the PDF blob directly makes Chrome
+// hand the iframe off to its PDF-viewer extension, which runs cross-origin).
+
+function buildPrintHtml(pdfBlobUrl: string): string {
+  return (
+    "<!DOCTYPE html><html><head><style>" +
+    "*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden}" +
+    "embed{display:block;width:100%;height:100%;border:0}" +
+    "</style></head><body>" +
+    `<embed src="${pdfBlobUrl}" type="application/pdf">` +
+    "</body></html>"
+  );
+}
 
 export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLabelCellProps) {
   const { toast } = useToast();
@@ -43,15 +68,22 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [isPrintingLabel, setIsPrintingLabel] = useState(false);
 
-  // Pre-fetched PDF blob — ready for instant printing after creation.
-  const [labelBlob, setLabelBlob] = useState<Blob | null>(null);
+  // Pre-loaded print iframe — ready for a synchronous win.print() call.
+  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const printPdfUrlRef = useRef("");
+  const printHtmlUrlRef = useRef("");
+  const [printReady, setPrintReady] = useState(false);
+  // Cancelled flag used inside the 1-second iframe-ready timeout so we don't
+  // call setPrintReady on a component that has already cleaned up.
+  const printSetupCancelledRef = useRef(false);
+
+  // In-flight prefetch abort controller.
   const prefetchAbortRef = useRef<AbortController | null>(null);
 
   // When the user closes the modal while "creating", the API call continues.
-  // This ref tells the promise handler to show a toast instead of updating state.
   const backgroundModeRef = useRef(false);
 
-  // Form fields — shipping config
+  // Form fields
   const [recipientName, setRecipientName] = useState(initialContact.recipientName);
   const [recipientEmail, setRecipientEmail] = useState(initialContact.recipientEmail);
   const [recipientCountry, setRecipientCountry] = useState(initialContact.recipientCountry);
@@ -66,6 +98,114 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
   const [manualServiceOverride, setManualServiceOverride] = useState(false);
 
   const hasShipmentAlready = Boolean(existingLabelUrl);
+
+  // ── Print frame lifecycle ──────────────────────────────────────────────
+
+  function cleanupPrintFrame() {
+    printSetupCancelledRef.current = true;
+    if (printFrameRef.current?.parentNode) {
+      printFrameRef.current.parentNode.removeChild(printFrameRef.current);
+    }
+    printFrameRef.current = null;
+    if (printPdfUrlRef.current) URL.revokeObjectURL(printPdfUrlRef.current);
+    if (printHtmlUrlRef.current) URL.revokeObjectURL(printHtmlUrlRef.current);
+    printPdfUrlRef.current = "";
+    printHtmlUrlRef.current = "";
+    setPrintReady(false);
+  }
+
+  function setupPrintFrame(blob: Blob) {
+    cleanupPrintFrame();
+    printSetupCancelledRef.current = false;
+
+    const pdfUrl = URL.createObjectURL(blob);
+    printPdfUrlRef.current = pdfUrl;
+
+    const htmlBlob = new Blob([buildPrintHtml(pdfUrl)], { type: "text/html" });
+    const htmlUrl = URL.createObjectURL(htmlBlob);
+    printHtmlUrlRef.current = htmlUrl;
+
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.style.cssText =
+      "position:fixed;right:-99999px;bottom:-99999px;" +
+      "width:595px;height:842px;border:0;visibility:hidden;pointer-events:none;";
+
+    iframe.addEventListener(
+      "load",
+      () => {
+        // Give the <embed> 1 second to render the PDF before marking ready.
+        window.setTimeout(() => {
+          if (printSetupCancelledRef.current) return;
+          printFrameRef.current = iframe;
+          setPrintReady(true);
+        }, 1000);
+      },
+      { once: true },
+    );
+
+    document.body.appendChild(iframe);
+    iframe.src = htmlUrl;
+  }
+
+  // ── Print action — called synchronously inside the click handler ──────
+
+  function handlePrintLabel() {
+    if (isPrintingLabel) return;
+    const code = shippingCode || order.shipment?.tracking_number;
+    if (!code) return;
+
+    // Fast path: iframe already loaded → synchronous print (user gesture intact).
+    if (printReady && printFrameRef.current?.contentWindow) {
+      const win = printFrameRef.current.contentWindow;
+      win.addEventListener(
+        "afterprint",
+        () => {
+          window.setTimeout(cleanupPrintFrame, 500);
+        },
+        { once: true },
+      );
+      try {
+        win.print();
+      } catch {
+        cleanupPrintFrame();
+        // Fallback to async (will open new tab if gesture is lost, but at least works).
+        void printLabel(code, { format: "PDF" });
+      }
+      return;
+    }
+
+    // Slow path: iframe not ready yet (prefetch still in progress, or existing
+    // label that hasn't finished loading). Async fetch + print — may open new tab
+    // in Chrome because the gesture context is broken by the await.
+    setIsPrintingLabel(true);
+    void printLabel(code, { format: "PDF" })
+      .catch((err) => {
+        toast(err instanceof Error ? err.message : "No se pudo imprimir", "error");
+      })
+      .finally(() => {
+        setIsPrintingLabel(false);
+      });
+  }
+
+  // ── Prefetch helper shared by new label (mode=print) and existing label ─
+
+  function startPrefetch(code: string) {
+    prefetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    prefetchAbortRef.current = controller;
+    prefetchLabelBlob(code, controller.signal)
+      .then((blob) => {
+        if (!controller.signal.aborted) {
+          setupPrintFrame(blob);
+        }
+      })
+      .catch(() => {
+        // Prefetch failure is silent — slow path in handlePrintLabel will handle it.
+      });
+  }
+
+  // ── Form helpers ──────────────────────────────────────────────────────
 
   function syncFromOrder() {
     const c = getOrderShippingContact(order);
@@ -111,8 +251,6 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
     }
   }
 
-  // Re-resolve the shipping rule whenever weight tier changes while the confirm
-  // screen is open.
   useEffect(() => {
     if (!open || phase === "success" || phase === "creating") return;
     let cancelled = false;
@@ -142,18 +280,24 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
     };
   }, [open, phase, order.id, weightTierCode, manualServiceOverride]);
 
+  // ── Modal open / close ────────────────────────────────────────────────
+
   function openModal(e: React.MouseEvent) {
     e.stopPropagation();
     syncFromOrder();
     backgroundModeRef.current = false;
-    setLabelBlob(null);
+    cleanupPrintFrame();
     setIsPreviewVisible(false);
     setError("");
 
     if (hasShipmentAlready) {
-      setShippingCode(order.shipment?.tracking_number ?? "");
+      const code = order.shipment?.tracking_number ?? "";
+      setShippingCode(code);
       setShopifySyncStatus(order.shipment?.shopify_sync_status ?? "");
       setPhase("success");
+      // Start prefetching the PDF so the print frame is ready by the time
+      // the user clicks "Imprimir etiqueta".
+      if (code) startPrefetch(code);
     } else {
       setPhase("confirm");
     }
@@ -164,33 +308,17 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
 
   function closeModal() {
     if (phase === "creating") {
-      // Let the API call finish in the background.
       backgroundModeRef.current = true;
     } else {
       prefetchAbortRef.current?.abort();
+      cleanupPrintFrame();
     }
     setOpen(false);
     setIsPreviewVisible(false);
     setIsPrintingLabel(false);
   }
 
-  async function handlePrintLabel() {
-    if (isPrintingLabel) return;
-    const code = shippingCode || order.shipment?.tracking_number;
-    if (!code) return;
-    setIsPrintingLabel(true);
-    try {
-      if (labelBlob) {
-        await printFromBlob(labelBlob);
-      } else {
-        await printLabel(code, { format: "PDF" });
-      }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "No se pudo abrir la impresión", "error");
-    } finally {
-      setIsPrintingLabel(false);
-    }
-  }
+  // ── Label creation ────────────────────────────────────────────────────
 
   async function handleCreate(mode: "prepare" | "print") {
     setPhase("creating");
@@ -241,16 +369,15 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
       onShipmentCreated?.(shipping_code);
 
       if (backgroundModeRef.current) {
-        // Modal was closed while creating — notify via toast.
-        if (mode === "prepare") {
-          toast(`Etiqueta preparada · ${shipping_code} · añadida a la cola`, "success");
-        } else {
-          toast(`Etiqueta creada · ${shipping_code}`, "success");
-        }
+        toast(
+          mode === "prepare"
+            ? `Etiqueta preparada · ${shipping_code} · añadida a la cola`
+            : `Etiqueta creada · ${shipping_code}`,
+          "success",
+        );
         return;
       }
 
-      // Modal still open.
       setShippingCode(shipping_code);
       setShopifySyncStatus(shopify_sync_status || "");
       setPhase("success");
@@ -259,16 +386,9 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
         toast(`Pedido preparado · etiqueta en cola de impresión (${shipping_code})`, "success");
         closeModal();
       } else {
-        // Start pre-fetching the PDF so "Imprimir etiqueta" is instant.
-        const controller = new AbortController();
-        prefetchAbortRef.current = controller;
-        prefetchLabelBlob(shipping_code, controller.signal)
-          .then((b) => {
-            if (!controller.signal.aborted) setLabelBlob(b);
-          })
-          .catch(() => {
-            // Prefetch failure is silent — user can still print via on-demand fetch.
-          });
+        // Start pre-loading the print iframe — by the time the user reads
+        // the success screen and clicks "Imprimir", the frame will be ready.
+        startPrefetch(shipping_code);
       }
     } catch (err) {
       if (backgroundModeRef.current) {
@@ -283,6 +403,8 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
     }
   }
 
+  // ── Derived values ────────────────────────────────────────────────────
+
   const canSubmit =
     recipientName.trim() !== "" &&
     recipientPostalCode.trim() !== "" &&
@@ -295,6 +417,8 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
   const weightLabel = CTT_WEIGHT_BANDS.find((b) => b.code === weightTierCode)?.label ?? "Peso";
   const bultos = Math.max(parseInt(itemCount, 10) || 1, 1);
   const activeCode = shippingCode || order.shipment?.tracking_number || "";
+
+  // ── Render ────────────────────────────────────────────────────────────
 
   return (
     <>
@@ -315,11 +439,7 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
 
       <AppModal
         actions={
-          <button
-            className="button-secondary"
-            onClick={closeModal}
-            type="button"
-          >
+          <button className="button-secondary" onClick={closeModal} type="button">
             {phase === "creating" ? "Cerrar · seguir en fondo" : "Cerrar"}
           </button>
         }
@@ -356,8 +476,8 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
               >
                 {isPrintingLabel
                   ? "Imprimiendo..."
-                  : labelBlob
-                    ? "Imprimir etiqueta · listo"
+                  : printReady
+                    ? "Imprimir etiqueta ·"
                     : "Imprimir etiqueta"}
               </button>
               <a
@@ -411,7 +531,10 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
           <div className="ctt-creating-state">
             <div className="ctt-creating-spinner" />
             <strong>Creando etiqueta CTT...</strong>
-            <p>Comunicando con CTT Express. Puedes cerrar esta ventana y seguir trabajando — te avisaremos cuando esté lista.</p>
+            <p>
+              Comunicando con CTT Express. Puedes cerrar esta ventana y seguir trabajando — te
+              avisaremos cuando esté lista.
+            </p>
           </div>
         )}
 
