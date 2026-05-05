@@ -27,31 +27,6 @@ type CttLabelCellProps = {
 // error    → creation failed, retry available
 type Phase = "confirm" | "creating" | "success" | "error";
 
-// ─── Hidden iframe pre-loader ──────────────────────────────────────────────
-//
-// Chrome blocks window.print() unless it is called synchronously within a
-// user-gesture handler (click, keypress). Any await or setTimeout in between
-// breaks the gesture context and print() is silently ignored.
-//
-// Fix: build the print iframe *before* the user clicks "Imprimir etiqueta"
-// (while the label is being fetched / after creation). When the user clicks we
-// call iframe.contentWindow.print() synchronously — no awaits, no timers.
-//
-// The PDF blob URL is embedded in a same-origin HTML wrapper so that
-// contentWindow is accessible (loading the PDF blob directly makes Chrome
-// hand the iframe off to its PDF-viewer extension, which runs cross-origin).
-
-function buildPrintHtml(pdfBlobUrl: string): string {
-  return (
-    "<!DOCTYPE html><html><head><style>" +
-    "*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden}" +
-    "embed{display:block;width:100%;height:100%;border:0}" +
-    "</style></head><body>" +
-    `<embed src="${pdfBlobUrl}" type="application/pdf">` +
-    "</body></html>"
-  );
-}
-
 export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLabelCellProps) {
   const { toast } = useToast();
   const initialContact = getOrderShippingContact(order);
@@ -66,14 +41,9 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
   const [shopifySyncStatus, setShopifySyncStatus] = useState("");
   const [isRefreshingOrder, setIsRefreshingOrder] = useState(false);
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
-  // Pre-loaded print iframe — ready for a synchronous win.print() call.
-  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
+  // Pre-fetched blob URL — popup opens instantly without a server round-trip.
   const printPdfUrlRef = useRef("");
-  const printHtmlUrlRef = useRef("");
-  const [printReady, setPrintReady] = useState(false);
-  // Cancelled flag used inside the 1-second iframe-ready timeout so we don't
-  // call setPrintReady on a component that has already cleaned up.
-  const printSetupCancelledRef = useRef(false);
+  const [labelCached, setLabelCached] = useState(false);
 
   // In-flight prefetch abort controller.
   const prefetchAbortRef = useRef<AbortController | null>(null);
@@ -97,100 +67,65 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
 
   const hasShipmentAlready = Boolean(existingLabelUrl);
 
-  // ── Print frame lifecycle ──────────────────────────────────────────────
-
-  function cleanupPrintFrame() {
-    printSetupCancelledRef.current = true;
-    if (printFrameRef.current?.parentNode) {
-      printFrameRef.current.parentNode.removeChild(printFrameRef.current);
-    }
-    printFrameRef.current = null;
-    if (printPdfUrlRef.current) URL.revokeObjectURL(printPdfUrlRef.current);
-    if (printHtmlUrlRef.current) URL.revokeObjectURL(printHtmlUrlRef.current);
-    printPdfUrlRef.current = "";
-    printHtmlUrlRef.current = "";
-    setPrintReady(false);
-  }
-
-  function setupPrintFrame(blob: Blob) {
-    cleanupPrintFrame();
-    printSetupCancelledRef.current = false;
-
-    const pdfUrl = URL.createObjectURL(blob);
-    printPdfUrlRef.current = pdfUrl;
-
-    const htmlBlob = new Blob([buildPrintHtml(pdfUrl)], { type: "text/html" });
-    const htmlUrl = URL.createObjectURL(htmlBlob);
-    printHtmlUrlRef.current = htmlUrl;
-
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("aria-hidden", "true");
-    iframe.style.cssText =
-      "position:fixed;right:-99999px;bottom:-99999px;" +
-      "width:595px;height:842px;border:0;visibility:hidden;pointer-events:none;";
-
-    iframe.addEventListener(
-      "load",
-      () => {
-        // Give the <embed> 1 second to render the PDF before marking ready.
-        window.setTimeout(() => {
-          if (printSetupCancelledRef.current) return;
-          printFrameRef.current = iframe;
-          setPrintReady(true);
-        }, 1000);
-      },
-      { once: true },
-    );
-
-    document.body.appendChild(iframe);
-    iframe.src = htmlUrl;
-  }
-
-  // ── Print action — always synchronous inside the click handler ──────────
+  // ── Prefetch + print ───────────────────────────────────────────────────
   //
-  // Chrome blocks window.print() if called after any await/setTimeout — the
-  // user gesture context is lost. Both paths here are synchronous:
-  //   Fast path: pre-loaded hidden iframe → iframe.contentWindow.print()
-  //   Fallback:  window.open(pdfUrl, '_blank') — always allowed in a click handler
+  // Strategy: fetch the PDF blob in the background as soon as we know the
+  // tracking code. When the user clicks "Imprimir etiqueta" we open a small
+  // centered popup window (popup=1) with the pre-fetched blob URL so it
+  // appears INSTANTLY — no server round-trip at click time.
+  //
+  // The popup shows Chrome's native PDF viewer (with its own Print button /
+  // Ctrl+P). This is reliable across all Chrome versions and never requires
+  // an async call inside the click handler.
 
-  function handlePrintLabel() {
-    const code = shippingCode || order.shipment?.tracking_number;
-    if (!code) return;
-
-    // Fast path: iframe pre-loaded and ready.
-    if (printReady && printFrameRef.current?.contentWindow) {
-      const win = printFrameRef.current.contentWindow;
-      win.addEventListener("afterprint", () => { window.setTimeout(cleanupPrintFrame, 500); }, { once: true });
-      try {
-        win.print();
-        return;
-      } catch {
-        cleanupPrintFrame();
-        // Fall through to window.open below.
-      }
+  function cleanupPrefetch() {
+    prefetchAbortRef.current?.abort();
+    if (printPdfUrlRef.current) {
+      URL.revokeObjectURL(printPdfUrlRef.current);
+      printPdfUrlRef.current = "";
     }
-
-    // Reliable fallback: open PDF in a new tab (synchronous, never blocked by Chrome).
-    // If the blob was pre-fetched it opens instantly; otherwise the browser fetches it.
-    const url = printPdfUrlRef.current || `/api/ctt/shippings/${code}/label`;
-    window.open(url, "_blank", "noopener");
+    setLabelCached(false);
   }
-
-  // ── Prefetch helper shared by new label (mode=print) and existing label ─
 
   function startPrefetch(code: string) {
     prefetchAbortRef.current?.abort();
     const controller = new AbortController();
     prefetchAbortRef.current = controller;
+    setLabelCached(false);
     prefetchLabelBlob(code, controller.signal)
       .then((blob) => {
-        if (!controller.signal.aborted) {
-          setupPrintFrame(blob);
-        }
+        if (controller.signal.aborted) return;
+        if (printPdfUrlRef.current) URL.revokeObjectURL(printPdfUrlRef.current);
+        printPdfUrlRef.current = URL.createObjectURL(blob);
+        setLabelCached(true);
       })
       .catch(() => {
-        // Prefetch failure is silent — slow path in handlePrintLabel will handle it.
+        // Silent — handlePrintLabel falls back to the API URL.
       });
+  }
+
+  function handlePrintLabel() {
+    const code = shippingCode || order.shipment?.tracking_number;
+    if (!code) return;
+
+    // Pre-fetched blob opens instantly; API URL fetches on demand.
+    const pdfUrl = printPdfUrlRef.current || `/api/ctt/shippings/${code}/label`;
+
+    // Open a small centered popup — feels modal-like, keeps the app page
+    // intact. Chrome's PDF viewer inside the popup has its own Print button
+    // (and responds to Ctrl+P), which opens Chrome's native print dialog.
+    const pw = 640, ph = 880;
+    const left = Math.max(0, Math.round((screen.width - pw) / 2));
+    const top  = Math.max(0, Math.round((screen.height - ph) / 2));
+    const popup = window.open(
+      pdfUrl,
+      `etiqueta_${code}`,
+      `width=${pw},height=${ph},left=${left},top=${top},popup=1`,
+    );
+
+    // popup=null means the browser blocked it (very rare for direct clicks).
+    // Fall back to a new tab so the user always gets something.
+    if (!popup) window.open(pdfUrl, "_blank", "noopener");
   }
 
   // ── Form helpers ──────────────────────────────────────────────────────
@@ -274,7 +209,7 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
     e.stopPropagation();
     syncFromOrder();
     backgroundModeRef.current = false;
-    cleanupPrintFrame();
+    cleanupPrefetch();
     setIsPreviewVisible(false);
     setError("");
 
@@ -283,8 +218,7 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
       setShippingCode(code);
       setShopifySyncStatus(order.shipment?.shopify_sync_status ?? "");
       setPhase("success");
-      // Start prefetching the PDF so the print frame is ready by the time
-      // the user clicks "Imprimir etiqueta".
+      // Start fetching the PDF in the background so the popup opens instantly.
       if (code) startPrefetch(code);
     } else {
       setPhase("confirm");
@@ -298,8 +232,7 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
     if (phase === "creating") {
       backgroundModeRef.current = true;
     } else {
-      prefetchAbortRef.current?.abort();
-      cleanupPrintFrame();
+      cleanupPrefetch();
     }
     setOpen(false);
     setIsPreviewVisible(false);
@@ -373,8 +306,7 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
         toast(`Pedido preparado · etiqueta en cola de impresión (${shipping_code})`, "success");
         closeModal();
       } else {
-        // Start pre-loading the print iframe — by the time the user reads
-        // the success screen and clicks "Imprimir", the frame will be ready.
+        // Pre-fetch the PDF so the print popup opens instantly on click.
         startPrefetch(shipping_code);
       }
     } catch (err) {
@@ -460,7 +392,7 @@ export function CttLabelCell({ order, onShipmentCreated, onOrderUpdated }: CttLa
                 onClick={handlePrintLabel}
                 type="button"
               >
-                {printReady ? "Imprimir etiqueta ·" : "Imprimir etiqueta"}
+                {labelCached ? "Imprimir etiqueta ⚡" : "Imprimir etiqueta"}
               </button>
               <a
                 className="button-secondary ctt-download-btn"
