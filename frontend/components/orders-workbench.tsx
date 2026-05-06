@@ -487,6 +487,9 @@ export function OrdersWorkbench({
   const [orders, setOrders] = useState(initialOrders);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  // Keyboard navigation: -1 = none focused
+  const [focusedRowIdx, setFocusedRowIdx] = useState<number>(-1);
+  const tableBodyRef = useRef<HTMLTableSectionElement | null>(null);
   const [detailOrder, setDetailOrder] = useState<Order | null>(null);
   const [detailIncidents, setDetailIncidents] = useState<Incident[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -641,6 +644,53 @@ export function OrdersWorkbench({
     }
   }
 
+  // ── One-click production status advance ──────────────────────────────────────
+  const PROD_STATUS_FLOW: Record<string, { next: string; label: string; icon: string }> = {
+    pending_personalization: { next: "in_production", label: "En producción", icon: "🖨" },
+    in_production:           { next: "packed",        label: "Preparado",     icon: "📦" },
+    packed:                  { next: "completed",     label: "Completar",     icon: "✅" },
+  };
+
+  async function handleAdvanceProductionStatus(orderId: number) {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    const step = PROD_STATUS_FLOW[order.production_status ?? ""];
+    if (!step) return;
+
+    setInlineLoading(orderId);
+    const previousStatus = order.production_status;
+
+    // Optimistic update
+    setOrders((current) =>
+      current.map((o) => o.id === orderId ? { ...o, production_status: step.next as typeof o.production_status } : o),
+    );
+
+    try {
+      const res = await fetch(`/api/orders/${orderId}/production-status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ production_status: step.next }),
+      });
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try { const err = await res.json(); detail = err?.detail ?? JSON.stringify(err); } catch { /* ignore */ }
+        throw new Error(detail);
+      }
+      const updated: Order = await res.json();
+      setOrders((current) => current.map((o) => o.id === orderId ? updated : o));
+      toast(`${step.icon} ${step.label} ✓`, "success");
+    } catch (err) {
+      // Rollback
+      setOrders((current) =>
+        current.map((o) => o.id === orderId ? { ...o, production_status: previousStatus } : o),
+      );
+      const msg = err instanceof Error ? err.message : "Error desconocido";
+      toast(`No se pudo actualizar el estado: ${msg}`, "error");
+    } finally {
+      setInlineLoading(null);
+    }
+  }
+
   function buildParams(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(updates)) {
@@ -746,6 +796,47 @@ export function OrdersWorkbench({
     // The server handles text search via URL params. Filtering locally on top
     // of server results causes double-filtering with stale intermediate states.
   }, [activeFilters, orders, selectedShopId]);
+
+  // ── Keyboard row navigation ───────────────────────────────────────────────────
+  // ↑↓ navigate rows, Enter opens detail panel, Escape closes it.
+  // Placed after visibleOrders so the closure captures the latest array.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      // Skip when typing in an input/select/textarea
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable
+      ) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocusedRowIdx((prev) => Math.min(prev + 1, visibleOrders.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocusedRowIdx((prev) => Math.max(prev - 1, 0));
+      } else if (e.key === "Enter" && focusedRowIdx >= 0) {
+        e.preventDefault();
+        const order = visibleOrders[focusedRowIdx];
+        if (order) setSelectedOrderId(order.id);
+      } else if (e.key === "Escape") {
+        setFocusedRowIdx(-1);
+        setSelectedOrderId(null);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [focusedRowIdx, visibleOrders]);
+
+  // Auto-scroll focused row into view
+  useEffect(() => {
+    if (focusedRowIdx < 0 || !tableBodyRef.current) return;
+    const rows = tableBodyRef.current.querySelectorAll("tr");
+    const row = rows[focusedRowIdx] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focusedRowIdx]);
 
   function toggleQuickFilter(filter: QuickFilterKey | "all") {
     if (filter === "all") {
@@ -1241,7 +1332,7 @@ export function OrdersWorkbench({
                       <th>Acción</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody ref={tableBodyRef}>
                     {visibleOrders.map((order, idx) => {
                       const latestEvent = sortTrackingEvents(order.shipment?.events ?? [])[0] ?? null;
                       const operationalStatus = getOperationalStatusMeta(order);
@@ -1257,7 +1348,7 @@ export function OrdersWorkbench({
 
                       return (
                         <tr
-                          className={`table-row ${selectedOrderId === order.id ? "orders-ops-row-active" : ""} ${selectedIds.includes(order.id) ? "orders-ops-row-selected" : ""} ${orderCancelled ? "order-row--cancelled" : ""} ${isLastOpenedRow ? "order-row--last-opened" : ""} ${isRowLoading ? "order-row--loading" : ""}`}
+                          className={`table-row ${selectedOrderId === order.id ? "orders-ops-row-active" : ""} ${selectedIds.includes(order.id) ? "orders-ops-row-selected" : ""} ${orderCancelled ? "order-row--cancelled" : ""} ${isLastOpenedRow ? "order-row--last-opened" : ""} ${isRowLoading ? "order-row--loading" : ""} ${focusedRowIdx === idx ? "order-row--kbd-focused" : ""}`}
                           data-status={operationalStatus.rowStatus}
                           key={order.id}
                           onMouseDown={(e) => handleRowMouseDown(order.id, idx, e)}
@@ -1438,6 +1529,23 @@ export function OrdersWorkbench({
                                       ✓ Resolver
                                     </button>
                                   ) : null}
+
+                                  {/* One-click production status advance */}
+                                  {(() => {
+                                    const step = PROD_STATUS_FLOW[order.production_status ?? ""];
+                                    if (!step) return null;
+                                    return (
+                                      <button
+                                        className="button-ghost orders-advance-btn"
+                                        disabled={isRowLoading}
+                                        onClick={(e) => { e.stopPropagation(); void handleAdvanceProductionStatus(order.id); }}
+                                        title={`Avanzar estado a: ${step.label}`}
+                                        type="button"
+                                      >
+                                        {step.icon} {step.label}
+                                      </button>
+                                    );
+                                  })()}
 
                                   {/* Assign employee */}
                                   {employees.length > 0 ? (

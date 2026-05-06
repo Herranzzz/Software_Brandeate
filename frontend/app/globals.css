@@ -26287,6 +26287,31 @@ hr,
   color: #92400e;
 }
 
+/* One-click production status advance button */
+.orders-advance-btn {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.orders-advance-btn:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1e40af;
+}
+
+/* Keyboard navigation focus ring on table row */
+.order-row--kbd-focused td {
+  background: #f0f9ff !important;
+  outline: none;
+}
+.order-row--kbd-focused td:first-child {
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+
 /* Kanban card resolve button */
 .kanban-resolve-btn {
   font-size: 0.68rem;
