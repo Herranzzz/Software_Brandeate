@@ -875,7 +875,13 @@ export function OrdersWorkbench({
       return sla && (sla.risk === "critical" || sla.risk === "breached");
     }).length;
     const incidentCount = active.filter((o) => o.has_open_incident).length;
-    return { total: active.length, withoutLabel: withoutLabel.length, slaRiskCount, incidentCount };
+    // Count orders prepared today (prepared_at >= today 00:00 local time)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const preparedToday = orders.filter(
+      (o) => o.prepared_at && new Date(o.prepared_at) >= todayStart,
+    ).length;
+    return { total: active.length, withoutLabel: withoutLabel.length, slaRiskCount, incidentCount, preparedToday };
   }, [orders]);
 
   const showingFrom = orders.length === 0 ? 0 : (page - 1) * perPage + 1;
@@ -1009,6 +1015,60 @@ export function OrdersWorkbench({
     });
   }
 
+  // ── Bulk production status advance ────────────────────────────────────────────
+  // Advances each selected order to its next production_status in parallel.
+  async function handleBulkAdvanceProductionStatus() {
+    const toUpdate = selectedOrders
+      .map((o) => {
+        const step = PROD_STATUS_FLOW[o.production_status ?? ""];
+        return step ? { id: o.id, nextStatus: step.next, icon: step.icon } : null;
+      })
+      .filter((x): x is { id: number; nextStatus: string; icon: string } => x !== null);
+
+    if (toUpdate.length === 0) {
+      toast("Los pedidos seleccionados no tienen estado avanzable", "info");
+      return;
+    }
+
+    // Optimistic update
+    setOrders((current) =>
+      current.map((o) => {
+        const update = toUpdate.find((u) => u.id === o.id);
+        return update ? { ...o, production_status: update.nextStatus as typeof o.production_status } : o;
+      }),
+    );
+
+    const results = await Promise.allSettled(
+      toUpdate.map(({ id, nextStatus }) =>
+        fetch(`/api/orders/${id}/production-status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ production_status: nextStatus }),
+        }).then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json() as Promise<Order>;
+        }),
+      ),
+    );
+
+    const successOrders = results
+      .filter((r): r is PromiseFulfilledResult<Order> => r.status === "fulfilled")
+      .map((r) => r.value);
+
+    if (successOrders.length > 0) {
+      setOrders((current) =>
+        current.map((o) => successOrders.find((u) => u.id === o.id) ?? o),
+      );
+    }
+
+    const failCount = results.filter((r) => r.status === "rejected").length;
+    if (failCount > 0) {
+      toast(`${successOrders.length} avanzados, ${failCount} con error`, "error");
+    } else {
+      toast(`${successOrders.length} pedidos avanzados ✓`, "success");
+    }
+  }
+
   function handleCreateBatch() {
     if (selectedCount === 0) {
       return;
@@ -1121,6 +1181,20 @@ export function OrdersWorkbench({
                   <span className="orders-kpi-label">Con incidencia</span>
                 </button>
               ) : null}
+              {/* Separator */}
+              <div className="orders-kpi-sep" />
+              {/* Today's throughput */}
+              <div className={`orders-kpi-stat${kpiStats.preparedToday > 0 ? " orders-kpi-stat-today" : ""}`}>
+                <span className="orders-kpi-value">{kpiStats.preparedToday > 0 ? `🎯 ${kpiStats.preparedToday}` : "—"}</span>
+                <span className="orders-kpi-label">Preparados hoy</span>
+              </div>
+              {/* Keyboard shortcut hint */}
+              <div className="orders-kpi-sep" />
+              <div className="orders-kpi-kbd-hint">
+                <span>↑↓ navegar</span>
+                <span>↵ abrir</span>
+                <span>Esc cerrar</span>
+              </div>
             </div>
           ) : null}
 
@@ -1189,6 +1263,15 @@ export function OrdersWorkbench({
                 </div>
               ) : null}
 
+              <button
+                className="button-secondary"
+                disabled={isPending}
+                onClick={() => void handleBulkAdvanceProductionStatus()}
+                title={`Avanzar estado de producción en ${selectedCount} pedidos seleccionados`}
+                type="button"
+              >
+                ▶ Avanzar estado
+              </button>
               <button className="button-secondary" disabled={isPending} onClick={handleBulkIncident} type="button">
                 Crear incidencia
               </button>

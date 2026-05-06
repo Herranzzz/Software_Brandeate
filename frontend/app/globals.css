@@ -21959,6 +21959,39 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   background: var(--surface-3, #f1f5f9);
   border: 1px solid var(--border, #e5e7eb);
 }
+/* Today throughput (teal) */
+.orders-kpi-stat-today {
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+}
+.orders-kpi-stat-today .orders-kpi-value { color: #0f766e; }
+.orders-kpi-stat-today .orders-kpi-label { color: #0f766e; opacity: 0.75; }
+/* Separator line between KPI groups */
+.orders-kpi-sep {
+  width: 1px;
+  height: 32px;
+  background: var(--border, #e5e7eb);
+  align-self: center;
+  flex-shrink: 0;
+}
+/* Keyboard shortcut hint chips */
+.orders-kpi-kbd-hint {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  align-self: center;
+  flex-wrap: wrap;
+}
+.orders-kpi-kbd-hint span {
+  font-size: 10px;
+  color: var(--text-secondary, #6b7280);
+  background: var(--surface-3, #f1f5f9);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+}
 
 
 /* ── Sprint 2: Order Blocked ───────────────────────────────────────────────── */
