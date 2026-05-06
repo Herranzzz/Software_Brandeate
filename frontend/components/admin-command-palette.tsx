@@ -16,6 +16,14 @@ type Command = {
   action?: () => void;
 };
 
+type OrderHit = {
+  id: number;
+  external_id: string;
+  customer_name: string;
+  status: string;
+  production_status: string | null;
+};
+
 export function AdminCommandPalette() {
   const router = useRouter();
   const { toggleTheme } = useLayoutState();
@@ -23,6 +31,11 @@ export function AdminCommandPalette() {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Live order search ─────────────────────────────────────────────────────
+  const [orderHits, setOrderHits] = useState<OrderHit[]>([]);
+  const [orderSearching, setOrderSearching] = useState(false);
 
   const commands = useMemo<Command[]>(() => [
     { id: "nav-dashboard", label: "Dashboard", group: "Navegar", icon: "🏠", href: "/dashboard", keywords: ["resumen","home","inicio"] },
@@ -57,16 +70,6 @@ export function AdminCommandPalette() {
     });
   }, [commands, query]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, Command[]>();
-    for (const cmd of filtered) {
-      const arr = map.get(cmd.group) ?? [];
-      arr.push(cmd);
-      map.set(cmd.group, arr);
-    }
-    return Array.from(map.entries());
-  }, [filtered]);
-
   const runCommand = useCallback((cmd: Command) => {
     setOpen(false);
     if (cmd.action) cmd.action();
@@ -96,19 +99,66 @@ export function AdminCommandPalette() {
 
   useEffect(() => { setActiveIndex(0); }, [query]);
 
+  // Debounced order search: triggers when query has >= 2 chars
+  useEffect(() => {
+    if (!open) { setOrderHits([]); return; }
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    const q = query.trim();
+    if (q.length < 2) { setOrderHits([]); return; }
+
+    searchTimerRef.current = setTimeout(async () => {
+      setOrderSearching(true);
+      try {
+        const res = await fetch(`/api/orders/search?q=${encodeURIComponent(q)}`);
+        if (res.ok) setOrderHits((await res.json()) as OrderHit[]);
+      } catch { /* silent */ } finally {
+        setOrderSearching(false);
+      }
+    }, 220);
+
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [open, query]);
+
+  // Unified list: order hits (if any) prepended before nav commands
+  const allItems = useMemo<Command[]>(() => {
+    const orderCommands: Command[] = orderHits.map((hit) => ({
+      id: `order-${hit.id}`,
+      label: hit.external_id,
+      hint: `${hit.customer_name} · ${hit.status}`,
+      group: "Pedidos encontrados",
+      icon: "📦",
+      href: `/orders/${hit.id}`,
+    }));
+    return [...orderCommands, ...filtered];
+  }, [orderHits, filtered]);
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
+      setActiveIndex((i) => Math.min(i + 1, allItems.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const cmd = filtered[activeIndex];
+      const cmd = allItems[activeIndex];
       if (cmd) runCommand(cmd);
     }
   }
+
+  // Re-group allItems (order hits + filtered commands)
+  // Must be before the early return to comply with rules of hooks.
+  const allGrouped = useMemo(() => {
+    const map = new Map<string, Command[]>();
+    for (const cmd of allItems) {
+      const arr = map.get(cmd.group) ?? [];
+      arr.push(cmd);
+      map.set(cmd.group, arr);
+    }
+    return Array.from(map.entries());
+  }, [allItems]);
 
   if (!open) {
     return (
@@ -137,18 +187,26 @@ export function AdminCommandPalette() {
             ref={inputRef}
             className="cmdk-input"
             type="text"
-            placeholder="Saltar a una página, cambiar un ajuste…"
+            placeholder="Buscar pedido, cliente, página…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
           />
-          <kbd className="cmdk-kbd">Esc</kbd>
+          {orderSearching ? (
+            <span className="cmdk-searching" aria-label="Buscando">⏳</span>
+          ) : (
+            <kbd className="cmdk-kbd">Esc</kbd>
+          )}
         </div>
         <div className="cmdk-results">
-          {grouped.length === 0 ? (
-            <div className="cmdk-empty">Sin coincidencias para “{query}”.</div>
+          {allGrouped.length === 0 ? (
+            query.trim().length >= 2 && !orderSearching ? (
+              <div className="cmdk-empty">Sin coincidencias para "{query}".</div>
+            ) : (
+              <div className="cmdk-empty cmdk-empty-hint">Escribe para buscar pedidos o navegar…</div>
+            )
           ) : (
-            grouped.map(([group, items]) => (
+            allGrouped.map(([group, items]) => (
               <div key={group} className="cmdk-group">
                 <div className="cmdk-group-label">{group}</div>
                 {items.map((cmd) => {
