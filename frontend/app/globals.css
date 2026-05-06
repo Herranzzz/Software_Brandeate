@@ -26335,6 +26335,15 @@ hr,
   border-color: #93c5fd;
   color: #1e40af;
 }
+/* Larger variant used inside the quick-detail drawer */
+.orders-drawer-advance-btn {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  padding: 6px 14px;
+  width: 100%;
+  justify-content: center;
+  border-radius: 8px;
+}
 
 /* Keyboard navigation focus ring on table row */
 .order-row--kbd-focused td {

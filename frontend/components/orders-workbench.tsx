@@ -1747,7 +1747,32 @@ export function OrdersWorkbench({
                   <StatusBadge status={quickDetail.status} />
                   <PriorityBadge priority={quickDetail.priority} />
                   <DesignAvailabilityBadge order={quickDetail} />
+                  {(() => {
+                    const sla = getSlaInfo(quickDetail);
+                    if (!sla || sla.risk === "safe") return null;
+                    return (
+                      <span className={`sla-badge sla-badge-${sla.risk}`}>
+                        {sla.risk === "breached" ? "🔴" : sla.risk === "critical" ? "🟠" : "🟡"}
+                        {" "}{sla.label}
+                      </span>
+                    );
+                  })()}
                 </div>
+                {/* Production status quick-advance in drawer */}
+                {(() => {
+                  const step = PROD_STATUS_FLOW[quickDetail.production_status ?? ""];
+                  if (!step) return null;
+                  return (
+                    <button
+                      className="orders-advance-btn orders-drawer-advance-btn"
+                      disabled={detailLoading || inlineLoading === quickDetail.id}
+                      onClick={() => void handleAdvanceProductionStatus(quickDetail.id)}
+                      type="button"
+                    >
+                      {step.icon} Marcar como {step.label}
+                    </button>
+                  );
+                })()}
               </div>
 
               <div className="orders-drawer-section">
