@@ -62,6 +62,7 @@ type OrdersWorkbenchProps = {
 };
 
 type QuickFilterKey =
+  | "sla_risk"
   | "has_incident"
   | "not_downloaded"
   | "in_production"
@@ -74,6 +75,7 @@ type QuickFilterKey =
   | "delivered";
 
 const quickFilterMeta: Array<{ key: QuickFilterKey; label: string }> = [
+  { key: "sla_risk",                  label: "🚨 SLA en riesgo" },
   { key: "not_downloaded",            label: "⬇ No descargados" },
   { key: "in_production",             label: "🖨 En producción" },
   { key: "not_prepared",              label: "🔧 No preparados" },
@@ -275,6 +277,36 @@ function hasRealCarrierEvent(order: Order): boolean {
   );
 }
 
+// ─── SLA Urgency ──────────────────────────────────────────────────────────────
+// Mirrors the logic used by Logiwa / Hopstack: every active order has a countdown.
+// Default SLA window is 48 h from order creation; override per shop if needed.
+
+const SLA_HOURS_DEFAULT = 48;
+
+type SlaRisk = "safe" | "warning" | "critical" | "breached";
+type SlaInfo = { risk: SlaRisk; hoursRemaining: number; label: string };
+
+function getSlaInfo(order: Order, slaHours = SLA_HOURS_DEFAULT): SlaInfo | null {
+  // Not relevant once the carrier has scanned the parcel or the order is done.
+  if (
+    order.status === "cancelled" ||
+    order.status === "delivered" ||
+    hasRealCarrierEvent(order)
+  ) return null;
+
+  const deadline = new Date(order.created_at).getTime() + slaHours * 3_600_000;
+  const hoursRemaining = (deadline - Date.now()) / 3_600_000;
+  const h = Math.floor(Math.abs(hoursRemaining));
+
+  if (hoursRemaining < 0)
+    return { risk: "breached",  hoursRemaining, label: `Vencido · ${h}h tarde` };
+  if (hoursRemaining < 4)
+    return { risk: "critical",  hoursRemaining, label: `${h}h restantes` };
+  if (hoursRemaining < slaHours * 0.35)
+    return { risk: "warning",   hoursRemaining, label: `${h}h restantes` };
+  return   { risk: "safe",     hoursRemaining, label: `${h}h restantes` };
+}
+
 function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
   // This client-side matcher is a safety net on top of the server filters.
   // It MUST be at least as permissive as the backend — if it rejects rows the
@@ -282,6 +314,10 @@ function matchesQuickFilter(order: Order, filter: QuickFilterKey) {
   // matching orders. Keep these branches aligned with
   // `_build_order_filters` + `quickFilterToApiParams`.
   switch (filter) {
+    case "sla_risk": {
+      const sla = getSlaInfo(order);
+      return sla !== null && (sla.risk === "critical" || sla.risk === "breached");
+    }
     case "has_incident":
       return order.has_open_incident;
 
@@ -736,6 +772,21 @@ export function OrdersWorkbench({
   );
 
   const selectedCount = selectedOrders.length;
+
+  // ── KPI snapshot ────────────────────────────────────────────────────────────
+  // Computed client-side from the loaded orders page. Quick pulse for the
+  // operator: how many orders still need labels, how many are burning SLA time.
+  const kpiStats = useMemo(() => {
+    const active = orders.filter((o) => o.status !== "cancelled");
+    const withoutLabel = active.filter((o) => !o.shipment?.tracking_number);
+    const slaRiskCount = withoutLabel.filter((o) => {
+      const sla = getSlaInfo(o);
+      return sla && (sla.risk === "critical" || sla.risk === "breached");
+    }).length;
+    const incidentCount = active.filter((o) => o.has_open_incident).length;
+    return { total: active.length, withoutLabel: withoutLabel.length, slaRiskCount, incidentCount };
+  }, [orders]);
+
   const showingFrom = orders.length === 0 ? 0 : (page - 1) * perPage + 1;
   const showingTo = (page - 1) * perPage + orders.length;
   const canGoNext = showingTo < totalCount;
@@ -941,6 +992,46 @@ export function OrdersWorkbench({
             </div>
 
           </div>
+
+          {view === "queue" ? (
+            <div className="orders-kpi-bar">
+              <div className="orders-kpi-stat">
+                <span className="orders-kpi-value">{kpiStats.total}</span>
+                <span className="orders-kpi-label">En cola</span>
+              </div>
+              <div className={`orders-kpi-stat${kpiStats.withoutLabel > 0 ? " orders-kpi-stat-neutral" : ""}`}>
+                <span className="orders-kpi-value">{kpiStats.withoutLabel}</span>
+                <span className="orders-kpi-label">Sin etiqueta</span>
+              </div>
+              {kpiStats.slaRiskCount > 0 ? (
+                <button
+                  className="orders-kpi-stat orders-kpi-stat-alert orders-kpi-btn"
+                  onClick={() => toggleQuickFilter("sla_risk")}
+                  title="Filtrar por SLA en riesgo"
+                  type="button"
+                >
+                  <span className="orders-kpi-value">🚨 {kpiStats.slaRiskCount}</span>
+                  <span className="orders-kpi-label">SLA en riesgo</span>
+                </button>
+              ) : (
+                <div className="orders-kpi-stat orders-kpi-stat-ok">
+                  <span className="orders-kpi-value">✓</span>
+                  <span className="orders-kpi-label">SLA al día</span>
+                </div>
+              )}
+              {kpiStats.incidentCount > 0 ? (
+                <button
+                  className="orders-kpi-stat orders-kpi-stat-warning orders-kpi-btn"
+                  onClick={() => toggleQuickFilter("has_incident")}
+                  title="Filtrar por incidencias abiertas"
+                  type="button"
+                >
+                  <span className="orders-kpi-value">⚠ {kpiStats.incidentCount}</span>
+                  <span className="orders-kpi-label">Con incidencia</span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           {view === "queue" ? (
             <div className="orders-filter-pills">
@@ -1268,12 +1359,33 @@ export function OrdersWorkbench({
                             </div>
                           </td>
                           <td>
-                            <div className="table-primary">{age}</div>
-                            <div className="table-secondary">
-                              {deliveredAt
-                                ? `Entregado en ${formatDateTime(deliveredAt)}`
-                                : `Desde ${formatDateTime(order.created_at)}`}
-                            </div>
+                            {(() => {
+                              const sla = getSlaInfo(order);
+                              if (!sla) {
+                                // Delivered or cancelled — just show the age
+                                return (
+                                  <>
+                                    <div className="table-primary">{age}</div>
+                                    <div className="table-secondary">
+                                      {deliveredAt
+                                        ? `Entregado en ${formatDateTime(deliveredAt)}`
+                                        : `Desde ${formatDateTime(order.created_at)}`}
+                                    </div>
+                                  </>
+                                );
+                              }
+                              return (
+                                <>
+                                  <span className={`sla-badge sla-badge-${sla.risk}`}>
+                                    {sla.risk === "breached" ? "🔴" : sla.risk === "critical" ? "🟠" : sla.risk === "warning" ? "🟡" : "🟢"}
+                                    {" "}{sla.label}
+                                  </span>
+                                  <div className="table-secondary">
+                                    {`Desde ${formatDateTime(order.created_at)}`}
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </td>
                           <td>
                             {order.shipment?.tracking_number ? (

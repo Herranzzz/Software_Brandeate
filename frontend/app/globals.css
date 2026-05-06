@@ -21871,6 +21871,7 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
 .sla-badge {
   display: inline-flex;
   align-items: center;
+  gap: 3px;
   padding: 2px 8px;
   border-radius: 20px;
   font-size: 11px;
@@ -21878,10 +21879,86 @@ details[open] .bulk-label-skipped summary::before { content: "▾ "; }
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-.sla-overdue { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-.sla-today   { background: #fff7ed; color: #ea580c; border: 1px solid #fed7aa; }
+/* Legacy variant names (kept for backward compat) */
+.sla-overdue  { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.sla-today    { background: #fff7ed; color: #ea580c; border: 1px solid #fed7aa; }
 .sla-tomorrow { background: #fefce8; color: #ca8a04; border: 1px solid #fef08a; }
-.sla-ok      { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+.sla-ok       { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+/* Risk-level variant names (used by orders-workbench) */
+.sla-badge-breached  { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.sla-badge-critical  { background: #fff7ed; color: #ea580c; border: 1px solid #fed7aa; }
+.sla-badge-warning   { background: #fefce8; color: #ca8a04; border: 1px solid #fef08a; }
+.sla-badge-safe      { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+
+/* ── Orders KPI Stats Bar ──────────────────────────────────────────────────── */
+.orders-kpi-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--surface-2, #f8f9fa);
+  border-radius: 8px;
+  border: 1px solid var(--border, #e5e7eb);
+  margin-bottom: 4px;
+}
+.orders-kpi-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 6px;
+  min-width: 60px;
+  background: transparent;
+}
+.orders-kpi-value {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-primary, #111827);
+}
+.orders-kpi-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+/* Clickable stat button */
+.orders-kpi-btn {
+  cursor: pointer;
+  border: none;
+  text-align: center;
+  transition: filter 0.1s;
+}
+.orders-kpi-btn:hover { filter: brightness(0.93); }
+/* Alert (red) — SLA breach */
+.orders-kpi-stat-alert {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+.orders-kpi-stat-alert .orders-kpi-value { color: #dc2626; }
+.orders-kpi-stat-alert .orders-kpi-label { color: #dc2626; opacity: 0.75; }
+/* Warning (orange) — open incidents */
+.orders-kpi-stat-warning {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+.orders-kpi-stat-warning .orders-kpi-value { color: #ea580c; }
+.orders-kpi-stat-warning .orders-kpi-label { color: #ea580c; opacity: 0.75; }
+/* OK (green) */
+.orders-kpi-stat-ok {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+.orders-kpi-stat-ok .orders-kpi-value { color: #16a34a; }
+.orders-kpi-stat-ok .orders-kpi-label { color: #16a34a; opacity: 0.75; }
+/* Neutral (grey) */
+.orders-kpi-stat-neutral {
+  background: var(--surface-3, #f1f5f9);
+  border: 1px solid var(--border, #e5e7eb);
+}
 
 
 /* ── Sprint 2: Order Blocked ───────────────────────────────────────────────── */
